@@ -1,0 +1,7 @@
+state/
+*.log
+*.tmp
+*.pre-rotate-*
+*.archived-*
+*.transcript
+config/thresholds.env
