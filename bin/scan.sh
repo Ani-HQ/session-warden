@@ -42,23 +42,9 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
   done < <(detect_sessions_problems "$sjson")
 done
 
-# Restart gateway once if any rotations happened
-if [ -f "${WARDEN_HOME}/state/.gateway-restart-pending" ]; then
-  last_restart_file="${WARDEN_HOME}/state/.last-gateway-restart"
-  now=$(date +%s)
-  last=0
-  [ -f "$last_restart_file" ] && last=$(cat "$last_restart_file")
-  cooldown="${WARDEN_GATEWAY_RESTART_COOLDOWN_SECONDS:-60}"
-
-  if [ $((now - last)) -ge "$cooldown" ]; then
-    log "GATEWAY restart triggered ($rotated rotations)"
-    if [ "${WARDEN_DRY_RUN:-0}" != "1" ]; then
-      openclaw gateway restart >> "$LOG_FILE" 2>&1 || log "WARN: gateway restart non-zero"
-    fi
-    echo "$now" > "$last_restart_file"
-    rm -f "${WARDEN_HOME}/state/.gateway-restart-pending"
-  fi
-fi
+# Clean up gateway restart flag (no longer needed — openclaw sessions cleanup
+# handles state properly without requiring a gateway restart)
+rm -f "${WARDEN_HOME}/state/.gateway-restart-pending"
 
 # Process pending summaries async (don't block the scan)
 if ls "${WARDEN_HOME}/state/pending-summaries/"*.json 1>/dev/null 2>&1; then

@@ -96,7 +96,5 @@ fi
 # Notify
 notify_rotation "$agent" "$channel_key" "$reason" "$detail"
 
-# Signal gateway restart needed
-touch "${WARDEN_HOME}/state/.gateway-restart-pending"
 
 flock -u 200
