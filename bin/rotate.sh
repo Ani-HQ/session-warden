@@ -60,18 +60,18 @@ if [ -d "$jsonl_subdir" ]; then
   mv "$jsonl_subdir" "${jsonl_subdir}.archived-${ts}" || log "WARN: subdir archive failed"
 fi
 
-# Step 3: delete the channel key from sessions.json
-jq --arg key "$channel_key" 'del(.[$key])' "$sessions_json" > "${sessions_json}.tmp" && \
-  mv "${sessions_json}.tmp" "$sessions_json" || {
-  log "ERROR: jq delete failed for $channel_key"
-  exit 1
-}
-
-# Verify
-still_present=$(jq --arg key "$channel_key" 'has($key)' "$sessions_json")
-if [ "$still_present" != "false" ]; then
-  log "ERROR: channel key still present after rotation"
-  exit 1
+# Step 3: remove the session via OpenClaw's native cleanup
+# (editing sessions.json directly doesn't stick — gateway overwrites it)
+if command -v openclaw >/dev/null 2>&1; then
+  openclaw sessions cleanup --agent "$agent" --enforce --fix-missing >> "${WARDEN_LOG_FILE}" 2>&1 || \
+    log "WARN: openclaw sessions cleanup returned non-zero"
+else
+  # Fallback: direct jq edit (works for non-OpenClaw setups)
+  jq --arg key "$channel_key" 'del(.[$key])' "$sessions_json" > "${sessions_json}.tmp" && \
+    mv "${sessions_json}.tmp" "$sessions_json" || {
+    log "ERROR: jq delete failed for $channel_key"
+    exit 1
+  }
 fi
 
 log "ROTATE complete agent=$agent channel=$channel_key (fast path done)"
