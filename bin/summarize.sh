@@ -19,6 +19,13 @@ log() {
 PENDING_DIR="${WARDEN_HOME}/state/pending-summaries"
 mkdir -p "$PENDING_DIR"
 
+SUMMARIZE_LOCK="/tmp/session-warden-summarize.lock"
+exec 198>"$SUMMARIZE_LOCK"
+if ! flock -n 198; then
+  log "SUMMARY: another instance running — skipping"
+  exit 0
+fi
+
 for job_file in "$PENDING_DIR"/*.json; do
   [ -f "$job_file" ] || continue
 

@@ -8,13 +8,18 @@ detect_sessions_problems() {
   [ -f "$sjson" ] || return 1
 
   jq -r --argjson max_tokens "${WARDEN_MAX_TOKENS}" \
+        --argjson max_turns "${WARDEN_MAX_TURNS}" \
         --argjson max_compactions "${WARDEN_MAX_COMPACTIONS}" '
     to_entries[] |
-    select(.value.cliSessionIds["claude-cli"]) |
+    select(.value.cliSessionIds["claude-cli"] // "" | length > 0) |
     if .value.status == "failed" then
       "FAILED|\(.key)|\(.value.cliSessionIds["claude-cli"])|status=failed"
+    elif .value.status == "running" then
+      empty
     elif (.value.totalTokens // 0) > $max_tokens then
       "TOKENS|\(.key)|\(.value.cliSessionIds["claude-cli"])|tokens=\(.value.totalTokens)"
+    elif (.value.numTurns // 0) > $max_turns then
+      "TURNS|\(.key)|\(.value.cliSessionIds["claude-cli"])|turns=\(.value.numTurns)"
     elif (.value.compactionCount // 0) > $max_compactions then
       "COMPACTIONS|\(.key)|\(.value.cliSessionIds["claude-cli"])|compactions=\(.value.compactionCount)"
     else

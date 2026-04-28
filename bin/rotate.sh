@@ -21,7 +21,7 @@ reason="$4"
 detail="${5:-}"
 
 sessions_json="${WARDEN_OPENCLAW_HOME}/agents/${agent}/sessions/sessions.json"
-jsonl_dir="${WARDEN_CLAUDE_PROJECTS}/-home-${USER}--openclaw-agents-${agent}"
+jsonl_dir="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
 jsonl_file="${jsonl_dir}/${cli_session_id}.jsonl"
 jsonl_subdir="${jsonl_dir}/${cli_session_id}"
 ts=$(date +%Y%m%d-%H%M%S)
@@ -34,6 +34,22 @@ exec 200>"$lock_file"
 if ! flock -w 30 200; then
   log "ERROR: could not acquire lock for $agent"
   exit 1
+fi
+
+COOLDOWN_DIR="${WARDEN_HOME}/state/cooldowns"
+mkdir -p "$COOLDOWN_DIR"
+cooldown_file="${COOLDOWN_DIR}/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g')"
+COOLDOWN_SECONDS="${WARDEN_COOLDOWN_SECONDS:-600}"
+
+if [ -f "$cooldown_file" ]; then
+  last_rotate=$(cat "$cooldown_file" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  elapsed=$((now - last_rotate))
+  if [ "$elapsed" -lt "$COOLDOWN_SECONDS" ]; then
+    log "COOLDOWN: skipping $agent/$channel_key (rotated ${elapsed}s ago, cooldown=${COOLDOWN_SECONDS}s)"
+    flock -u 200
+    exit 2
+  fi
 fi
 
 log "ROTATE start agent=$agent channel=$channel_key reason=$reason"
@@ -74,6 +90,7 @@ else
   }
 fi
 
+date +%s > "$cooldown_file"
 log "ROTATE complete agent=$agent channel=$channel_key (fast path done)"
 
 # Step 4: queue async summary (non-blocking)

@@ -37,14 +37,24 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
   while IFS='|' read -r reason channel_key cli_session_id detail; do
     [ -z "$reason" ] && continue
 
-    "${SCRIPT_DIR}/rotate.sh" "$agent" "$channel_key" "$cli_session_id" "$reason" "$detail"
-    rotated=$((rotated + 1))
+    if "${SCRIPT_DIR}/rotate.sh" "$agent" "$channel_key" "$cli_session_id" "$reason" "$detail"; then
+      rotated=$((rotated + 1))
+    fi
   done < <(detect_sessions_problems "$sjson")
 done
 
-# Clean up gateway restart flag (no longer needed — openclaw sessions cleanup
-# handles state properly without requiring a gateway restart)
-rm -f "${WARDEN_HOME}/state/.gateway-restart-pending"
+# Restart gateway once after rotations to clear in-memory session state
+if [ "$rotated" -gt 0 ] && command -v openclaw >/dev/null 2>&1; then
+  restart_cooldown="${WARDEN_HOME}/state/.gateway-restart-ts"
+  now=$(date +%s)
+  last_restart=$(cat "$restart_cooldown" 2>/dev/null || echo 0)
+  if [ $((now - last_restart)) -ge "${WARDEN_GATEWAY_RESTART_COOLDOWN_SECONDS:-60}" ]; then
+    openclaw gateway restart >> "$LOG_FILE" 2>&1 && \
+      date +%s > "$restart_cooldown" && \
+      log "GATEWAY restarted to clear in-memory session state" || \
+      log "WARN: gateway restart failed"
+  fi
+fi
 
 # Process pending summaries async (don't block the scan)
 if ls "${WARDEN_HOME}/state/pending-summaries/"*.json 1>/dev/null 2>&1; then

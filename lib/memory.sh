@@ -7,7 +7,7 @@ MEMORY_MAX_FILE_BYTES="${WARDEN_MEMORY_MAX_BYTES:-16384}"
 # Resolve the Claude Code memory directory for an agent
 claude_memory_dir() {
   local agent="$1"
-  local dir="${WARDEN_CLAUDE_PROJECTS}/-home-${USER}--openclaw-agents-${agent}/memory"
+  local dir="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}/memory"
   mkdir -p "$dir"
   echo "$dir"
 }
