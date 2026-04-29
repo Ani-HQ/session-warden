@@ -4,7 +4,9 @@
 #   WARDEN_AGENT, WARDEN_CHANNEL_KEY, WARDEN_SESSION_ID,
 #   WARDEN_MEMORY_FILE, WARDEN_TRANSCRIPT_FILE, WARDEN_ARCHIVED_JSONL
 
-command -v gbrain >/dev/null 2>&1 || exit 0  # skip silently if gbrain not installed
+export PATH="$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+
+command -v gbrain >/dev/null 2>&1 || { echo "[$(date -Iseconds)] GBRAIN: gbrain not found even after PATH fix"; exit 0; }
 
 [ -f "$WARDEN_MEMORY_FILE" ] || exit 0
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# summarize.sh — async post-rotation summarization
+# summarize.sh — post-rotation summarization (runs synchronously before gateway restart)
 # Processes pending summary jobs: extract transcript, summarize with Haiku,
 # write to Claude Code's native memory system.
-# Called by scan.sh after all rotations are done.
+# Called by scan.sh BEFORE gateway restart so agents boot with full context.
 
 set -uo pipefail
 
@@ -21,9 +21,9 @@ mkdir -p "$PENDING_DIR"
 
 SUMMARIZE_LOCK="/tmp/session-warden-summarize.lock"
 exec 198>"$SUMMARIZE_LOCK"
-if ! flock -n 198; then
-  log "SUMMARY: another instance running — skipping"
-  exit 0
+if ! flock -w 120 198; then
+  log "SUMMARY: timed out waiting for lock (120s) — proceeding without summary"
+  exit 1
 fi
 
 for job_file in "$PENDING_DIR"/*.json; do
@@ -63,31 +63,34 @@ for job_file in "$PENDING_DIR"/*.json; do
     log "SUMMARY: memory write failed for $agent/$channel_key"
   fi
 
-  # Run snapshotter if available (GBrain backup)
-  if [ -x "${WARDEN_SNAPSHOTTER:-}" ]; then
-    "${WARDEN_SNAPSHOTTER}" >> "${WARDEN_LOG_FILE}" 2>&1 || \
-      log "SUMMARY: snapshotter failed — non-fatal"
-  fi
-
-  # Run post-summary hooks
+  # Run hooks in BACKGROUND — memory is written, don't block gateway restart
   local_mem_dir=$(claude_memory_dir "$agent")
   safe_channel=$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g')
   mem_file="${local_mem_dir}/session_${safe_channel}.md"
 
-  for hook in "${WARDEN_HOME}/hooks/post-summary/"*.sh; do
-    [ -x "$hook" ] || continue
-    log "HOOK: running $(basename "$hook")"
-    WARDEN_AGENT="$agent" \
-    WARDEN_CHANNEL_KEY="$channel_key" \
-    WARDEN_SESSION_ID="$cli_session_id" \
-    WARDEN_MEMORY_FILE="$mem_file" \
-    WARDEN_TRANSCRIPT_FILE="$transcript_file" \
-    WARDEN_ARCHIVED_JSONL="$archived_jsonl" \
-      "$hook" >> "${WARDEN_LOG_FILE}" 2>&1 || \
-      log "HOOK: $(basename "$hook") failed — non-fatal"
-  done
+  (
+    if [ -x "${WARDEN_SNAPSHOTTER:-}" ]; then
+      "${WARDEN_SNAPSHOTTER}" >> "${WARDEN_LOG_FILE}" 2>&1 || \
+        echo "[$(date -Iseconds)] SUMMARY: snapshotter failed — non-fatal" >> "${WARDEN_LOG_FILE}"
+    fi
 
-  # Cleanup
-  rm -f "$job_file" "$transcript_file"
-  log "SUMMARY: done for $agent/$cli_session_id"
+    for hook in "${WARDEN_HOME}/hooks/post-summary/"*.sh; do
+      [ -x "$hook" ] || continue
+      echo "[$(date -Iseconds)] HOOK: running $(basename "$hook")" >> "${WARDEN_LOG_FILE}"
+      WARDEN_AGENT="$agent" \
+      WARDEN_CHANNEL_KEY="$channel_key" \
+      WARDEN_SESSION_ID="$cli_session_id" \
+      WARDEN_MEMORY_FILE="$mem_file" \
+      WARDEN_TRANSCRIPT_FILE="$transcript_file" \
+      WARDEN_ARCHIVED_JSONL="$archived_jsonl" \
+        "$hook" >> "${WARDEN_LOG_FILE}" 2>&1 || \
+        echo "[$(date -Iseconds)] HOOK: $(basename "$hook") failed — non-fatal" >> "${WARDEN_LOG_FILE}"
+    done
+
+    rm -f "$transcript_file"
+  ) &
+
+  # Cleanup job file immediately — memory is written, hooks are async
+  rm -f "$job_file"
+  log "SUMMARY: done for $agent/$cli_session_id (hooks deferred to background)"
 done

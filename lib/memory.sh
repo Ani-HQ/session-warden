@@ -40,11 +40,24 @@ write_session_memory() {
     return 0
   }
 
+  local existing_context=""
+  if [ -f "$mem_file" ]; then
+    existing_context=$(cat "$mem_file")
+  fi
+
+  local carry_forward_block=""
+  if [ -n "$existing_context" ]; then
+    carry_forward_block="
+PREVIOUS SESSION MEMORY (carry forward any unresolved pending items):
+${existing_context}
+"
+  fi
+
   local summary
   summary=$(claude -p --model "$MEMORY_MODEL" "You are a memory system for an AI agent named '${agent}'. This agent's session is being rotated and you need to capture everything important so the agent can continue seamlessly in this channel.
 
 The transcript below includes both conversation text and tool actions (marked with →). Pay attention to BOTH — the tool actions show what was actually done (files edited, commands run, branches created).
-
+${carry_forward_block}
 Write a structured memory entry:
 
 ## What was happening
@@ -57,7 +70,7 @@ Write a structured memory entry:
 (bullet list: choices, preferences, or rules established)
 
 ## Pending / unfinished
-(bullet list: anything incomplete, promised, or next-up)
+(bullet list: anything incomplete, promised, or next-up. IMPORTANT: carry forward any pending items from the previous session memory that were NOT completed in this session)
 
 ## Context for next session
 (anything that would be confusing without this note — why something was done a certain way, relationships between tasks, blockers)
