@@ -30,10 +30,14 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 rotated=0
 
-# Scan all agents
+# Scan agents (allowlist or all)
 for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
   [ -f "$sjson" ] || continue
   agent=$(agent_from_sessions_path "$sjson")
+
+  if [ -n "${WARDEN_SCAN_AGENTS:-}" ]; then
+    echo " ${WARDEN_SCAN_AGENTS} " | grep -q " ${agent} " || continue
+  fi
 
   while IFS='|' read -r reason channel_key cli_session_id detail; do
     [ -z "$reason" ] && continue
@@ -70,6 +74,43 @@ if [ "$rotated" -gt 0 ] && command -v openclaw >/dev/null 2>&1; then
       date +%s > "$restart_cooldown" && \
       log "GATEWAY restarted after memory sync — agents will resume with context" || \
       log "WARN: gateway restart failed"
+  fi
+fi
+
+# Send recovery messages for FAILED sessions (in background, non-blocking)
+# Uses a lock so only one recovery batch runs at a time — prevents process pile-up.
+recovery_dir="${WARDEN_HOME}/state/pending-recoveries"
+recovery_lock="/tmp/session-warden-recovery.lock"
+if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
+  if ! flock -n 198 198>"$recovery_lock" 2>/dev/null; then
+    log "RECOVERY: skipping — previous batch still running"
+  else
+    sending_dir="${recovery_dir}/.sending"
+    mkdir -p "$sending_dir"
+    for rfile in "${recovery_dir}"/*.json; do
+      [ -f "$rfile" ] || continue
+      mv "$rfile" "$sending_dir/" 2>/dev/null
+    done
+    (
+      flock 198
+      for rfile in "${sending_dir}"/*.json; do
+        [ -f "$rfile" ] || continue
+        ragent=$(jq -r '.agent' "$rfile")
+        rchannel=$(jq -r '.channel_key' "$rfile")
+
+        timeout 180 openclaw agent \
+          --agent "$ragent" \
+          --session-id "$rchannel" \
+          --message "Well, that was embarrassing — your previous session segfaulted into the void. The good news: session-warden saved your memory before the lights went out. Read your session_*.md files to see what past-you was up to. Then tell this channel what happened in your own words — be honest, be brief, be a little self-deprecating about it. No corporate crisis comms, just explain what you were doing, what blew up, and what you'd try differently. Then get back to work." \
+          --timeout 120 \
+          --deliver \
+          >/dev/null 2>&1 && \
+          echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE" || \
+          echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (non-fatal)" >> "$LOG_FILE"
+        rm -f "$rfile"
+      done
+      flock -u 198
+    ) 198>"$recovery_lock" &
   fi
 fi
 

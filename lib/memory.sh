@@ -12,6 +12,41 @@ claude_memory_dir() {
   echo "$dir"
 }
 
+# Build a fallback memory when Haiku summarization fails or times out.
+# Extracts the last 30 lines of transcript + pending items from previous memory.
+# Args: $1=transcript, $2=existing_context (previous memory content, may be empty)
+build_fallback_memory() {
+  local transcript="$1" existing_context="$2"
+  local tail_lines pending_block=""
+
+  tail_lines=$(echo "$transcript" | tail -30)
+
+  if [ -n "$existing_context" ]; then
+    local pending
+    pending=$(echo "$existing_context" | sed -n '/## Pending/,/^## /p' | sed '$d')
+    if [ -n "$pending" ]; then
+      pending_block="
+
+### Carried forward from previous session
+${pending}
+"
+    fi
+  fi
+
+  cat <<FALLBACK
+## What was happening
+(fallback: summarization unavailable — raw transcript tail below)
+
+## Recent activity (last 30 lines)
+\`\`\`
+${tail_lines}
+\`\`\`
+${pending_block}
+## Context for next session
+This is a fallback memory written because Haiku summarization timed out or failed. Review the transcript archive for full context.
+FALLBACK
+}
+
 # Summarize a transcript and write to Claude Code memory
 # Args: $1=agent, $2=channel-key, $3=cli-session-id, $4=transcript-file
 write_session_memory() {
@@ -54,7 +89,7 @@ ${existing_context}
   fi
 
   local summary
-  summary=$(claude -p --model "$MEMORY_MODEL" "You are a memory system for an AI agent named '${agent}'. This agent's session is being rotated and you need to capture everything important so the agent can continue seamlessly in this channel.
+  summary=$(timeout 60 claude -p --model "$MEMORY_MODEL" "You are a memory system for an AI agent named '${agent}'. This agent's session is being rotated and you need to capture everything important so the agent can continue seamlessly in this channel.
 
 The transcript below includes both conversation text and tool actions (marked with →). Pay attention to BOTH — the tool actions show what was actually done (files edited, commands run, branches created).
 ${carry_forward_block}
@@ -81,7 +116,12 @@ TRANSCRIPT:
 ${transcript}" 2>/dev/null)
 
   if [ -z "$summary" ]; then
-    log "MEMORY: summarization returned empty for $agent"
+    log "MEMORY: summarization failed or timed out for $agent — writing fallback from transcript tail"
+    summary=$(build_fallback_memory "$transcript" "$existing_context")
+  fi
+
+  if [ -z "$summary" ]; then
+    log "MEMORY: fallback also empty for $agent — no memory written"
     return 1
   fi
 

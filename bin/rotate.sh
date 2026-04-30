@@ -22,8 +22,13 @@ detail="${5:-}"
 
 sessions_json="${WARDEN_OPENCLAW_HOME}/agents/${agent}/sessions/sessions.json"
 jsonl_dir="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
-jsonl_file="${jsonl_dir}/${cli_session_id}.jsonl"
-jsonl_subdir="${jsonl_dir}/${cli_session_id}"
+if [ -n "$cli_session_id" ]; then
+  jsonl_file="${jsonl_dir}/${cli_session_id}.jsonl"
+  jsonl_subdir="${jsonl_dir}/${cli_session_id}"
+else
+  jsonl_file=""
+  jsonl_subdir=""
+fi
 ts=$(date +%Y%m%d-%H%M%S)
 
 LOCK_DIR=/tmp/session-warden-locks
@@ -52,12 +57,53 @@ if [ -f "$cooldown_file" ]; then
   fi
 fi
 
+# Consecutive failure limit: stop rotating after N failures to prevent crash loops
+WARDEN_MAX_CONSECUTIVE_FAILURES="${WARDEN_MAX_CONSECUTIVE_FAILURES:-3}"
+fail_counter_file="${COOLDOWN_DIR}/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
+if [ "$reason" = "FAILED" ] || [ "$reason" = "ZOMBIE" ]; then
+  fail_count=$(cat "$fail_counter_file" 2>/dev/null || echo 0)
+  if [ "$fail_count" -ge "$WARDEN_MAX_CONSECUTIVE_FAILURES" ]; then
+    log "BACKOFF: $agent/$channel_key has failed $fail_count consecutive times — manual intervention needed"
+    flock -u 200
+    exit 2
+  fi
+fi
+
+# Mid-turn protection: if the JSONL was modified in the last 60s, the agent is
+# actively working. Defer rotation to avoid killing it mid-response.
+WARDEN_ACTIVE_THRESHOLD_SECS="${WARDEN_ACTIVE_THRESHOLD_SECS:-60}"
+if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
+  jsonl_mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+  now_epoch=$(date +%s)
+  age=$((now_epoch - jsonl_mtime))
+  if [ "$age" -lt "$WARDEN_ACTIVE_THRESHOLD_SECS" ]; then
+    log "DEFERRED: $agent/$channel_key — JSONL modified ${age}s ago (threshold=${WARDEN_ACTIVE_THRESHOLD_SECS}s), agent likely mid-turn"
+    flock -u 200
+    exit 2
+  fi
+fi
+
 log "ROTATE start agent=$agent channel=$channel_key reason=$reason"
 
 if [ "${WARDEN_DRY_RUN:-0}" = "1" ]; then
   log "DRY-RUN: would rotate $agent/$channel_key (session=$cli_session_id)"
   flock -u 200
   exit 0
+fi
+
+# Graceful shutdown: ask agent to save state before we kill it.
+# Only for threshold-based rotations (agent is likely alive and can respond).
+WARDEN_GRACEFUL_TIMEOUT="${WARDEN_GRACEFUL_TIMEOUT:-20}"
+if [[ "$reason" =~ ^(TOKENS|TURNS|COMPACTIONS)$ ]] && command -v openclaw >/dev/null 2>&1; then
+  log "GRACEFUL: asking $agent to save state (${WARDEN_GRACEFUL_TIMEOUT}s timeout)"
+  timeout "$WARDEN_GRACEFUL_TIMEOUT" openclaw agent \
+    --agent "$agent" \
+    --session-id "$channel_key" \
+    --message "SESSION ROTATION IMMINENT: Your session will be rotated in ${WARDEN_GRACEFUL_TIMEOUT} seconds due to ${reason} threshold. Write all pending work, decisions, and context to your memory files NOW. Be specific: file paths, branch names, what you were doing, what's left to do." \
+    --timeout "$((WARDEN_GRACEFUL_TIMEOUT - 5))" \
+    --json >/dev/null 2>&1 && \
+    log "GRACEFUL: $agent acknowledged rotation" || \
+    log "GRACEFUL: $agent did not respond (non-fatal, proceeding)"
 fi
 
 # Step 1: backup sessions.json
@@ -68,29 +114,40 @@ cp "$sessions_json" "${sessions_json}.pre-rotate-${ts}" || {
 
 # Step 2: archive JSONL (move, don't delete — it's our memory source)
 archived_jsonl=""
-if [ -f "$jsonl_file" ]; then
+if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
   archived_jsonl="${jsonl_file}.archived-${ts}"
   mv "$jsonl_file" "$archived_jsonl" || log "WARN: archive failed for $jsonl_file"
 fi
-if [ -d "$jsonl_subdir" ]; then
+if [ -n "$jsonl_subdir" ] && [ -d "$jsonl_subdir" ]; then
   mv "$jsonl_subdir" "${jsonl_subdir}.archived-${ts}" || log "WARN: subdir archive failed"
 fi
 
 # Step 3: remove the session via OpenClaw's native cleanup
-# (editing sessions.json directly doesn't stick — gateway overwrites it)
 if command -v openclaw >/dev/null 2>&1; then
   openclaw sessions cleanup --agent "$agent" --enforce --fix-missing >> "${WARDEN_LOG_FILE}" 2>&1 || \
     log "WARN: openclaw sessions cleanup returned non-zero"
-else
-  # Fallback: direct jq edit (works for non-OpenClaw setups)
-  jq --arg key "$channel_key" 'del(.[$key])' "$sessions_json" > "${sessions_json}.tmp" && \
-    mv "${sessions_json}.tmp" "$sessions_json" || {
-    log "ERROR: jq delete failed for $channel_key"
-    exit 1
-  }
+fi
+
+# Always null out cliSessionIds for the rotated channel so zombie detection
+# won't re-trigger. The gateway may overwrite this, but gateway restart
+# (which follows in scan.sh) will read the cleaned state.
+if [ -f "$sessions_json" ]; then
+  jq --arg key "$channel_key" '
+    if has($key) then .[$key].cliSessionIds = null else . end
+  ' "$sessions_json" > "${sessions_json}.tmp" && \
+    mv "${sessions_json}.tmp" "$sessions_json" || \
+    log "WARN: jq cliSessionIds cleanup failed for $channel_key"
 fi
 
 date +%s > "$cooldown_file"
+
+# Track consecutive failures; reset on successful non-failure rotations
+if [ "$reason" = "FAILED" ] || [ "$reason" = "ZOMBIE" ]; then
+  echo $(( $(cat "$fail_counter_file" 2>/dev/null || echo 0) + 1 )) > "$fail_counter_file"
+else
+  rm -f "$fail_counter_file"
+fi
+
 log "ROTATE complete agent=$agent channel=$channel_key (fast path done)"
 
 # Step 4: queue async summary (non-blocking)
@@ -108,6 +165,21 @@ if [ -n "$archived_jsonl" ] && [ -f "$archived_jsonl" ]; then
 }
 EOF
   log "SUMMARY queued for async processing"
+fi
+
+# Queue recovery message for dead sessions — sent after gateway restart
+if [[ "$reason" =~ ^(FAILED|ZOMBIE)$ ]]; then
+  recovery_dir="${WARDEN_HOME}/state/pending-recoveries"
+  mkdir -p "$recovery_dir"
+  cat > "${recovery_dir}/${agent}-${ts}.json" << REOF
+{
+  "agent": "${agent}",
+  "channel_key": "${channel_key}",
+  "reason": "${reason}",
+  "timestamp": "${ts}"
+}
+REOF
+  log "RECOVERY: queued post-restart message for $agent/$channel_key"
 fi
 
 # Notify
