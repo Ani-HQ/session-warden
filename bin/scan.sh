@@ -42,6 +42,19 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
   while IFS='|' read -r reason channel_key cli_session_id detail; do
     [ -z "$reason" ] && continue
 
+    # Skip sessions with a recent recovered marker (prevents rotation loops
+    # where warden keeps re-rotating idle-but-healthy agents after recovery)
+    if [[ "$reason" =~ ^(FAILED|ZOMBIE)$ ]]; then
+      recovered_file="${WARDEN_HOME}/state/cooldowns/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
+      if [ -f "$recovered_file" ]; then
+        recovered_at=$(cat "$recovered_file" 2>/dev/null || echo 0)
+        now_check=$(date +%s)
+        if [ $((now_check - recovered_at)) -lt 7200 ]; then
+          continue
+        fi
+      fi
+    fi
+
     if "${SCRIPT_DIR}/rotate.sh" "$agent" "$channel_key" "$cli_session_id" "$reason" "$detail"; then
       rotated=$((rotated + 1))
     fi
@@ -98,14 +111,45 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         ragent=$(jq -r '.agent' "$rfile")
         rchannel=$(jq -r '.channel_key' "$rfile")
 
+        # Build recovery message with inlined context (no "go read files")
+        context_file="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/CONTEXT.md"
+        recovery_msg=""
+        if [ -f "$context_file" ]; then
+          context_content=$(cat "$context_file" 2>/dev/null)
+          if [ -n "$context_content" ]; then
+            recovery_msg="You just came back from a session restart. Here is your context from the previous session:
+
+${context_content}
+
+Your MEMORY.md also has this context in its system prompt section. Get back to work: send one short message saying you're back, then resume whatever is pending above. Do not ask for context."
+          fi
+        fi
+        if [ -z "$recovery_msg" ]; then
+          recovery_msg="You just came back from a session restart. Your MEMORY.md file (already in your system prompt) has your latest session context at the top. Send a short message saying you're back, then resume work based on what you see there."
+        fi
+
         timeout 180 openclaw agent \
           --agent "$ragent" \
           --session-id "$rchannel" \
-          --message "Well, that was embarrassing — your previous session segfaulted into the void. The good news: session-warden saved your memory before the lights went out. Read your session_*.md files to see what past-you was up to. Then tell this channel what happened in your own words — be honest, be brief, be a little self-deprecating about it. No corporate crisis comms, just explain what you were doing, what blew up, and what you'd try differently. Then get back to work." \
+          --message "$recovery_msg" \
           --timeout 120 \
           --deliver \
-          >/dev/null 2>&1 && \
-          echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE" || \
+          >/dev/null 2>&1 && {
+          echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE"
+          # Mark as recovered so zombie detection skips this session for 2 hours
+          recovered_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
+          date +%s > "$recovered_file"
+          # Reset failure counter on successful recovery
+          fail_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
+          echo 0 > "$fail_file"
+          # Clear status=failed in sessions.json so the gateway treats it as healthy
+          sjson_path="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/sessions/sessions.json"
+          if [ -f "$sjson_path" ]; then
+            jq --arg key "$rchannel" '
+              if has($key) and .[$key].status == "failed" then .[$key].status = null else . end
+            ' "$sjson_path" > "${sjson_path}.tmp" && mv "${sjson_path}.tmp" "$sjson_path"
+          fi
+        } || \
           echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (non-fatal)" >> "$LOG_FILE"
         rm -f "$rfile"
       done

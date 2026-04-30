@@ -89,14 +89,22 @@ ${existing_context}
   fi
 
   local summary
-  summary=$(timeout 60 claude -p --model "$MEMORY_MODEL" "You are a memory system for an AI agent named '${agent}'. This agent's session is being rotated and you need to capture everything important so the agent can continue seamlessly in this channel.
+  summary=$(timeout 60 claude -p --model "$MEMORY_MODEL" "You are a memory system. Extract a structured summary from the transcript below for an AI agent named '${agent}' so it can resume work seamlessly after a session restart.
 
-The transcript below includes both conversation text and tool actions (marked with →). Pay attention to BOTH — the tool actions show what was actually done (files edited, commands run, branches created).
+RULES:
+- Output ONLY the structured sections below. No preamble, no commentary, no code fences, no frontmatter.
+- Do NOT wrap output in \`\`\`markdown blocks.
+- Do NOT include instructions like 'push this to memory' or 'save this'.
+- Write in second person ('you were...').
+- Be specific: file paths, branch names, URLs, error messages.
+- Under 300 words total.
+
+The transcript includes both conversation text and tool actions (marked with →). Pay attention to BOTH.
 ${carry_forward_block}
-Write a structured memory entry:
+Output exactly these sections:
 
 ## What was happening
-(1-3 sentences: the main task or thread in this channel)
+(1-3 sentences: the main task or thread)
 
 ## Actions taken
 (bullet list: concrete things done — files created/edited, branches pushed, PRs opened, commands run)
@@ -105,18 +113,26 @@ Write a structured memory entry:
 (bullet list: choices, preferences, or rules established)
 
 ## Pending / unfinished
-(bullet list: anything incomplete, promised, or next-up. IMPORTANT: carry forward any pending items from the previous session memory that were NOT completed in this session)
+(bullet list: anything incomplete or next-up. Carry forward unresolved items from previous session memory)
 
 ## Context for next session
-(anything that would be confusing without this note — why something was done a certain way, relationships between tasks, blockers)
-
-Be specific: file paths, branch names, URLs, error messages. Under 300 words. Write in second person ('you were...').
+(anything that would be confusing without this note — why something was done, blockers, relationships between tasks)
 
 TRANSCRIPT:
 ${transcript}" 2>/dev/null)
 
-  if [ -z "$summary" ]; then
-    log "MEMORY: summarization failed or timed out for $agent — writing fallback from transcript tail"
+  # Strip code fences and meta-commentary that LLMs sometimes add
+  if [ -n "$summary" ]; then
+    summary=$(echo "$summary" | sed '/^```/d' | sed '/^---$/d' | sed '/^name:/d' | sed '/^description:/d' | sed '/^type:/d' | sed '/^I.ll write/d' | sed '/^Push this/d' | sed '/^Here.s the/d'  | sed '/^Let me/d')
+  fi
+
+  # Validate: non-empty AND substantive (at least 20 words with real content)
+  local word_count=0
+  if [ -n "$summary" ]; then
+    word_count=$(echo "$summary" | wc -w)
+  fi
+  if [ -z "$summary" ] || [ "$word_count" -lt 20 ]; then
+    log "MEMORY: summarization failed, empty, or too short (${word_count} words) for $agent — writing fallback"
     summary=$(build_fallback_memory "$transcript" "$existing_context")
   fi
 
@@ -162,6 +178,11 @@ EOF
     compact_memory_file "$mem_file"
   fi
 
+  # Write to workspace MEMORY.md (auto-loaded by bootstrap into system prompt)
+  # This is the key fix: context is INJECTED, not voluntarily loaded by the agent
+  write_workspace_context "$agent" "$summary" "$cli_session_id" "$channel_key" || \
+    log "MEMORY: workspace context write failed for $agent (non-fatal)"
+
   return 0
 }
 
@@ -177,4 +198,55 @@ compact_memory_file() {
 ${content}" 2>/dev/null)
 
   [ -n "$compacted" ] && echo "$compacted" > "$mem_file"
+}
+
+# Write session context to workspace files that bootstrap auto-loads.
+# This is the system-level guarantee: the agent receives context in its system
+# prompt without needing to voluntarily read files.
+# Args: $1=agent, $2=summary, $3=cli-session-id, $4=channel-key
+write_workspace_context() {
+  local agent="$1" summary="$2" cli_session_id="$3" channel_key="$4"
+  local workspace="${WARDEN_OPENCLAW_HOME}/agents/${agent}"
+  local context_file="${workspace}/CONTEXT.md"
+  local memory_file="${workspace}/MEMORY.md"
+  local ts
+  ts=$(date -Iseconds)
+
+  [ -d "$workspace" ] || {
+    log "MEMORY: workspace $workspace does not exist — skipping"
+    return 1
+  }
+
+  # 1. Write standalone CONTEXT.md (used by recovery messages to inline context)
+  cat > "$context_file" << CTXEOF
+_Last updated: ${ts} | Session: ${cli_session_id} | Channel: ${channel_key}_
+
+${summary}
+CTXEOF
+  log "MEMORY: wrote CONTEXT.md for $agent ($(stat -c%s "$context_file") bytes)"
+
+  # 2. Inject into workspace MEMORY.md (bootstrap loads this into system prompt)
+  local existing=""
+  if [ -f "$memory_file" ]; then
+    # Strip any previous auto-injected section between markers
+    existing=$(awk '
+      /^<!-- SESSION-WARDEN-START -->/{skip=1; next}
+      /^<!-- SESSION-WARDEN-END -->/{skip=0; next}
+      !skip{print}
+    ' "$memory_file")
+  fi
+
+  cat > "$memory_file" << MEMEOF
+<!-- SESSION-WARDEN-START -->
+## Previous Session Context (auto-injected by session-warden, do not edit this section)
+
+_Updated: ${ts} | Channel: ${channel_key}_
+
+${summary}
+
+<!-- SESSION-WARDEN-END -->
+${existing}
+MEMEOF
+
+  log "MEMORY: injected context into workspace MEMORY.md for $agent"
 }
