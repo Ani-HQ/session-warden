@@ -38,12 +38,17 @@ session-warden/
 ├── bin/
 │   ├── scan.sh              # cron entry point (every 2 min)
 │   ├── rotate.sh            # fast-path: backup, archive, delete, restart
-│   └── summarize.sh         # async: extract, summarize, write memory
+│   ├── summarize.sh         # async: extract, summarize, write memory
+│   ├── cleanup-archives.sh  # delete old archived JSONL files (cron daily)
+│   ├── mcp-supervisor.sh    # keep MCP servers alive across rotations
+│   └── patch-output-limits.sh  # bump OpenClaw CLI output buffer limits
 ├── lib/
 │   ├── detect.sh            # threshold + status checks
 │   ├── extract.sh           # JSONL → conversation transcript (text + tools)
 │   ├── memory.sh            # write to Claude Code native memory
 │   └── notify.sh            # Telegram alerts
+├── scripts/
+│   └── patch-error-humanizer.sh  # humanize OpenClaw error messages via Gemini
 ├── hooks/
 │   └── post-summary/        # extensible: drop .sh scripts here
 │       └── 01-gbrain.sh     # example: ingest to GBrain
@@ -97,11 +102,16 @@ All config lives in `config/thresholds.env`. Key settings:
 
 | Setting | Default | Description |
 |---|---|---|
-| `WARDEN_MAX_TOKENS` | 800000 | Rotate when session exceeds this token count |
-| `WARDEN_MAX_TURNS` | 200 | Rotate when session exceeds this many turns |
-| `WARDEN_MAX_BYTES` | 1572864 | Rotate when JSONL exceeds 1.5MB |
-| `WARDEN_MAX_COMPACTIONS` | 5 | Rotate after this many compaction cycles |
+| `WARDEN_MAX_TOKENS` | 2000000 | Rotate when session exceeds this token count |
+| `WARDEN_MAX_TURNS` | 500 | Rotate when session exceeds this many turns |
+| `WARDEN_MAX_BYTES` | 4194304 | Rotate when JSONL exceeds 4MB |
+| `WARDEN_MAX_COMPACTIONS` | 10 | Rotate after this many compaction cycles |
+| `WARDEN_MAX_CONSECUTIVE_FAILURES` | 3 | Back off after this many consecutive failures |
+| `WARDEN_COOLDOWN_SECONDS` | 600 | Skip re-rotating same session within this window |
+| `WARDEN_GATEWAY_RESTART_COOLDOWN_SECONDS` | 300 | Minimum seconds between gateway restarts |
 | `WARDEN_SUMMARY_MODEL` | claude-haiku-4-5-20251001 | Model for summarization |
+| `WARDEN_SCAN_AGENTS` | (blank) | Space-separated agent allowlist. Empty = scan all. |
+| `WARDEN_ARCHIVE_RETENTION_DAYS` | 7 | Delete archived JSONL files older than this |
 | `WARDEN_DRY_RUN` | 0 | Set to 1 to log without rotating |
 | `WARDEN_TELEGRAM_BOT_TOKEN` | (blank) | Telegram bot token for alerts |
 | `WARDEN_TELEGRAM_CHAT_ID` | (blank) | Telegram chat ID for alerts |
@@ -127,6 +137,54 @@ Scripts run in alphabetical order. Failures are logged but don't block other hoo
 
 - `01-gbrain.sh` — ingest into [GBrain](https://github.com/garrytan/gbrain) for cross-agent memory access
 - Write your own for Notion, Slack, Postgres, or any other backend
+
+## Extra tools
+
+### Archive cleanup
+
+Archived JSONL files accumulate on disk after rotations. Run the cleanup script daily via cron to delete files older than `WARDEN_ARCHIVE_RETENTION_DAYS` (default: 7 days).
+
+```bash
+# Add to crontab
+30 3 * * * /path/to/session-warden/bin/cleanup-archives.sh
+```
+
+### MCP supervisor
+
+Heavy MCP servers (like Notion) restart every time the CLI session rotates, adding 10-15s of cold-start latency. The supervisor keeps them running as persistent HTTP processes that survive rotations.
+
+```bash
+# Start persistent MCP servers
+bash ~/session-warden/bin/mcp-supervisor.sh start
+
+# Check status
+bash ~/session-warden/bin/mcp-supervisor.sh status
+
+# Ensure all servers are running (idempotent, good for cron)
+bash ~/session-warden/bin/mcp-supervisor.sh ensure
+```
+
+Notion server ports are defined in the script (default: 4001-4003). After starting, run `sync-agent-mcps.sh` to update agent MCP configs to use the persistent HTTP endpoints instead of stdio.
+
+### Output limits patch
+
+OpenClaw has hardcoded limits on CLI stdout buffer size that kill agent sessions mid-turn, especially when processing images. This script bumps the limits in the compiled JS.
+
+```bash
+bash ~/session-warden/bin/patch-output-limits.sh
+```
+
+Must be re-run after every `npm update -g openclaw`.
+
+### Error humanizer
+
+Patches the OpenClaw gateway to rewrite generic error messages ("Something went wrong") into human, self-deprecating messages using Gemini Flash. Reads the Google API key from `openclaw.json` at patch time.
+
+```bash
+bash ~/session-warden/scripts/patch-error-humanizer.sh
+```
+
+Idempotent (checks for a marker before patching). Must be re-run after OpenClaw updates.
 
 ## Monitoring
 
