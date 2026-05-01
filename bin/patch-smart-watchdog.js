@@ -27,9 +27,9 @@ if (!runtimeFile) {
 const filePath = path.join(OPENCLAW_DIST, runtimeFile);
 let code = fs.readFileSync(filePath, 'utf8');
 
-// If already patched with v3 (progress heartbeat), nothing to do
-if (code.includes('__ocProgressHeartbeat')) {
-	console.log('Already patched (v3). No changes needed.');
+// If already fully patched (v4 = progress heartbeat + stderr fix), nothing to do
+if (code.includes('__ocProgressHeartbeat') && !code.includes('resetNoOutputTimer(session);\n\t\t\t}\n\t\t}')) {
+	console.log('Already patched (v4). No changes needed.');
 	process.exit(0);
 }
 
@@ -240,6 +240,44 @@ if (!code.includes(OLD_SESSION)) {
 } else {
 	code = code.replace(OLD_SESSION, NEW_SESSION);
 	console.log('Patched: session creation (baseline PIDs + sessionKey)');
+}
+
+// ============================================================
+// PATCH 6: Remove stderr resetting the no-output timer
+// MCP server stderr (startup, keepalive, connection logs) was
+// resetting the timer indefinitely, preventing the watchdog from
+// ever firing on genuine API stalls.
+// ============================================================
+const OLD_STDERR = [
+	'\t\tonStderr: (chunk) => {',
+	'\t\t\tif (session) {',
+	'\t\t\t\tsession.stderr += chunk;',
+	'\t\t\t\tif (session.stderr.length > CLAUDE_LIVE_MAX_STDERR_CHARS) {',
+	'\t\t\t\t\tcloseLiveSession(session, "abort", createOutputLimitError(session, "Claude CLI stderr exceeded limit."));',
+	'\t\t\t\t\treturn;',
+	'\t\t\t\t}',
+	'\t\t\t\tresetNoOutputTimer(session);',
+	'\t\t\t}',
+	'\t\t}'
+].join('\n');
+
+const NEW_STDERR = [
+	'\t\tonStderr: (chunk) => {',
+	'\t\t\tif (session) {',
+	'\t\t\t\tsession.stderr += chunk;',
+	'\t\t\t\tif (session.stderr.length > CLAUDE_LIVE_MAX_STDERR_CHARS) {',
+	'\t\t\t\t\tcloseLiveSession(session, "abort", createOutputLimitError(session, "Claude CLI stderr exceeded limit."));',
+	'\t\t\t\t\treturn;',
+	'\t\t\t\t}',
+	'\t\t\t}',
+	'\t\t}'
+].join('\n');
+
+if (!code.includes(OLD_STDERR)) {
+	console.error('WARNING: could not patch stderr handler (may already be patched)');
+} else {
+	code = code.replace(OLD_STDERR, NEW_STDERR);
+	console.log('Patched: stderr no longer resets no-output timer');
 }
 
 fs.writeFileSync(filePath, code, 'utf8');
