@@ -231,7 +231,7 @@ const NEW_SESSION = [
 	'\t\t__baselineChildPids: new Set(),',
 	'\t\t__sessionKey: params.context.params.sessionKey || null',
 	'\t};',
-	'\tsetTimeout(() => { try { session.__baselineChildPids = __ocGetChildPids(managedRun.pid); } catch {} }, 5000);',
+	'\tsetTimeout(() => { try { session.__baselineChildPids = __ocGetChildPids(managedRun.pid); console.error("[WATCHDOG] baseline captured:", [...session.__baselineChildPids].join(",")); } catch {} }, 30000);',
 	'\tmanagedRun.wait()'
 ].join('\n');
 
