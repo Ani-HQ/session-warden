@@ -1,0 +1,107 @@
+{
+  "id": "smart-watchdog",
+  "name": "Smart Watchdog + Progress Heartbeat",
+  "description": "Replace the simple no-output kill timer with an intelligent watchdog that checks child processes and /proc I/O activity before killing. Adds progress heartbeat messages during long turns.",
+  "version": "2.0.0",
+  "marker": "__WARDEN_SMART_WATCHDOG__",
+  "legacy_markers": ["__ocProgressHeartbeat"],
+  "depends_on": ["output-limits"],
+  "target": {
+    "semantic_description": "The compiled JS file that manages live CLI session execution, handles watchdog no-output timeouts, and can close/abort sessions",
+    "grep_hints": ["closeLiveSession", "noOutputTimer", "createTimeoutError", "resetNoOutputTimer"]
+  },
+  "steps": [
+    {
+      "id": "add-child-process-import",
+      "type": "add_import",
+      "description": "Add child_process import for PID monitoring",
+      "import_line": "import { execSync as __ocExecSync } from \"node:child_process\";",
+      "after": "import path from \"node:path\";"
+    },
+    {
+      "id": "replace-reset-no-output-timer",
+      "type": "ai_replace",
+      "description": "Replace resetNoOutputTimer with full watchdog + progress system",
+      "search_hints": ["resetNoOutputTimer", "noOutputTimer", "noOutputTimeoutMs"],
+      "semantic_anchor": "The function named 'resetNoOutputTimer' that takes a single 'session' parameter. It clears any existing noOutputTimer on the current turn and sets a new setTimeout that eventually kills the session by calling closeLiveSession with a timeout error. This is a standalone function definition, NOT the call sites that invoke it.",
+      "find_type": "find_function",
+      "code_file": "watchdog-replacement.js"
+    },
+    {
+      "id": "replace-create-turn-timer",
+      "type": "ai_replace",
+      "description": "Replace initial turn timer with watchdog-aware version",
+      "search_hints": ["turn.noOutputTimer = setTimeout", "params.noOutputTimeoutMs", "createTimeoutError"],
+      "semantic_anchor": "Inside the createTurn function, the 3-line block that sets turn.noOutputTimer to a setTimeout. This setTimeout calls closeLiveSession with 'abort' and a createTimeoutError mentioning 'no output'. It uses params.noOutputTimeoutMs as the delay. Just the 3 lines for the no-output timer, NOT the timeout timer block that follows it (which uses params.context.params.timeoutMs).",
+      "find_type": "find_block",
+      "code_file": "turn-init-replacement.js"
+    },
+    {
+      "id": "replace-clear-turn-timers",
+      "type": "ai_replace",
+      "description": "Add progress timer cleanup to clearTurnTimers",
+      "search_hints": ["clearTurnTimers", "noOutputTimer", "timeoutTimer"],
+      "semantic_anchor": "The function named 'clearTurnTimers' that takes a 'turn' parameter. It clears noOutputTimer and timeoutTimer by calling clearTimeout and setting them to null. It is a standalone function, typically around 9-10 lines.",
+      "find_type": "find_function",
+      "code_file": "clear-turn-timers-replacement.js"
+    },
+    {
+      "id": "patch-session-props",
+      "type": "regex_replace",
+      "description": "Add __baselineChildPids and __sessionKey to session object",
+      "pattern": "closing: false\\n\\t};",
+      "replacement": "closing: false,\\n\\t\\t__baselineChildPids: new Set(),\\n\\t\\t__sessionKey: params.context.params.sessionKey || null\\n\\t};",
+      "flags": ""
+    },
+    {
+      "id": "patch-session-baseline-capture",
+      "type": "ai_inject",
+      "description": "Add setTimeout to capture baseline child PIDs after session start",
+      "search_hints": ["__sessionKey", "managedRun.wait()"],
+      "semantic_anchor": "The line containing '__sessionKey: params.context.params.sessionKey' (the one we just added as the last property before the closing brace of the session object). We want to find the CLOSING BRACE line '}; ' that immediately follows it — the one that ends the session = { ... }; object literal.",
+      "find_type": "find_insertion_point",
+      "position": "after",
+      "code": "\tsetTimeout(() => { try { session.__baselineChildPids = __ocGetChildPids(managedRun.pid); console.error(\"[WATCHDOG] baseline captured:\", [...session.__baselineChildPids].join(\",\")); } catch {} }, 30000);"
+    },
+    {
+      "id": "patch-stderr-handler",
+      "type": "ai_replace",
+      "description": "Remove resetNoOutputTimer from stderr handler (MCP noise was blocking watchdog)",
+      "search_hints": ["onStderr", "CLAUDE_LIVE_MAX_STDERR_CHARS", "resetNoOutputTimer"],
+      "semantic_anchor": "The onStderr callback handler in the session spawn options. It's a function that takes a 'chunk' parameter, appends it to session.stderr, checks if stderr exceeds CLAUDE_LIVE_MAX_STDERR_CHARS (closing the session if so), and calls resetNoOutputTimer(session). The entire callback from 'onStderr: (chunk) =>' through its closing brace.",
+      "find_type": "find_block",
+      "code_file": "stderr-handler-replacement.js"
+    },
+    {
+      "id": "inject-finish-turn-progress-done",
+      "type": "string_inject",
+      "description": "Add progress:done signal to finishTurn (1st clearTurnTimers occurrence)",
+      "anchor": "clearTurnTimers(turn);",
+      "occurrence": 1,
+      "position": "after",
+      "code": "\tconst _fsk = session.__sessionKey;\n\tif (_fsk && turn.__progressCount > 0) {\n\t\ttry {\n\t\t\texecuteDeps.enqueueSystemEvent(\"__progress_done__\", { sessionKey: _fsk, contextKey: \"progress:done\" });\n\t\t\texecuteDeps.requestHeartbeatNow(scopedHeartbeatWakeOptions(_fsk, { reason: \"cli:progress:done\" }));\n\t\t} catch (e) {}\n\t}"
+    },
+    {
+      "id": "inject-fail-turn-progress-done",
+      "type": "string_inject",
+      "description": "Add progress:done signal to failTurn (2nd clearTurnTimers occurrence)",
+      "anchor": "clearTurnTimers(turn);",
+      "occurrence": 2,
+      "position": "after",
+      "code": "\tconst _fsk = session.__sessionKey;\n\tif (_fsk && turn.__progressCount > 0) {\n\t\ttry {\n\t\t\texecuteDeps.enqueueSystemEvent(\"__progress_done__\", { sessionKey: _fsk, contextKey: \"progress:done\" });\n\t\t\texecuteDeps.requestHeartbeatNow(scopedHeartbeatWakeOptions(_fsk, { reason: \"cli:progress:done\" }));\n\t\t} catch (e) {}\n\t}"
+    }
+  ],
+  "verify": {
+    "present": [
+      "__ocGetChildPids",
+      "__ocGetProcessRchar",
+      "__ocWatchdogCheck",
+      "__ocProgressHeartbeat",
+      "__OC_MAX_WATCHDOG_EXTENSIONS",
+      "__OC_WATCHDOG_IO_RECHECK_MS",
+      "__baselineChildPids",
+      "__sessionKey",
+      "progress:done"
+    ]
+  }
+}

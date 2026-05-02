@@ -117,15 +117,15 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         if [ -f "$context_file" ]; then
           context_content=$(cat "$context_file" 2>/dev/null)
           if [ -n "$context_content" ]; then
-            recovery_msg="You just came back from a session restart. Here is your context from the previous session:
+            recovery_msg="You just came back from a session restart. Here is context from a PREVIOUS session (it may be stale or from a different task):
 
 ${context_content}
 
-Your MEMORY.md also has this context in its system prompt section. Get back to work: send one short message saying you're back, then resume whatever is pending above. Do not ask for context."
+IMPORTANT: This context may NOT reflect what you were last asked to do. Before resuming, ALWAYS check the recent messages in this channel (scroll up or check Discord history) to find your actual current task. The most recent user message is your priority, not the context above. Send one short message saying you're back, then resume the actual pending work from the channel."
           fi
         fi
         if [ -z "$recovery_msg" ]; then
-          recovery_msg="You just came back from a session restart. Your MEMORY.md file (already in your system prompt) has your latest session context at the top. Send a short message saying you're back, then resume work based on what you see there."
+          recovery_msg="You just came back from a session restart. Check the recent messages in this channel to find what you were working on. Your MEMORY.md may have older context but the channel messages are the source of truth for your current task. Send a short message saying you're back, then resume work."
         fi
 
         timeout 180 openclaw agent \

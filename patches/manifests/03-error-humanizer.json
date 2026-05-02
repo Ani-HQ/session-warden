@@ -1,0 +1,46 @@
+{
+  "id": "error-humanizer",
+  "name": "Error Humanizer",
+  "description": "Use Gemini Flash to rewrite generic error messages into witty, human-readable form with the actual error included",
+  "version": "1.0.0",
+  "marker": "__WARDEN_ERROR_HUMANIZER__",
+  "legacy_markers": ["__OPENCLAW_ERROR_HUMANIZER_PATCHED__"],
+  "target": {
+    "semantic_description": "The compiled JS file that runs the agent runtime, handles external CLI run failures, and constructs fallback error text for failed agent turns",
+    "grep_hints": ["buildExternalRunFailureText", "fallbackText", "isBilling", "collapseRepeatedFailureDetail"]
+  },
+  "steps": [
+    {
+      "id": "const-to-let-fallback",
+      "type": "regex_replace",
+      "description": "Make fallbackText mutable so Gemini can overwrite it",
+      "pattern": "\\bconst fallbackText = isBilling\\b",
+      "replacement": "let fallbackText = isBilling"
+    },
+    {
+      "id": "inject-gemini-humanizer",
+      "type": "string_inject",
+      "description": "Insert Gemini API call to rewrite error messages",
+      "anchor": "buildExternalRunFailureText(message);",
+      "position": "after",
+      "code_file": "error-humanizer-block.js",
+      "template_vars": {
+        "GEMINI_API_KEY": "{{GEMINI_API_KEY}}"
+      }
+    },
+    {
+      "id": "replace-sync-fallback",
+      "type": "regex_replace",
+      "description": "Replace generic sync fallback error with one that includes error detail",
+      "pattern": "return \"[^\"]*Something went wrong while processing your request[^\"]*\";",
+      "replacement": "return \"\\u26a0\\ufe0f Ran into a hiccup: \" + collapseRepeatedFailureDetail(message).slice(0, 200) + \". Try again, or use /new to start fresh.\";"
+    }
+  ],
+  "verify": {
+    "present": [
+      "let fallbackText = isBilling",
+      "_hResp",
+      "generativelanguage.googleapis.com"
+    ]
+  }
+}

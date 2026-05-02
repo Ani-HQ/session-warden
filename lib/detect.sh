@@ -23,7 +23,7 @@ detect_sessions_problems() {
   # recovered but the gateway didn't clear the status. Don't re-rotate it.
   local now_ms
   now_ms=$(date +%s)000  # epoch milliseconds (updatedAt is ms)
-  local failed_stale_ms=3600000  # 1 hour in ms
+  local failed_stale_ms=120000  # 2 minutes — capture crash context quickly
 
   jq -r --argjson max_tokens "${WARDEN_MAX_TOKENS}" \
         --argjson max_turns "${WARDEN_MAX_TURNS}" \

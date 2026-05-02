@@ -1,0 +1,37 @@
+{
+  "id": "output-limits",
+  "name": "Output Limits",
+  "description": "Increase CLI output limits to handle large payloads like base64-encoded images without killing the session",
+  "version": "1.0.0",
+  "marker": "__WARDEN_OUTPUT_LIMITS__",
+  "target": {
+    "semantic_description": "The compiled JS file that manages live CLI session execution, processes stdout JSONL lines, and enforces per-line and per-turn output size limits",
+    "grep_hints": ["CLAUDE_LIVE_MAX_STDOUT_BUFFER_CHARS", "CLAUDE_LIVE_MAX_TURN_RAW_CHARS", "CLAUDE_LIVE_MAX_TURN_LINES", "closeLiveSession"]
+  },
+  "steps": [
+    {
+      "id": "bump-buffer-chars",
+      "type": "regex_replace",
+      "description": "Increase per-line stdout buffer to 8MB (default ~256KB kills base64 image lines)",
+      "pattern": "CLAUDE_LIVE_MAX_STDOUT_BUFFER_CHARS = [^;]+",
+      "replacement": "CLAUDE_LIVE_MAX_STDOUT_BUFFER_CHARS = 8 * 1024 * 1024"
+    },
+    {
+      "id": "bump-turn-chars",
+      "type": "regex_replace",
+      "description": "Increase per-turn raw character limit to 32MB",
+      "pattern": "CLAUDE_LIVE_MAX_TURN_RAW_CHARS = [^;]+",
+      "replacement": "CLAUDE_LIVE_MAX_TURN_RAW_CHARS = 32 * 1024 * 1024"
+    },
+    {
+      "id": "bump-turn-lines",
+      "type": "regex_replace",
+      "description": "Increase per-turn line limit to 20,000",
+      "pattern": "CLAUDE_LIVE_MAX_TURN_LINES = [^;]+",
+      "replacement": "CLAUDE_LIVE_MAX_TURN_LINES = 2e4"
+    }
+  ],
+  "verify": {
+    "present": ["CLAUDE_LIVE_MAX_STDOUT_BUFFER_CHARS = 8 * 1024 * 1024", "CLAUDE_LIVE_MAX_TURN_RAW_CHARS = 32 * 1024 * 1024", "CLAUDE_LIVE_MAX_TURN_LINES = 2e4"]
+  }
+}
