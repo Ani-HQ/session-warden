@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# session-warden — CLI for agent session lifecycle management
+#
+# Usage: session-warden <command> [options]
+#
+# Commands:
+#   scan          Scan all agents and rotate problematic sessions
+#   status        Show current session health across all agents
+#   rotate        Manually rotate a specific session
+#   install       Install cron entries and create config
+#   uninstall     Remove cron entries
+#   logs          Tail the scan log
+#   version       Show version
+
+set -uo pipefail
+
+VERSION="1.0.0"
+WARDEN_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export WARDEN_HOME
+
+cmd_scan() {
+  local dry_run=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run|-n) dry_run=1; shift ;;
+      --agent)      export WARDEN_SCAN_AGENTS="$2"; shift 2 ;;
+      *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+  done
+
+  if [ "$dry_run" -eq 1 ]; then
+    export WARDEN_DRY_RUN=1
+  fi
+
+  exec "$WARDEN_HOME/bin/scan.sh"
+}
+
+cmd_status() {
+  exec "$WARDEN_HOME/bin/status.sh" "$@"
+}
+
+cmd_rotate() {
+  if [ $# -lt 2 ]; then
+    echo "Usage: session-warden rotate <agent> <channel-key> [reason]"
+    echo ""
+    echo "Manually rotate a specific session."
+    echo ""
+    echo "Arguments:"
+    echo "  agent        Agent name (directory under ~/.openclaw/agents/)"
+    echo "  channel-key  Channel key from sessions.json"
+    echo "  reason       Rotation reason (default: MANUAL)"
+    exit 1
+  fi
+
+  local agent="$1" channel_key="$2" reason="${3:-MANUAL}"
+
+  source "$WARDEN_HOME/config/thresholds.env"
+  local sjson="${WARDEN_OPENCLAW_HOME}/agents/${agent}/sessions/sessions.json"
+
+  if [ ! -f "$sjson" ]; then
+    echo "ERROR: no sessions.json for agent '$agent'"
+    echo "       Expected: $sjson"
+    exit 1
+  fi
+
+  local cli_session_id
+  cli_session_id=$(jq -r --arg key "$channel_key" '.[$key].cliSessionIds["claude-cli"] // ""' "$sjson" 2>/dev/null)
+
+  if [ -z "$cli_session_id" ]; then
+    echo "ERROR: no CLI session found for channel '$channel_key'"
+    echo ""
+    echo "Available channels for $agent:"
+    jq -r 'keys[]' "$sjson" 2>/dev/null | sed 's/^/  /'
+    exit 1
+  fi
+
+  echo "Rotating $agent / $channel_key (session: ${cli_session_id:0:12}...)"
+  exec "$WARDEN_HOME/bin/rotate.sh" "$agent" "$channel_key" "$cli_session_id" "$reason" "manual rotation"
+}
+
+cmd_install() {
+  exec "$WARDEN_HOME/install.sh"
+}
+
+cmd_uninstall() {
+  local tag="# session-warden"
+  local before after
+
+  before=$(crontab -l 2>/dev/null | wc -l)
+  crontab -l 2>/dev/null | grep -v "$tag" | crontab -
+  after=$(crontab -l 2>/dev/null | wc -l)
+
+  local removed=$((before - after))
+  if [ "$removed" -gt 0 ]; then
+    echo "Removed $removed cron entries."
+  else
+    echo "No session-warden cron entries found."
+  fi
+  echo "Config and state left intact at $WARDEN_HOME"
+}
+
+cmd_logs() {
+  local log_file="${WARDEN_HOME}/state/scan.log"
+  local lines="${1:-50}"
+
+  if [ ! -f "$log_file" ]; then
+    echo "No log file yet. Run 'session-warden scan' first."
+    exit 0
+  fi
+
+  case "${1:-}" in
+    -f|--follow) tail -f "$log_file" ;;
+    *)           tail -n "$lines" "$log_file" ;;
+  esac
+}
+
+cmd_version() {
+  echo "session-warden $VERSION"
+}
+
+cmd_help() {
+  cat <<'HELP'
+session-warden — agent session lifecycle management
+
+Usage: session-warden <command> [options]
+
+Commands:
+  scan [--dry-run] [--agent NAME]
+      Scan all agents and rotate problematic sessions.
+      --dry-run   Log what would be rotated without doing it.
+      --agent     Only scan a specific agent.
+
+  status [--json] [--agent NAME]
+      Show current session health across all agents.
+      --json      Output as JSON instead of table.
+      --agent     Only show a specific agent.
+
+  rotate <agent> <channel-key> [reason]
+      Manually rotate a specific session.
+
+  install
+      Install cron entries and create config file.
+
+  uninstall
+      Remove cron entries (keeps config and state).
+
+  logs [-f | N]
+      Show recent log entries. Use -f to follow.
+
+  version
+      Show version.
+
+Configuration: ~/session-warden/config/thresholds.env
+Log file:      ~/session-warden/state/scan.log
+HELP
+}
+
+case "${1:-help}" in
+  scan)      shift; cmd_scan "$@" ;;
+  status)    shift; cmd_status "$@" ;;
+  rotate)    shift; cmd_rotate "$@" ;;
+  install)   shift; cmd_install "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
+  logs|log)  shift; cmd_logs "$@" ;;
+  version|-v|--version) cmd_version ;;
+  help|-h|--help) cmd_help ;;
+  *)
+    echo "Unknown command: $1"
+    echo ""
+    cmd_help
+    exit 1
+    ;;
+esac

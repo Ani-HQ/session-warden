@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # mcp-supervisor.sh — keep heavy MCP servers alive between session rotations
-# Runs notion-mcp-server instances with HTTP transport so they survive CLI restarts.
-# Usage: mcp-supervisor.sh start|stop|status|restart
+#
+# MCP servers started via stdio transport restart every time the CLI session
+# rotates, adding 10-15s of cold-start latency. This supervisor runs them as
+# persistent HTTP processes that survive rotations.
+#
+# Usage: mcp-supervisor.sh {start|stop|restart|status|ensure}
+#
+# Configure your servers in config/mcp-servers.env or edit the defaults below.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WARDEN_HOME="$(dirname "$SCRIPT_DIR")"
+WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 STATE_DIR="${WARDEN_HOME}/state/mcp-supervisor"
 LOG_FILE="${STATE_DIR}/supervisor.log"
 mkdir -p "$STATE_DIR"
@@ -15,20 +21,37 @@ log() {
   echo "[$(date -Iseconds)] $*" >> "$LOG_FILE"
 }
 
-# Notion server definitions: name → port
-# Tokens are read from openclaw.json at runtime (not hardcoded)
-declare -A NOTION_PORTS=(
+# ─── Server definitions ──────────────────────────────────
+# Define your MCP servers here. Format: name=port
+# Each server needs a matching entry in openclaw.json under mcp.servers
+# with an env.OPENAPI_MCP_HEADERS field containing the auth token.
+#
+# Override by creating config/mcp-servers.env with the same format.
+declare -A MCP_SERVERS=(
   [notion]=4001
-  [notion-duet]=4002
-  [notion-crossval]=4003
+  # Add more servers as needed:
+  # [my-other-server]=4002
 )
+
+# Load user overrides if present
+MCP_SERVERS_CONFIG="${WARDEN_HOME}/config/mcp-servers.env"
+if [ -f "$MCP_SERVERS_CONFIG" ]; then
+  source "$MCP_SERVERS_CONFIG"
+fi
+
+# ─── OpenClaw config ─────────────────────────────────────
 
 OPENCLAW_CONFIG="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}/openclaw.json"
 
-get_notion_token() {
+get_server_token() {
   local name="$1"
   jq -r --arg name "$name" '.mcp.servers[$name].env.OPENAPI_MCP_HEADERS // empty' "$OPENCLAW_CONFIG" 2>/dev/null
 }
+
+# MCP server binary — override via MCP_SERVER_BINARY env var
+MCP_SERVER_BINARY="${MCP_SERVER_BINARY:-notion-mcp-server}"
+
+# ─── Process management ──────────────────────────────────
 
 pid_file() {
   echo "${STATE_DIR}/${1}.pid"
@@ -43,9 +66,9 @@ is_running() {
 
 start_server() {
   local name="$1"
-  local port="${NOTION_PORTS[$name]}"
+  local port="${MCP_SERVERS[$name]}"
   local token
-  token=$(get_notion_token "$name")
+  token=$(get_server_token "$name")
   local pf
   pf=$(pid_file "$name")
 
@@ -55,11 +78,17 @@ start_server() {
   fi
 
   if [ -z "$token" ]; then
-    echo "ERROR: no token found for $name in $OPENCLAW_CONFIG"
+    echo "ERROR: no token found for '$name' in $OPENCLAW_CONFIG"
+    echo "       Expected: .mcp.servers.$name.env.OPENAPI_MCP_HEADERS"
     return 1
   fi
 
-  OPENAPI_MCP_HEADERS="$token" nohup notion-mcp-server \
+  if ! command -v "$MCP_SERVER_BINARY" >/dev/null 2>&1; then
+    echo "ERROR: $MCP_SERVER_BINARY not found. Install it or set MCP_SERVER_BINARY."
+    return 1
+  fi
+
+  OPENAPI_MCP_HEADERS="$token" nohup "$MCP_SERVER_BINARY" \
     --transport http \
     --port "$port" \
     --disable-auth \
@@ -103,7 +132,7 @@ stop_server() {
 
 status_server() {
   local name="$1"
-  local port="${NOTION_PORTS[$name]}"
+  local port="${MCP_SERVERS[$name]}"
   if is_running "$name"; then
     echo "$name: running on port $port (pid $(cat "$(pid_file "$name")"))"
   else
@@ -111,34 +140,35 @@ status_server() {
   fi
 }
 
+# ─── Commands ─────────────────────────────────────────────
+
 case "${1:-status}" in
   start)
-    for name in "${!NOTION_PORTS[@]}"; do
+    for name in "${!MCP_SERVERS[@]}"; do
       start_server "$name"
     done
     echo ""
-    echo "Update agent-mcps.json: run sync-agent-mcps.sh to switch to persistent mode"
+    echo "Update your agent MCP configs to use HTTP transport on the above ports."
     ;;
   stop)
-    for name in "${!NOTION_PORTS[@]}"; do
+    for name in "${!MCP_SERVERS[@]}"; do
       stop_server "$name"
     done
     ;;
   restart)
-    for name in "${!NOTION_PORTS[@]}"; do
+    for name in "${!MCP_SERVERS[@]}"; do
       stop_server "$name"
       start_server "$name"
     done
     ;;
   status)
-    for name in "${!NOTION_PORTS[@]}"; do
+    for name in "${!MCP_SERVERS[@]}"; do
       status_server "$name"
     done
     ;;
   ensure)
-    # Idempotent: start any servers that aren't running
     restarted=0
-    for name in "${!NOTION_PORTS[@]}"; do
+    for name in "${!MCP_SERVERS[@]}"; do
       if ! is_running "$name"; then
         start_server "$name"
         restarted=$((restarted + 1))

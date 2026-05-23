@@ -6,13 +6,13 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WARDEN_HOME="$(dirname "$SCRIPT_DIR")"
+WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/memory.sh"
 
 LOG_FILE="${WARDEN_LOG_FILE}"
-LOCKFILE="/tmp/session-warden-context-sync.lock"
+LOCKFILE="${WARDEN_HOME}/state/context-sync.lock"
 
 log() {
   echo "[$(date -Iseconds)] $*" >> "$LOG_FILE"

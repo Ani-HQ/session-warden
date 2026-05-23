@@ -7,7 +7,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WARDEN_HOME="$(dirname "$SCRIPT_DIR")"
+WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/memory.sh"
@@ -19,7 +19,7 @@ log() {
 PENDING_DIR="${WARDEN_HOME}/state/pending-summaries"
 mkdir -p "$PENDING_DIR"
 
-SUMMARIZE_LOCK="/tmp/session-warden-summarize.lock"
+SUMMARIZE_LOCK="${WARDEN_HOME}/state/summarize.lock"
 exec 198>"$SUMMARIZE_LOCK"
 if ! flock -w 120 198; then
   log "SUMMARY: timed out waiting for lock (120s) — proceeding without summary"
@@ -69,6 +69,7 @@ for job_file in "$PENDING_DIR"/*.json; do
   mem_file="${local_mem_dir}/session_${safe_channel}.md"
 
   (
+    exec 198>&-
     if [ -x "${WARDEN_SNAPSHOTTER:-}" ]; then
       "${WARDEN_SNAPSHOTTER}" >> "${WARDEN_LOG_FILE}" 2>&1 || \
         echo "[$(date -Iseconds)] SUMMARY: snapshotter failed — non-fatal" >> "${WARDEN_LOG_FILE}"

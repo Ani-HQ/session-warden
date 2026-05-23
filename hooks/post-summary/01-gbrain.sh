@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
-# 01-gbrain.sh — ingest session memory into GBrain for cross-agent access
+# 01-gbrain.sh — ingest session memory into GBrain after rotation
+#
+# GBrain is session-warden's recommended knowledge base for cross-agent memory.
+# After each rotation, this hook pushes the summarized memory into GBrain so
+# other agents (or humans) can query what happened across all sessions.
+#
+# Install GBrain: https://github.com/garrytan/gbrain
+#
 # Env vars set by summarize.sh:
-#   WARDEN_AGENT, WARDEN_CHANNEL_KEY, WARDEN_SESSION_ID,
-#   WARDEN_MEMORY_FILE, WARDEN_TRANSCRIPT_FILE, WARDEN_ARCHIVED_JSONL
+#   WARDEN_AGENT           — agent name
+#   WARDEN_CHANNEL_KEY     — full channel key
+#   WARDEN_SESSION_ID      — Claude CLI session ID
+#   WARDEN_MEMORY_FILE     — path to the generated memory file
+#   WARDEN_TRANSCRIPT_FILE — path to the extracted transcript
+#   WARDEN_ARCHIVED_JSONL  — path to the archived JSONL
 
-export PATH="$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
 
-command -v gbrain >/dev/null 2>&1 || { echo "[$(date -Iseconds)] GBRAIN: gbrain not found even after PATH fix"; exit 0; }
+command -v gbrain >/dev/null 2>&1 || {
+  echo "[$(date -Iseconds)] GBRAIN: gbrain CLI not found in PATH — skipping"
+  exit 0
+}
 
 [ -f "$WARDEN_MEMORY_FILE" ] || exit 0
 

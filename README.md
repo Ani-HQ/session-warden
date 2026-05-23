@@ -2,99 +2,99 @@
 
 Auto-rotate bloated Claude Code sessions. Preserve agent memory across rotations so agents pick up where they left off.
 
+## Who this is for
+
+Anyone running Claude Code as a persistent agent — via [OpenClaw](https://github.com/openclaw/openclaw), a custom wrapper, or manual `--resume` workflows. If your sessions accumulate tokens until they die, and you lose context every time, this fixes that.
+
 ## The problem
 
-Claude Code sessions accumulate tokens, turns, and JSONL file size over time. Eventually they hit limits — token bloat, context overflow, compaction loops — and the session dies. If you're running Claude Code as a persistent agent (via OpenClaw, a custom wrapper, or manual `--resume` workflows), you're stuck with a dead session and no memory of what was happening.
+Claude Code sessions accumulate tokens, turns, and JSONL file size over time. Eventually they hit limits — token bloat, context overflow, compaction loops — and the session dies. You're left with a dead session and no memory of what was happening.
 
-For OpenClaw users specifically: when a session fails, OpenClaw keeps the dead session ID pinned and resumes it on every new message, creating an infinite error loop that looks like an Anthropic rate limit. It's not. It's a stale pointer.
+For OpenClaw users specifically: when a session fails, OpenClaw keeps the dead session ID pinned and resumes it on every new message, creating an infinite error loop. It's not a rate limit. It's a stale pointer.
 
-## What the warden does
+## How it works
 
-Every 2 minutes, a cron job scans Claude Code session state. When it finds a session that's failed or exceeds configurable thresholds (tokens, turns, file size, compaction count), it runs a rotation:
+A cron job runs every 30 seconds. When it finds a session that's failed or exceeds configurable thresholds (tokens, turns, file size, compaction count), it runs a 4-step rotation:
 
-1. **Backup** session state (safety net)
-2. **Archive** the session JSONL (never deleted — it's the memory source)
-3. **Delete** the stale session reference
-4. **Restart** the agent gateway (OpenClaw) or signal for manual restart
+1. **Detect** — scan session state for bloat, failures, or zombies (dead CLI process with stale JSONL)
+2. **Rotate** — backup state, archive the JSONL (never deleted), clean up the stale session reference
+3. **Summarize** — extract the full conversation (text + tool actions), summarize with a fast model (Haiku), write to Claude Code's native memory system
+4. **Restart** — restart the agent gateway so agents boot with full context already loaded
 
-The agent comes back online in under a second.
+The agent comes back online in under a second, knowing what it was doing.
 
-## Session memory (the hard part)
+## Session memory
 
 Rotation without memory means the agent starts from scratch. The warden solves this in three layers:
 
-**Layer 1: Post-rotation summarization.** After the fast rotation, the warden extracts the full conversation — not just text messages, but every tool action (files edited, commands run, branches created, PRs opened) — from the archived JSONL. A fast model (Haiku) summarizes this into a structured memory entry written to Claude Code's native memory system (`~/.claude/projects/.../memory/`). The agent reads this automatically on its next session start.
+**Layer 1: Post-rotation summarization.** The warden extracts the full conversation — not just text messages, but every tool action (files edited, commands run, branches created) — from the archived JSONL. A fast model (Haiku) summarizes this into a structured memory entry written to Claude Code's native memory system (`~/.claude/projects/.../memory/`). The agent reads this automatically on its next session start.
 
-**Layer 2: Per-channel memory.** Each channel/context gets its own memory file. If an agent is active in 5 channels, each channel's context stays separate. On the next rotation, the file is replaced with the latest context — no unbounded growth.
+**Layer 2: Per-channel memory.** Each channel/context gets its own memory file. If an agent is active in 5 channels, each channel's context stays separate. On the next rotation, the file is replaced — no unbounded growth.
 
-**Layer 3: Agent-side discipline.** Agents are instructed via `CLAUDE.md` to proactively write important context to memory *during* the session, not just at rotation time. If the session dies unexpectedly, the critical context is already persisted.
+**Layer 3: Agent-side discipline.** Agents are instructed via `CLAUDE.md` to proactively write important context to memory during the session. If the session dies unexpectedly, the critical context is already persisted.
 
 Session boundaries become invisible.
 
-## Architecture
-
-```
-session-warden/
-├── bin/
-│   ├── scan.sh              # cron entry point (every 2 min)
-│   ├── rotate.sh            # fast-path: backup, archive, delete, restart
-│   ├── summarize.sh         # async: extract, summarize, write memory
-│   ├── cleanup-archives.sh  # delete old archived JSONL files (cron daily)
-│   ├── mcp-supervisor.sh    # keep MCP servers alive across rotations
-│   └── patch-output-limits.sh  # bump OpenClaw CLI output buffer limits
-├── lib/
-│   ├── detect.sh            # threshold + status checks
-│   ├── extract.sh           # JSONL → conversation transcript (text + tools)
-│   ├── memory.sh            # write to Claude Code native memory
-│   └── notify.sh            # Telegram alerts
-├── scripts/
-│   └── patch-error-humanizer.sh  # humanize OpenClaw error messages via Gemini
-├── hooks/
-│   └── post-summary/        # extensible: drop .sh scripts here
-│       └── 01-gbrain.sh     # example: ingest to GBrain
-├── config/
-│   ├── thresholds.env.example
-│   └── thresholds.env       # your config (gitignored)
-├── install.sh
-└── .gitignore
-```
-
-## Install
+## Quick start
 
 ```bash
-git clone https://github.com/Ani-HQ/session-warden.git ~/session-warden
+git clone https://github.com/ani-computer/session-warden.git ~/session-warden
 cd ~/session-warden
-
-# Create config from example
-cp config/thresholds.env.example config/thresholds.env
-# Edit config — set paths, thresholds, optional Telegram credentials
-vim config/thresholds.env
-
-# Install cron job
 bash install.sh
 ```
 
-### Dependencies
+The installer will:
+- Check dependencies (`jq`, `claude` CLI, `curl`)
+- Detect your OpenClaw installation path
+- Create a config file from the example (edit it to tune thresholds)
+- Install cron entries (every 30 seconds)
 
-- `jq` — JSON processing
-- `claude` CLI — session summarization (uses Haiku by default)
-- `curl` — Telegram alerts (optional)
+### CLI
+
+After install, use the `session-warden` CLI:
+
+```bash
+# show session health across all agents
+~/session-warden/bin/session-warden status
+
+# dry run — see what would be rotated
+~/session-warden/bin/session-warden scan --dry-run
+
+# manually rotate a specific session
+~/session-warden/bin/session-warden rotate my-agent discord-general
+
+# tail the log
+~/session-warden/bin/session-warden logs -f
+
+# show version
+~/session-warden/bin/session-warden version
+```
+
+Optionally, add `~/session-warden/bin` to your PATH for shorter commands.
 
 ### Verify
 
 ```bash
-# Check cron is installed
+# check cron is installed
 crontab -l | grep session-warden
 
-# Dry run — see what would be rotated without doing it
-WARDEN_DRY_RUN=1 bash ~/session-warden/bin/scan.sh
+# dry run
+~/session-warden/bin/session-warden scan --dry-run
 cat ~/session-warden/state/scan.log
 
-# Test Telegram alerts
+# test telegram alerts (optional)
 source ~/session-warden/config/thresholds.env
 source ~/session-warden/lib/notify.sh
 notify_test
 ```
+
+## Dependencies
+
+- `jq` — JSON processing
+- `claude` CLI (Anthropic) — session summarization via Haiku
+- `curl` — Telegram alerts (optional)
+- `python3` — crash buffer detection (optional, for Discord crash recovery)
+- OpenClaw — the warden manages sessions stored in `~/.openclaw/agents/`
 
 ## Configuration
 
@@ -102,21 +102,72 @@ All config lives in `config/thresholds.env`. Key settings:
 
 | Setting | Default | Description |
 |---|---|---|
-| `WARDEN_MAX_TOKENS` | 2000000 | Rotate when session exceeds this token count |
+| `WARDEN_MAX_TOKENS` | 2,000,000 | Rotate when session exceeds this token count |
 | `WARDEN_MAX_TURNS` | 500 | Rotate when session exceeds this many turns |
-| `WARDEN_MAX_BYTES` | 4194304 | Rotate when JSONL exceeds 4MB |
+| `WARDEN_MAX_BYTES` | 4,194,304 | Rotate when JSONL exceeds 4 MB |
 | `WARDEN_MAX_COMPACTIONS` | 10 | Rotate after this many compaction cycles |
-| `WARDEN_MAX_CONSECUTIVE_FAILURES` | 3 | Back off after this many consecutive failures |
+| `WARDEN_MAX_CONSECUTIVE_FAILURES` | 3 | Back off after N consecutive rotation failures |
 | `WARDEN_COOLDOWN_SECONDS` | 600 | Skip re-rotating same session within this window |
 | `WARDEN_GATEWAY_RESTART_COOLDOWN_SECONDS` | 300 | Minimum seconds between gateway restarts |
-| `WARDEN_SUMMARY_MODEL` | claude-haiku-4-5-20251001 | Model for summarization |
-| `WARDEN_SCAN_AGENTS` | (blank) | Space-separated agent allowlist. Empty = scan all. |
+| `WARDEN_SUMMARY_MODEL` | claude-haiku-4-5-20251001 | Model for summarization (any Claude model works) |
+| `WARDEN_SCAN_AGENTS` | (empty) | Space-separated agent allowlist. Empty = scan all |
 | `WARDEN_ARCHIVE_RETENTION_DAYS` | 7 | Delete archived JSONL files older than this |
 | `WARDEN_DRY_RUN` | 0 | Set to 1 to log without rotating |
-| `WARDEN_TELEGRAM_BOT_TOKEN` | (blank) | Telegram bot token for alerts |
-| `WARDEN_TELEGRAM_CHAT_ID` | (blank) | Telegram chat ID for alerts |
+| `WARDEN_TELEGRAM_BOT_TOKEN` | (empty) | Telegram bot token for rotation alerts |
+| `WARDEN_TELEGRAM_CHAT_ID` | (empty) | Telegram chat ID for rotation alerts |
 
-All `WARDEN_*` variables can be overridden via environment (env takes precedence over config file).
+All `WARDEN_*` variables can be overridden via environment (env takes precedence over the config file).
+
+## Architecture
+
+```
+session-warden/
+├── bin/
+│   ├── session-warden       # CLI entrypoint (scan, status, rotate, install, logs)
+│   ├── scan.sh              # cron entry point (every 30s)
+│   ├── rotate.sh            # fast-path: backup, archive, cleanup
+│   ├── summarize.sh         # extract transcript, summarize, write memory
+│   ├── status.sh            # show session health across all agents
+│   ├── context-sync.sh      # periodic context capture for active sessions
+│   ├── cleanup-archives.sh  # delete old archived JSONL (cron daily)
+│   └── mcp-supervisor.sh    # keep MCP servers alive across rotations
+├── lib/
+│   ├── detect.sh            # threshold + zombie detection
+│   ├── extract.sh           # JSONL → conversation transcript (text + tools)
+│   ├── memory.sh            # summarize + write to Claude Code native memory
+│   ├── notify.sh            # Telegram alerts
+│   ├── channel-history.sh   # fetch recent Discord/Telegram messages
+│   ├── detect-unprocessed.py  # identify unprocessed messages after crash
+│   └── write-crash-buffer.py  # write crash buffer JSON
+├── hooks/
+│   └── post-summary/       # extensible: drop .sh scripts here
+│       └── 01-gbrain.sh    # ingest memory into GBrain
+├── contrib/
+│   └── openclaw-patches/   # optional OpenClaw JS patches (version-specific)
+├── tests/                  # full test suite
+├── config/
+│   ├── thresholds.env.example
+│   └── thresholds.env      # your config (gitignored)
+├── state/                  # runtime state (gitignored)
+├── install.sh
+└── LICENSE
+```
+
+### Data flow
+
+```
+cron (30s)
+  └─ scan.sh
+       ├─ detect.sh → find bloated/failed/zombie sessions
+       ├─ rotate.sh → backup, archive JSONL, cleanup session reference
+       │    └─ channel-history.sh → capture unprocessed Discord messages
+       ├─ summarize.sh (synchronous, before restart)
+       │    ├─ extract.sh → JSONL → human-readable transcript
+       │    ├─ memory.sh → Haiku summarization → Claude Code memory
+       │    └─ hooks/post-summary/*.sh (background)
+       ├─ openclaw gateway restart
+       └─ send recovery messages to agents
+```
 
 ## Hooks
 
@@ -131,71 +182,64 @@ Drop executable `.sh` scripts in `hooks/post-summary/` to extend the warden. The
 | `WARDEN_TRANSCRIPT_FILE` | Path to the extracted transcript |
 | `WARDEN_ARCHIVED_JSONL` | Path to the archived JSONL |
 
-Scripts run in alphabetical order. Failures are logged but don't block other hooks.
+Scripts run in alphabetical order. Failures are logged but don't block other hooks or the gateway restart.
 
-### Example hooks
-
-- `01-gbrain.sh` — ingest into [GBrain](https://github.com/garrytan/gbrain) for cross-agent memory access
-- Write your own for Notion, Slack, Postgres, or any other backend
+Example hooks you could write:
+- Ingest memory into a knowledge base (the included `01-gbrain.sh` does this for GBrain)
+- Post rotation summaries to Slack or Discord
+- Archive transcripts to S3 or GCS
+- Write to a Postgres audit log
 
 ## Extra tools
 
-### Archive cleanup
-
-Archived JSONL files accumulate on disk after rotations. Run the cleanup script daily via cron to delete files older than `WARDEN_ARCHIVE_RETENTION_DAYS` (default: 7 days).
-
-```bash
-# Add to crontab
-30 3 * * * /path/to/session-warden/bin/cleanup-archives.sh
-```
-
 ### MCP supervisor
 
-Heavy MCP servers (like Notion) restart every time the CLI session rotates, adding 10-15s of cold-start latency. The supervisor keeps them running as persistent HTTP processes that survive rotations.
+Keeps heavy MCP servers (like Notion) running as persistent HTTP processes that survive CLI session rotations. Define your servers in `config/mcp-servers.env` or edit the defaults in the script.
 
 ```bash
-# Start persistent MCP servers
 bash ~/session-warden/bin/mcp-supervisor.sh start
-
-# Check status
 bash ~/session-warden/bin/mcp-supervisor.sh status
-
-# Ensure all servers are running (idempotent, good for cron)
-bash ~/session-warden/bin/mcp-supervisor.sh ensure
+bash ~/session-warden/bin/mcp-supervisor.sh ensure  # idempotent, good for cron
 ```
 
-Notion server ports are defined in the script (default: 4001-4003). After starting, run `sync-agent-mcps.sh` to update agent MCP configs to use the persistent HTTP endpoints instead of stdio.
+### Archive cleanup
 
-### Output limits patch
-
-OpenClaw has hardcoded limits on CLI stdout buffer size that kill agent sessions mid-turn, especially when processing images. This script bumps the limits in the compiled JS.
+Archived JSONL files accumulate on disk. Run the cleanup script daily via cron.
 
 ```bash
-bash ~/session-warden/bin/patch-output-limits.sh
+# add to crontab
+30 3 * * * ~/session-warden/bin/cleanup-archives.sh
 ```
 
-Must be re-run after every `npm update -g openclaw`.
+## OpenClaw patches (contrib)
 
-### Error humanizer
+The `contrib/openclaw-patches/` directory contains optional scripts that patch OpenClaw's compiled JavaScript to fix specific runtime issues (output limits, watchdog behavior, error messages). They're version-specific and must be re-run after every `npm update -g openclaw`. See [contrib/openclaw-patches/README.md](contrib/openclaw-patches/README.md).
 
-Patches the OpenClaw gateway to rewrite generic error messages ("Something went wrong") into human, self-deprecating messages using Gemini Flash. Reads the Google API key from `openclaw.json` at patch time.
+## Tests
 
 ```bash
-bash ~/session-warden/scripts/patch-error-humanizer.sh
+# run the full test suite
+bash tests/run-tests.sh
+
+# run a single test file
+bash tests/run-tests.sh test-detect
+
+# verbose output
+bash tests/run-tests.sh -v
 ```
 
-Idempotent (checks for a marker before patching). Must be re-run after OpenClaw updates.
+Tests use a sandboxed mock environment — no real OpenClaw sessions, cron entries, or API calls are touched.
 
 ## Monitoring
 
 ```bash
-# Watch the log
+# watch the log
 tail -f ~/session-warden/state/scan.log
 
-# Check for recent rotations
+# check for recent rotations
 grep "ROTATE complete" ~/session-warden/state/scan.log
 
-# Check for errors
+# check for errors
 grep "ERROR" ~/session-warden/state/scan.log
 ```
 
@@ -204,18 +248,20 @@ grep "ERROR" ~/session-warden/state/scan.log
 | Symptom | Fix |
 |---|---|
 | No rotations happening | Check cron: `crontab -l \| grep warden`. Check log for errors. |
-| Telegram alerts not arriving | Run `notify_test`. Verify bot token and chat ID. Bot must have messaged the user before. |
-| Agent still broken after rotation | Check session state — is the stale reference actually deleted? Check gateway restarted. |
+| Telegram alerts not arriving | Run `notify_test`. Verify bot token and chat ID. |
+| Agent still broken after rotation | Check session state: is the stale reference deleted? Check gateway restarted. |
 | False-positive rotations | Raise thresholds in `thresholds.env`. |
 | Summarization failing | Check `claude` CLI works: `claude -p --model claude-haiku-4-5-20251001 "test"` |
+| Zombie detection too aggressive | Increase `stale_threshold` in `detect.sh` (default: 30 min). |
 
 ## Related issues
 
 This tool addresses problems reported across the Claude Code and OpenClaw ecosystems:
 
-- [openclaw#64463](https://github.com/openclaw/openclaw/issues/64463) — `session.maxTokensPerSession` (the warden enforces this externally)
-- [openclaw#71555](https://github.com/openclaw/openclaw/issues/71555) — large session JSONL crashes gateway
-- [openclaw#70853](https://github.com/openclaw/openclaw/issues/70853) — session continuity lost after reset
+- Session token accumulation with no auto-rotation
+- Large JSONL files crashing the gateway
+- Session continuity lost after forced resets
+- Infinite error loops from stale session pointers
 
 ## License
 

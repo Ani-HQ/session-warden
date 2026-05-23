@@ -1,7 +1,22 @@
+# Runtime state (all transient)
 state/
+
+# User config (contains tokens, paths)
+config/thresholds.env
+
+# Archives and transcripts
 *.log
 *.tmp
 *.pre-rotate-*
 *.archived-*
 *.transcript
-config/thresholds.env
+
+# Test artifacts
+/tmp/session-warden-test-*
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

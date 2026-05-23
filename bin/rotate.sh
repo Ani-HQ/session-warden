@@ -6,9 +6,10 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WARDEN_HOME="$(dirname "$SCRIPT_DIR")"
+WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/notify.sh"
+source "${WARDEN_HOME}/lib/channel-history.sh"
 
 log() {
   echo "[$(date -Iseconds)] $*" >> "${WARDEN_LOG_FILE}"
@@ -31,7 +32,7 @@ else
 fi
 ts=$(date +%Y%m%d-%H%M%S)
 
-LOCK_DIR=/tmp/session-warden-locks
+LOCK_DIR="${WARDEN_HOME}/state/locks"
 mkdir -p "$LOCK_DIR"
 lock_file="${LOCK_DIR}/${agent}.lock"
 
@@ -133,10 +134,14 @@ fi
 # (which follows in scan.sh) will read the cleaned state.
 if [ -f "$sessions_json" ]; then
   jq --arg key "$channel_key" '
-    if has($key) then .[$key].cliSessionIds = null else . end
+    if has($key) then
+      .[$key].cliSessionIds = null |
+      .[$key].claudeCliSessionId = null |
+      .[$key].cliSessionBindings = null
+    else . end
   ' "$sessions_json" > "${sessions_json}.tmp" && \
     mv "${sessions_json}.tmp" "$sessions_json" || \
-    log "WARN: jq cliSessionIds cleanup failed for $channel_key"
+    log "WARN: jq session cleanup failed for $channel_key"
 fi
 
 date +%s > "$cooldown_file"
@@ -149,6 +154,19 @@ else
 fi
 
 log "ROTATE complete agent=$agent channel=$channel_key (fast path done)"
+
+# Step 3.5: capture crash buffer for ALL rotations (not just failures).
+# Fetches recent Discord/Telegram messages so the agent boots knowing what
+# the user said right before rotation. Must run BEFORE summary.
+if true; then
+  log "CRASH-BUFFER: capturing for $agent/$channel_key (reason=$reason)"
+  _cb_updated_at=$(jq -r --arg key "$channel_key" '.[$key].updatedAt // 0' "$sessions_json" 2>/dev/null)
+  if capture_crash_buffer "$agent" "$channel_key" "${_cb_updated_at:-0}"; then
+    log "CRASH-BUFFER: captured successfully"
+  else
+    log "CRASH-BUFFER: nothing to capture (no unprocessed messages or channel not supported)"
+  fi
+fi
 
 # Step 4: queue async summary (non-blocking)
 if [ -n "$archived_jsonl" ] && [ -f "$archived_jsonl" ]; then
@@ -167,8 +185,8 @@ EOF
   log "SUMMARY queued for async processing"
 fi
 
-# Queue recovery message for dead sessions — sent after gateway restart
-if [[ "$reason" =~ ^(FAILED|ZOMBIE)$ ]]; then
+# Queue recovery message for ALL rotated sessions — sent after gateway restart
+if true; then
   recovery_dir="${WARDEN_HOME}/state/pending-recoveries"
   mkdir -p "$recovery_dir"
   cat > "${recovery_dir}/${agent}-${ts}.json" << REOF

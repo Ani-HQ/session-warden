@@ -6,7 +6,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WARDEN_HOME="$(dirname "$SCRIPT_DIR")"
+WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
 
 RETENTION_DAYS="${WARDEN_ARCHIVE_RETENTION_DAYS:-7}"

@@ -4,6 +4,11 @@
 MEMORY_MODEL="${WARDEN_SUMMARY_MODEL:-claude-haiku-4-5-20251001}"
 MEMORY_MAX_FILE_BYTES="${WARDEN_MEMORY_MAX_BYTES:-16384}"
 
+# Source channel-history for crash buffer support
+if [ -f "${WARDEN_HOME}/lib/channel-history.sh" ]; then
+  source "${WARDEN_HOME}/lib/channel-history.sh"
+fi
+
 # Resolve the Claude Code memory directory for an agent
 claude_memory_dir() {
   local agent="$1"
@@ -218,26 +223,50 @@ write_workspace_context() {
   }
 
   # 1. Write standalone CONTEXT.md (used by recovery messages to inline context)
+  # Include crash buffer if it exists (unprocessed messages from before the crash)
+  local crash_buffer_content=""
+  if type read_crash_buffer &>/dev/null; then
+    crash_buffer_content=$(read_crash_buffer "$agent" "$channel_key")
+  fi
+
   cat > "$context_file" << CTXEOF
 _Last updated: ${ts} | Session: ${cli_session_id} | Channel: ${channel_key}_
 
 ${summary}
 CTXEOF
-  log "MEMORY: wrote CONTEXT.md for $agent ($(stat -c%s "$context_file") bytes)"
+
+  # Append crash buffer if present
+  if [ -n "$crash_buffer_content" ]; then
+    printf '\n%s\n' "$crash_buffer_content" >> "$context_file"
+  fi
+
+  log "MEMORY: wrote CONTEXT.md for $agent ($(stat -c%s "$context_file") bytes, crash_buffer=$([ -n "$crash_buffer_content" ] && echo "yes" || echo "no"))"
 
   # 2. Inject into workspace MEMORY.md (bootstrap loads this into system prompt)
   local existing=""
   if [ -f "$memory_file" ]; then
-    # Strip any previous auto-injected section between markers
+    # Strip any previous auto-injected sections between markers
     existing=$(awk '
       /^<!-- SESSION-WARDEN-START -->/{skip=1; next}
       /^<!-- SESSION-WARDEN-END -->/{skip=0; next}
+      /^<!-- CRASH-BUFFER-START -->/{skip=1; next}
+      /^<!-- CRASH-BUFFER-END -->/{skip=0; next}
       !skip{print}
     ' "$memory_file")
   fi
 
+  # Build crash buffer block for MEMORY.md
+  local crash_buffer_block=""
+  if [ -n "$crash_buffer_content" ]; then
+    crash_buffer_block="<!-- CRASH-BUFFER-START -->
+${crash_buffer_content}
+<!-- CRASH-BUFFER-END -->
+
+"
+  fi
+
   cat > "$memory_file" << MEMEOF
-<!-- SESSION-WARDEN-START -->
+${crash_buffer_block}<!-- SESSION-WARDEN-START -->
 ## Previous Session Context (auto-injected by session-warden, do not edit this section)
 
 _Updated: ${ts} | Channel: ${channel_key}_
