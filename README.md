@@ -38,7 +38,7 @@ Session boundaries become invisible.
 ## Quick start
 
 ```bash
-git clone https://github.com/ani-computer/session-warden.git ~/session-warden
+git clone https://github.com/Ani-HQ/session-warden.git ~/session-warden
 cd ~/session-warden
 bash install.sh
 ```
