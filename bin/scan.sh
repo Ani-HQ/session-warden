@@ -13,6 +13,7 @@ source "${WARDEN_HOME}/config/thresholds.env"
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
+source "${WARDEN_HOME}/lib/gbrain.sh"
 
 LOG_FILE="${WARDEN_LOG_FILE}"
 LOCKFILE="${WARDEN_HOME}/state/scan.lock"
@@ -112,6 +113,11 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         ragent=$(jq -r '.agent' "$rfile")
         rchannel=$(jq -r '.channel_key' "$rfile")
 
+        # GBrain cross-session synthesis (bounded; empty on failure). Pulls a
+        # cited briefing across ALL of this agent's recent sessions, not just
+        # the last transcript — the recovery upgrade over flat CONTEXT.md.
+        gbrain_brief=$(gbrain_query_context "$ragent" "$rchannel" 2>/dev/null)
+
         # Build recovery message with inlined context AND crash buffer
         context_file="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/CONTEXT.md"
         recovery_msg=""
@@ -150,6 +156,16 @@ Execute these immediately without asking anyone to repeat themselves. Send one s
           else
             recovery_msg="You just came back from a session restart. Check the recent messages in this channel to find what you were working on. Your MEMORY.md may have older context but the channel messages are the source of truth for your current task. Send a short message saying you're back, then resume work."
           fi
+        fi
+
+        # Append GBrain cross-session synthesis to whichever message was built.
+        if [ -n "$gbrain_brief" ]; then
+          recovery_msg="${recovery_msg}
+
+## Cross-session brief (synthesized from GBrain knowledge graph)
+This is graph-wide context for you (${ragent}) across recent sessions. Use it to orient, but the channel's most recent messages remain the source of truth for your current task.
+
+${gbrain_brief}"
         fi
 
         timeout 180 openclaw agent \

@@ -10,6 +10,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/memory.sh"
+source "${WARDEN_HOME}/lib/gbrain.sh"
 
 LOG_FILE="${WARDEN_LOG_FILE}"
 LOCKFILE="${WARDEN_HOME}/state/context-sync.lock"
@@ -72,6 +73,14 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
       echo "$jsonl_mtime" > "$state_file"
       synced=$((synced + 1))
       log "CONTEXT-SYNC: updated $agent/$channel_key"
+
+      # Push live context to GBrain so healthy long-running sessions are in the
+      # graph too — not just rotated ones. Upserts a single live page per
+      # session (mode=live). Embedding is deferred to the nightly dream-cycle.
+      mem_dir=$(claude_memory_dir "$agent")
+      live_mem_file="${mem_dir}/session_$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').md"
+      gbrain_ingest_session "$agent" "$channel_key" "$cli_session_id" "$live_mem_file" "live" \
+        >> "$LOG_FILE" 2>&1 || log "CONTEXT-SYNC: gbrain ingest failed for $agent/$channel_key (non-fatal)"
     else
       log "CONTEXT-SYNC: write failed for $agent/$channel_key"
     fi
