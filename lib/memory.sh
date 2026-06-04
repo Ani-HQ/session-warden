@@ -123,6 +123,9 @@ Output exactly these sections:
 ## Context for next session
 (anything that would be confusing without this note — why something was done, blockers, relationships between tasks)
 
+## Entities
+(wikilinks to the named people, projects, repos, companies, or products this session touched, for the knowledge graph. One per line, using [[type/slug]] form with a lowercase-kebab slug. Allowed types: project, company, person, deal, repo. Examples: [[project/duet-capi]], [[company/instantly]], [[person/tejas-rane]], [[repo/session-warden]]. Only real named entities, max 8. Omit the section entirely if none.)
+
 TRANSCRIPT:
 ${transcript}" 2>/dev/null)
 

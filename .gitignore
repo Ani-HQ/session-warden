@@ -20,3 +20,6 @@ config/thresholds.env
 *~
 .vscode/
 .idea/
+
+# Python bytecode
+__pycache__/

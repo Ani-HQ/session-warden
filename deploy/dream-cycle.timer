@@ -1,0 +1,11 @@
+[Unit]
+Description=Run session-warden GBrain dream-cycle nightly
+
+[Timer]
+# 03:30 local time daily, with jitter; catch up if the machine was asleep.
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

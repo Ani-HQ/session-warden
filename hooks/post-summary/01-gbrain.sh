@@ -1,41 +1,24 @@
 #!/usr/bin/env bash
-# 01-gbrain.sh — ingest session memory into GBrain after rotation
+# 01-gbrain.sh — ingest session memory into GBrain as a TYPED, LINKED page.
 #
-# GBrain is session-warden's recommended knowledge base for cross-agent memory.
-# After each rotation, this hook pushes the summarized memory into GBrain so
-# other agents (or humans) can query what happened across all sessions.
-#
-# Install GBrain: https://github.com/garrytan/gbrain
+# GBrain (https://github.com/garrytan/gbrain) is a self-wiring knowledge graph.
+# This hook writes each rotated session as a `note` page linked to its agent
+# (performed_by) and to any entities it mentions, so the brain is queryable by
+# agent and by entity — not a flat orphan dump.
 #
 # Env vars set by summarize.sh:
-#   WARDEN_AGENT           — agent name
-#   WARDEN_CHANNEL_KEY     — full channel key
-#   WARDEN_SESSION_ID      — Claude CLI session ID
-#   WARDEN_MEMORY_FILE     — path to the generated memory file
-#   WARDEN_TRANSCRIPT_FILE — path to the extracted transcript
-#   WARDEN_ARCHIVED_JSONL  — path to the archived JSONL
+#   WARDEN_AGENT, WARDEN_CHANNEL_KEY, WARDEN_SESSION_ID,
+#   WARDEN_MEMORY_FILE, WARDEN_TRANSCRIPT_FILE, WARDEN_ARCHIVED_JSONL
+#
+# Install GBrain: https://github.com/garrytan/gbrain
 
-export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+WARDEN_HOME="${WARDEN_HOME:-$HOME/session-warden}"
+source "${WARDEN_HOME}/lib/gbrain.sh"
 
-command -v gbrain >/dev/null 2>&1 || {
-  echo "[$(date -Iseconds)] GBRAIN: gbrain CLI not found in PATH — skipping"
-  exit 0
-}
-
-[ -f "$WARDEN_MEMORY_FILE" ] || exit 0
-
-short_id="${WARDEN_SESSION_ID:0:8}"
-date_str=$(date +%Y-%m-%d)
-slug="session-warden/${date_str}/${WARDEN_AGENT}-${short_id}"
-
-content=$(cat "$WARDEN_MEMORY_FILE")
-
-if echo "$content" | gbrain put "$slug" 2>&1; then
-  gbrain tag "$slug" "session-warden" 2>&1
-  gbrain tag "$slug" "$WARDEN_AGENT" 2>&1
-  gbrain tag "$slug" "rotation" 2>&1
-  gbrain timeline-add "$slug" "$date_str" "Session rotated: ${WARDEN_AGENT} (${WARDEN_CHANNEL_KEY})" 2>&1
-  echo "[$(date -Iseconds)] GBRAIN: ingested $slug"
-else
-  echo "[$(date -Iseconds)] GBRAIN: failed to ingest $slug"
-fi
+gbrain_ingest_session \
+  "$WARDEN_AGENT" \
+  "$WARDEN_CHANNEL_KEY" \
+  "$WARDEN_SESSION_ID" \
+  "$WARDEN_MEMORY_FILE" \
+  "rotation" \
+  | while IFS= read -r line; do echo "[$(date -Iseconds)] $line"; done
