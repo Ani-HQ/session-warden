@@ -20,6 +20,16 @@
 
 export PATH="$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
 
+# GBrain's embed client (src/core/embedding.ts) reads process.env.OPENAI_API_KEY
+# directly — it does NOT use the stored gbrain config key. Cron does not source
+# ~/.bashrc, so without this the dream-cycle's `gbrain embed` fails auth and
+# burns ~60s of retry-backoff per chunk. Pull the key from ~/.bashrc if the
+# environment doesn't already carry one. (Set it in thresholds.env to override.)
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -f "$HOME/.bashrc" ]; then
+  export OPENAI_API_KEY="$(grep -hE '^[[:space:]]*export[[:space:]]+OPENAI_API_KEY=' "$HOME/.bashrc" 2>/dev/null \
+    | tail -1 | sed -E "s/^[[:space:]]*export[[:space:]]+OPENAI_API_KEY=//; s/^[\"']//; s/[\"']$//")"
+fi
+
 # Bound every gbrain CLI call so a slow/hung remote brain never blocks rotation.
 GBRAIN_TIMEOUT="${WARDEN_GBRAIN_TIMEOUT:-25}"
 
