@@ -74,7 +74,7 @@ fi
 # actively working. Defer rotation to avoid killing it mid-response.
 WARDEN_ACTIVE_THRESHOLD_SECS="${WARDEN_ACTIVE_THRESHOLD_SECS:-60}"
 if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
-  jsonl_mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+  jsonl_mtime=$(stat -f %m "$jsonl_file" 2>/dev/null || stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
   now_epoch=$(date +%s)
   age=$((now_epoch - jsonl_mtime))
   if [ "$age" -lt "$WARDEN_ACTIVE_THRESHOLD_SECS" ]; then

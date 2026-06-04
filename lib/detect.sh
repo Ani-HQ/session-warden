@@ -81,7 +81,7 @@ detect_sessions_problems() {
       local is_stale=0
       if [ -f "$jsonl_file" ]; then
         local mtime
-        mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+        mtime=$(stat -f %m "$jsonl_file" 2>/dev/null || stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
         [ $((now_epoch - mtime)) -gt "$stale_threshold" ] && is_stale=1
       else
         is_stale=1
