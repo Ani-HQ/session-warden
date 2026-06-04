@@ -33,8 +33,13 @@ gbrain_available || { echo "gbrain CLI not found"; exit 1; }
 linked=0; anchored=0
 # session-warden pages are slugged session-warden/<date>/<agent>-<id>
 while IFS=$'\t' read -r slug rest; do
-  case "$slug" in session-warden/*) ;; *) continue ;; esac
-  # derive agent: third path segment up to last "-<hex>"
+  # Only dated rotation pages: session-warden/<date>/<agent>-<hexid>.
+  # live/ pages are linked at write-time by gbrain_ingest_session, so skip them.
+  case "$slug" in
+    session-warden/[0-9]*-[0-9]*-[0-9]*/*) ;;
+    *) continue ;;
+  esac
+  # derive agent: leaf with the trailing "-<hexid>" stripped
   leaf=$(basename "$slug")
   agent=$(echo "$leaf" | sed -E 's/-[0-9a-f]{6,}$//')
   [ -z "$agent" ] && continue
