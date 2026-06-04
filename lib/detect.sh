@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # detect.sh — find sessions that need rotation
 
+# Agent attribution (agent_from_sessions_path) lives in the shared lib.
+_DETECT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_DETECT_LIB_DIR}/agent-attribution.sh"
+
 # Check if a CLI process is alive for a given session ID
 is_cli_process_alive() {
   local cli_session_id="$1"
@@ -96,8 +100,4 @@ detect_sessions_problems() {
     select(.value.status != "failed") |
     "\(.key)|\(.value.cliSessionIds["claude-cli"])"
   ' "$sjson" 2>/dev/null)
-}
-
-agent_from_sessions_path() {
-  echo "$1" | sed -E 's|.*/agents/([^/]+)/sessions/.*|\1|'
 }
