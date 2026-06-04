@@ -1,0 +1,9 @@
+[Unit]
+Description=session-warden snapshot (capture standalone Claude Code sessions to GBrain)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/session-warden/bin/snapshot.sh
+# Inherit the same user environment the warden cron uses (PATH, OPENAI_API_KEY, etc.)
+Environment=HOME=%h

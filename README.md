@@ -35,6 +35,23 @@ Rotation without memory means the agent starts from scratch. The warden solves t
 
 Session boundaries become invisible.
 
+## Snapshot (standalone Claude Code sessions)
+
+Rotation and memory cover OpenClaw agent sessions. But you also run plain Claude Code sessions yourself — in repos, in your home dir, anywhere. The **snapshot module** (`bin/snapshot.sh`) captures those into GBrain so they become permanent, searchable, linked memory too.
+
+Every `WARDEN_SNAPSHOT_INTERVAL_MINUTES` (default 30) it:
+
+1. Scans `~/.claude/projects/**/*.jsonl` modified in the last `WARDEN_SNAPSHOT_WINDOW_MINUTES` (default 120)
+2. **Skips OpenClaw agent sessions** (path matches `*-openclaw-agents-*`) — those are already handled by context-sync (live) and rotation, so there's no double-ingestion
+3. Extracts the transcript (`lib/extract.sh`), summarizes it with Haiku, and writes a typed GBrain page at `sessions/<date>/<agent>-<shortid>` (tags `[session, snapshot, <agent>]`), linked `performed_by` to its agent and with `mentions` edges to any entities the summary names
+4. Tracks `{last_mtime, last_turn_count}` per session in `state/snapshot/state.json`, re-summarizing only when the file changed **and** at least `WARDEN_SNAPSHOT_MIN_TURNS` (default 4) new turns accrued — so most runs are cheap no-ops and Haiku only fires on real activity
+
+The agent each session is attributed to is resolved from its working directory (`lib/agent-attribution.sh`): OpenClaw agents by name, `ai-holdingco`/`crossval` project paths, your home dir as `home`, everything else `unknown`.
+
+**GBrain is a hard dependency for this module** — there is no graceful degradation. If the `gbrain` CLI isn't installed, snapshot exits with an error. GBrain is the canonical cross-session knowledge graph; snapshot writes there only (Claude Code's own auto-memory already handles local per-project persistence).
+
+Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cron entry; `deploy/snapshot.{service,timer}` are the systemd alternatives.
+
 ## Quick start
 
 ```bash
@@ -44,10 +61,10 @@ bash install.sh
 ```
 
 The installer will:
-- Check dependencies (`jq`, `claude` CLI, `curl`)
+- Check dependencies (`jq`, `claude` CLI, `curl`; `gbrain` is required for the snapshot module and GBrain memory)
 - Detect your OpenClaw installation path
 - Create a config file from the example (edit it to tune thresholds)
-- Install cron entries (every 30 seconds)
+- Install cron entries (rotation scan every 30 seconds; snapshot every 30 minutes)
 
 ### CLI
 
