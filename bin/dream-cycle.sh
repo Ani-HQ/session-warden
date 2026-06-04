@@ -51,9 +51,11 @@ if echo "$health" | grep -q '"status":"error"'; then
 fi
 
 # --- 3. Synthesize the daily digest ---------------------------------------
-# Collect today's session-warden pages and roll them up into one digest page
-# that links to each session.
-today_pages=$(gbrain list --tag session-warden -n 200 2>/dev/null | awk -v d="$date_str" '$0 ~ "session-warden/"d"/" {print $1}')
+# Collect today's session pages from BOTH producers — rotation/live pages
+# (session-warden/<date>/) and snapshot pages (sessions/<date>/) — and roll them
+# up into one digest page that links to each session.
+today_pages=$( { gbrain list --tag session-warden -n 200 2>/dev/null; gbrain list --tag snapshot -n 200 2>/dev/null; } \
+  | awk -v d="$date_str" '($1 ~ "^session-warden/"d"/") || ($1 ~ "^sessions/"d"/") {print $1}' | sort -u)
 
 if [ -n "$today_pages" ]; then
   digest_input=""

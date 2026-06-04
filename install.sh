@@ -94,19 +94,27 @@ mkdir -p \
   "$WARDEN_HOME/state/context-sync" \
   "$WARDEN_HOME/state/crash-buffers" \
   "$WARDEN_HOME/state/pending-recoveries" \
-  "$WARDEN_HOME/state/mcp-supervisor"
+  "$WARDEN_HOME/state/mcp-supervisor" \
+  "$WARDEN_HOME/state/snapshot"
 
 # ─── Install cron ─────────────────────────────────────────
 
 CRON_CMD_A="* * * * * /bin/bash ${WARDEN_HOME}/bin/scan.sh"
 CRON_CMD_B="* * * * * sleep 30 && /bin/bash ${WARDEN_HOME}/bin/scan.sh"
+SNAP_INTERVAL="${WARDEN_SNAPSHOT_INTERVAL_MINUTES:-30}"
+CRON_CMD_SNAP="*/${SNAP_INTERVAL} * * * * /bin/bash ${WARDEN_HOME}/bin/snapshot.sh"
 CRON_TAG="# session-warden"
 
-# Remove existing session-warden cron entries, then add fresh ones
-( crontab -l 2>/dev/null | grep -v "$CRON_TAG" ; echo "${CRON_CMD_A} ${CRON_TAG}" ; echo "${CRON_CMD_B} ${CRON_TAG}-30s" ) | crontab -
+# Remove existing session-warden cron entries, then add fresh ones.
+# (The snapshot tag also contains "# session-warden", so the grep -v clears it too.)
+( crontab -l 2>/dev/null | grep -v "$CRON_TAG" ; \
+  echo "${CRON_CMD_A} ${CRON_TAG}" ; \
+  echo "${CRON_CMD_B} ${CRON_TAG}-30s" ; \
+  echo "${CRON_CMD_SNAP} ${CRON_TAG}-snapshot" ) | crontab -
 
 echo "Installed:"
 echo "  Cron:    every 30 seconds -> ${WARDEN_HOME}/bin/scan.sh"
+echo "  Cron:    every ${SNAP_INTERVAL} min  -> ${WARDEN_HOME}/bin/snapshot.sh"
 echo "  Config:  ${CONFIG_FILE}"
 echo "  Log:     ${WARDEN_HOME}/state/scan.log"
 echo "  Agents:  ${OPENCLAW_HOME}/agents/"

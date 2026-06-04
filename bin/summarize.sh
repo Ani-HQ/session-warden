@@ -70,11 +70,6 @@ for job_file in "$PENDING_DIR"/*.json; do
 
   (
     exec 198>&-
-    if [ -x "${WARDEN_SNAPSHOTTER:-}" ]; then
-      "${WARDEN_SNAPSHOTTER}" >> "${WARDEN_LOG_FILE}" 2>&1 || \
-        echo "[$(date -Iseconds)] SUMMARY: snapshotter failed — non-fatal" >> "${WARDEN_LOG_FILE}"
-    fi
-
     for hook in "${WARDEN_HOME}/hooks/post-summary/"*.sh; do
       [ -x "$hook" ] || continue
       echo "[$(date -Iseconds)] HOOK: running $(basename "$hook")" >> "${WARDEN_LOG_FILE}"

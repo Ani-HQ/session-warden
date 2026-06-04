@@ -16,7 +16,7 @@
 #     CLI versions) rather than relying on implicit wikilink resolution.
 #
 # Used by: hooks/post-summary/01-gbrain.sh, bin/context-sync.sh,
-#          bin/scan.sh (recovery), bin/dream-cycle.sh
+#          bin/scan.sh (recovery), bin/dream-cycle.sh, bin/snapshot.sh
 
 export PATH="$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
 
@@ -161,6 +161,60 @@ gbrain_ingest_session() {
             | sed -E 's/^\[\[//; s/\]\]$//' | sort -u | head -12)
 
   echo "GBRAIN: ingested $slug (typed=note, linked to ${agent_slug})"
+  return 0
+}
+
+# Ingest a standalone (non-OpenClaw) Claude Code session into GBrain as a typed,
+# linked page. Used by bin/snapshot.sh. Unlike gbrain_ingest_session this is a
+# HARD dependency on gbrain (no gbrain_available guard) — bin/snapshot.sh checks
+# gbrain up front and exits if it's missing.
+#
+# Slug: sessions/<date>/<agent>-<shortid>   tags: [session, snapshot, <agent>]
+# Args: $1=agent  $2=session_id  $3=summary_file  $4=cwd  $5=turns
+gbrain_ingest_snapshot() {
+  local agent="$1" session_id="$2" summary_file="$3" cwd="$4" turns="$5"
+  [ -f "$summary_file" ] || { echo "GBRAIN: summary file missing ($summary_file)"; return 1; }
+
+  local short_id="${session_id:0:8}"
+  local date_str slug agent_slug
+  date_str=$(date +%Y-%m-%d)
+  slug="sessions/${date_str}/$(gbrain_slugify "$agent")-${short_id}"
+  agent_slug="agent/$(gbrain_slugify "$agent")"
+
+  local summary
+  summary=$(cat "$summary_file")
+
+  # Write the typed page (header block + the Haiku summary body).
+  printf -- '---\ntype: note\ntitle: %s session %s (%s)\nagent: %s\ntags:\n  - session\n  - snapshot\n  - %s\n---\n\n# Session %s (%s)\n\n- **Session ID:** `%s`\n- **CWD:** `%s`\n- **Turns:** %s\n- **Snapshotted at:** %s\n\n---\n\n%s\n' \
+    "$agent" "$short_id" "$date_str" "$agent" "$agent" \
+    "$short_id" "$agent" "$session_id" "$cwd" "$turns" "$(date -Iseconds)" "$summary" \
+    | _gb_put "$slug" || { echo "GBRAIN: put failed for $slug"; return 1; }
+
+  _gb tag "$slug" "session" >/dev/null 2>&1
+  _gb tag "$slug" "snapshot" >/dev/null 2>&1
+  _gb tag "$slug" "$agent" >/dev/null 2>&1
+
+  local first_line
+  first_line=$(grep -v '^[[:space:]]*$' "$summary_file" | head -1 | sed 's/^#*[[:space:]]*//' | head -c 100)
+  [ -n "$first_line" ] && _gb timeline-add "$slug" "$date_str" "Session ${short_id} (${agent}): ${first_line}" >/dev/null 2>&1
+
+  # --- Build the graph ---------------------------------------------------
+  # 1. performed_by edge to the agent (anchor the agent page if missing).
+  gbrain_ensure_page "$agent_slug" "agent" "$agent"
+  _gb link "$slug" "$agent_slug" --type performed_by >/dev/null 2>&1
+
+  # 2. mentions edges from [[wikilinks]] in the summary's Entities section.
+  local target tgt_type tgt_title
+  while IFS= read -r target; do
+    [ -z "$target" ] && continue
+    tgt_type=$(_gbrain_type_for "$target")
+    tgt_title=$(basename "$target" | tr '-' ' ')
+    gbrain_ensure_page "$target" "$tgt_type" "$tgt_title"
+    _gb link "$slug" "$target" --type mentions >/dev/null 2>&1
+  done < <(grep -oE '\[\[[a-zA-Z0-9/_-]+\]\]' "$summary_file" 2>/dev/null \
+            | sed -E 's/^\[\[//; s/\]\]$//' | sort -u | head -8)
+
+  echo "GBRAIN: ingested $slug (snapshot, linked to ${agent_slug})"
   return 0
 }
 
