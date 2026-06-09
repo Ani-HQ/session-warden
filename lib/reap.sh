@@ -108,23 +108,29 @@ reap_list_running() {
 }
 
 # ─── IMPURE: locate the agent CLI pid for a session ──────
-# Safety-gated so we NEVER kill a stray or interactive `claude` (e.g. a human's
-# Claude Code session, which has no OPENCLAW_MCP_* env). A pid qualifies only if
-# BOTH hold:
-#   1. its cmdline contains the cli session id (`--session-id <id>`), and
-#   2. its /proc environ has OPENCLAW_MCP_AGENT_ID == this agent.
-# Echoes the pid, or nothing. WARDEN_PROC (default /proc) is overridable for tests.
+# Match on /proc environ, NOT cmdline: the claude CLI overwrites its own process
+# title to bare "claude" shortly after startup, so `--session-id <id>` is gone
+# from cmdline for any process old enough to matter (verified 2026-06-09). The
+# env, however, is stable — openclaw sets OPENCLAW_MCP_SESSION_KEY (== the
+# sessions.json key) and OPENCLAW_MCP_AGENT_ID on every agent CLI child.
+#
+# A pid qualifies only if its environ has OPENCLAW_MCP_SESSION_KEY == this
+# session AND OPENCLAW_MCP_AGENT_ID == this agent. That precisely identifies the
+# child for THIS session and NEVER matches a stray/interactive `claude` (a
+# human's session has no OPENCLAW_MCP_* env). Echoes the pid, or nothing.
+# WARDEN_PROC (default /proc) is overridable for tests.
 reap_find_agent_pid() {
-  local cli_session_id="$1" agent="$2"
+  local session_key="$1" agent="$2"
   local procfs="${WARDEN_PROC:-/proc}"
-  [ -n "$cli_session_id" ] || return 0
+  [ -n "$session_key" ] || return 0
   local pid
-  for pid in $(pgrep -f -- "--session-id ${cli_session_id}" 2>/dev/null); do
+  for pid in $(pgrep -x claude 2>/dev/null); do
     local envfile="${procfs}/${pid}/environ"
     [ -r "$envfile" ] || continue
-    local env_agent
+    local env_agent env_key
     env_agent=$(tr '\0' '\n' < "$envfile" 2>/dev/null | sed -n 's/^OPENCLAW_MCP_AGENT_ID=//p' | head -1)
-    if [ -n "$env_agent" ] && [ "$env_agent" = "$agent" ]; then
+    env_key=$(tr '\0' '\n' < "$envfile" 2>/dev/null | sed -n 's/^OPENCLAW_MCP_SESSION_KEY=//p' | head -1)
+    if [ -n "$env_agent" ] && [ "$env_agent" = "$agent" ] && [ "$env_key" = "$session_key" ]; then
       echo "$pid"
       return 0
     fi

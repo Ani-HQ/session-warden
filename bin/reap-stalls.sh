@@ -162,7 +162,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     [ "$verdict" = "STUCK" ] || continue
 
     idle=$(( now - last_progress ))
-    pid=$(reap_find_agent_pid "$cli_session_id" "$agent")
+    pid=$(reap_find_agent_pid "$channel_key" "$agent")
     wchan="-"; [ -n "$pid" ] && wchan=$(reap_proc_wchan "$pid")
     tok=$(keytok "${agent}-${channel_key}")
     killed_marker="${REAP_STATE}/${tok}.killed"
