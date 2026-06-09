@@ -52,6 +52,27 @@ The agent each session is attributed to is resolved from its working directory (
 
 Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cron entry; `deploy/snapshot.{service,timer}` are the systemd alternatives.
 
+## Stall reaper (silent-hang backstop)
+
+OpenClaw's gateway runs an in-process watchdog that kills a turn whose CLI child stops making progress. It's fast and precise, but it shares a failure domain with the gateway: it lives in the compiled runtime (a string patch that no-ops after `npm update openclaw`) and it needs the gateway's own event loop healthy enough to fire. When either fails, an agent turn hangs forever and the channel goes silent with no reply.
+
+The **stall reaper** (`bin/reap-stalls.sh`) is the independent backstop. It reads gateway state from **disk and `/proc` only — never an RPC** — so it keeps working even when the gateway loop is wedged or the patch was wiped by an upgrade.
+
+A turn is **STUCK** when, for a session, all hold:
+
+1. `status == "running"` in the on-disk `sessions.json` (the gateway believes a turn is in flight — a live process alone can't tell you this, since idle sessions keep a persistent CLI process too)
+2. no forward progress — `max(updatedAt, session JSONL mtime)` is older than `WARDEN_STALL_HARD_CAP_SECONDS` (default 900s / 15 min). A healthy turn, however long, keeps appending its transcript; a network-stalled one can't write anything.
+
+The cap sits well **above** the in-gateway watchdog, so the reaper only fires when the fast layer didn't — it never touches healthy long turns. Process liveness is not part of the verdict; it decides the **action**:
+
+- **live wedged child found** → `SIGTERM`→`SIGKILL` it directly (`kill(2)`, fully gateway-independent). The gateway sees the child exit and fails the turn.
+- **no live child** (turn already died, gateway never cleared `running`) → clear the stale state on disk + hand off to recovery, without disrupting the other agents.
+- **still stuck on the next tick** after we acted → the gateway event loop itself isn't reacting → `openclaw gateway restart` (shared cooldown with `scan.sh`).
+
+Either way the killed session is marked failed and enqueued to `state/pending-recoveries/`, so `scan.sh`'s existing recovery drainer delivers the contextual "you're back" message. Process identity is safety-gated: a pid is only ever killed if its cmdline carries the session's `--session-id` **and** its `/proc/<pid>/environ` has `OPENCLAW_MCP_AGENT_ID` for that agent — so a human's own `claude` session is never touched. Honors `WARDEN_DRY_RUN=1`.
+
+Runs on its own cron tick every 30s. Config: `WARDEN_REAP_ENABLED`, `WARDEN_STALL_HARD_CAP_SECONDS`, `WARDEN_STALL_KILL_GRACE_SECONDS`.
+
 ## Quick start
 
 ```bash
