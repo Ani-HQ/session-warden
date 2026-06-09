@@ -69,7 +69,11 @@ The cap sits well **above** the in-gateway watchdog, so the reaper only fires wh
 - **no live child** (turn already died, gateway never cleared `running`) → clear the stale state on disk + hand off to recovery, without disrupting the other agents.
 - **still stuck on the next tick** after we acted → the gateway event loop itself isn't reacting → `openclaw gateway restart` (shared cooldown with `scan.sh`).
 
-Either way the killed session is marked failed and enqueued to `state/pending-recoveries/`, so `scan.sh`'s existing recovery drainer delivers the contextual "you're back" message. Process identity is safety-gated: a pid is only ever killed if its cmdline carries the session's `--session-id` **and** its `/proc/<pid>/environ` has `OPENCLAW_MCP_AGENT_ID` for that agent — so a human's own `claude` session is never touched. Honors `WARDEN_DRY_RUN=1`.
+Either way the killed session is marked failed and the reaper **delivers the "you're back" nudge itself** (`openclaw agent --deliver`, backgrounded), rather than depending on `scan.sh`'s drainer being scheduled — independence is the whole point.
+
+Process identity is safety-gated: a pid is only ever killed if its cmdline carries the session's `--session-id` **and** its `/proc/<pid>/environ` has `OPENCLAW_MCP_AGENT_ID` for that agent — so a human's own `claude` session is never touched. Honors `WARDEN_DRY_RUN=1`.
+
+**Contract self-check.** The reaper reads openclaw's on-disk `sessions.json` schema. If a future openclaw upgrade reshapes that file, detection would silently return nothing and the reaper would no-op — quietly reintroducing the silent hang. So each run validates the schema and, on drift (entries present but none expose `status` / `cliSessionIds` / `updatedAt`, or the file won't parse), logs loud and fires a Telegram alert (throttled hourly) instead of failing silent. This is the one piece that keeps it honest across openclaw versions: the disk + CLI contracts are far more stable than the compiled-JS patch's anchors, but a major version bump can still move them — and when it does, you get pinged, not silence.
 
 Runs on its own cron tick every 30s. Config: `WARDEN_REAP_ENABLED`, `WARDEN_STALL_HARD_CAP_SECONDS`, `WARDEN_STALL_KILL_GRACE_SECONDS`.
 

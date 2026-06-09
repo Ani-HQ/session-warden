@@ -70,6 +70,29 @@ reap_stall_verdict() {
   fi
 }
 
+# ─── PURE: contract self-check ───────────────────────────
+# The reaper reads openclaw's on-disk sessions.json schema. If a future openclaw
+# upgrade reshapes that file, reap_list_running would silently return nothing and
+# the reaper would no-op — reintroducing the exact silent-hang failure mode we
+# exist to kill. This check makes drift LOUD instead. Echoes "DRIFT" when a
+# sessions.json is present and non-empty but exposes NONE of the keys we depend
+# on (status / cliSessionIds / updatedAt), or is unparseable. Empty stores are
+# fine (echo ""). The orchestrator alerts (log + Telegram) on DRIFT.
+reap_schema_drift() {
+  local sjson="$1"
+  [ -f "$sjson" ] || { echo ""; return 0; }
+  jq -e . "$sjson" >/dev/null 2>&1 || { echo "DRIFT"; return 0; }
+  local entries
+  entries=$(jq -r 'to_entries | length' "$sjson" 2>/dev/null)
+  [ "${entries:-0}" -gt 0 ] || { echo ""; return 0; }
+  local recognizable
+  recognizable=$(jq -r '[to_entries[].value
+      | select(type == "object")
+      | select(has("status") or has("cliSessionIds") or has("updatedAt"))]
+      | length' "$sjson" 2>/dev/null)
+  if [ "${recognizable:-0}" -gt 0 ]; then echo ""; else echo "DRIFT"; fi
+}
+
 # ─── PURE: list running candidates from a sessions.json ──
 # Output: channel_key|cli_session_id|updatedAt_ms  (one per running session that
 # has a claude-cli session id). These are the only sessions worth probing.

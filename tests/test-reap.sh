@@ -70,6 +70,40 @@ assert_contains "$running" "1700000000000" "includes updatedAt"
 assert_not_contains "$running" "sess-done-2" "excludes done sessions"
 assert_not_contains "$running" "channel:3" "excludes running sessions without a cli id"
 
+# ─── reap_schema_drift (contract self-check) ─────────────
+echo "  reap: schema_drift"
+
+drift_dir="$SANDBOX/openclaw/agents/test-agent/sessions"; mkdir -p "$drift_dir"
+
+# healthy schema => no drift
+create_sessions_json "test-agent" '{
+  "agent:test-agent:c1": {"status":"done","updatedAt":1700000000000,"cliSessionIds":{"claude-cli":"s1"}}
+}'
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_empty "$result" "recognized schema is not drift"
+
+# empty store => not drift (fresh agent)
+create_sessions_json "test-agent" '{}'
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_empty "$result" "empty session store is not drift"
+
+# missing file => not drift (nothing to read)
+result=$(reap_schema_drift "$SANDBOX/openclaw/agents/test-agent/sessions/nope.json")
+assert_empty "$result" "missing file is not drift"
+
+# entries present but none expose our keys => DRIFT (schema changed under us)
+create_sessions_json "test-agent" '{
+  "agent:test-agent:c1": {"someNewShape":true,"foo":"bar"},
+  "agent:test-agent:c2": {"baz":1}
+}'
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_eq "DRIFT" "$result" "entries without status/cliSessionIds/updatedAt is DRIFT"
+
+# unparseable json => DRIFT (can't read state at all)
+echo 'this is not json {' > "$drift_dir/sessions.json"
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_eq "DRIFT" "$result" "unparseable sessions.json is DRIFT"
+
 # ─── reap_find_agent_pid (mock pgrep + fake /proc) ───────
 echo "  reap: find_agent_pid (safety-gated)"
 
