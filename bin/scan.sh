@@ -83,8 +83,14 @@ if ls "${WARDEN_HOME}/state/pending-summaries/"*.json 1>/dev/null 2>&1; then
   fi
 fi
 
-# Restart gateway AFTER memory is written so agents boot with full context
-if [ "$rotated" -gt 0 ] && command -v openclaw >/dev/null 2>&1; then
+# NO gateway restart after rotation. The gateway re-reads sessions.json with a
+# 45s mtime-checked cache (store-cache: DEFAULT_SESSION_STORE_TTL_MS), so the
+# cleared bindings are picked up naturally. Restarting here killed in-flight
+# turns for EVERY agent and triggered resume-on-boot broadcasts — the blast
+# radius of one rotation was the whole fleet. The reaper keeps its own
+# restart as a last-resort escalation for truly stuck states.
+# Re-enable only if a gateway version without the stat-checked cache is in use:
+if [ "$rotated" -gt 0 ] && [ "${WARDEN_RESTART_GATEWAY_AFTER_ROTATION:-0}" = "1" ] && command -v openclaw >/dev/null 2>&1; then
   restart_cooldown="${WARDEN_HOME}/state/.gateway-restart-ts"
   now=$(date +%s)
   last_restart=$(cat "$restart_cooldown" 2>/dev/null || echo 0)
