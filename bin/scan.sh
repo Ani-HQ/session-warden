@@ -117,6 +117,32 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         ragent=$(jq -r '.agent' "$rfile")
         rchannel=$(jq -r '.channel_key' "$rfile")
 
+        # A recovery prompt is only valuable fresh, once, and to a session
+        # that needs it. Enforce all three here, at delivery time — the queue
+        # can stall (stuck CLI, backlog), and delivering late or twice turns
+        # recovery into noise that wakes agents for no reason.
+
+        # Freshness: drop items older than the TTL instead of delivering.
+        rfile_mtime=$(stat -c %Y "$rfile" 2>/dev/null || echo 0)
+        now_recovery=$(date +%s)
+        if [ $((now_recovery - rfile_mtime)) -gt "${WARDEN_RECOVERY_TTL_SECONDS:-1800}" ]; then
+          echo "[$(date -Iseconds)] RECOVERY: dropped stale request for $ragent/$rchannel ($((now_recovery - rfile_mtime))s old, TTL ${WARDEN_RECOVERY_TTL_SECONDS:-1800}s)" >> "$LOG_FILE"
+          rm -f "$rfile"
+          continue
+        fi
+
+        # Idempotency: if this channel already got a recovery recently
+        # (.recovered marker is written on successful delivery), drop.
+        dedup_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
+        if [ -f "$dedup_file" ]; then
+          dedup_at=$(cat "$dedup_file" 2>/dev/null || echo 0)
+          if [ $((now_recovery - dedup_at)) -lt "${WARDEN_RECOVERY_DEDUP_SECONDS:-1800}" ]; then
+            echo "[$(date -Iseconds)] RECOVERY: skipped duplicate for $ragent/$rchannel (recovered $((now_recovery - dedup_at))s ago)" >> "$LOG_FILE"
+            rm -f "$rfile"
+            continue
+          fi
+        fi
+
         # GBrain cross-session synthesis (bounded; empty on failure). Pulls a
         # cited briefing across ALL of this agent's recent sessions, not just
         # the last transcript — the recovery upgrade over flat CONTEXT.md.

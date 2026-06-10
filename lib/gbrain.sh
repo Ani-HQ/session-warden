@@ -18,7 +18,11 @@
 # Used by: hooks/post-summary/01-gbrain.sh, bin/context-sync.sh,
 #          bin/scan.sh (recovery), bin/dream-cycle.sh, bin/snapshot.sh
 
-export PATH="$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+# APPEND, never prepend: the goal is "these dirs are reachable under cron",
+# not "override the caller's resolution order". Prepending silently shadowed
+# test-sandbox mock binaries with the real openclaw/claude — tests were
+# delivering real messages while believing they were sandboxed.
+export PATH="$PATH:$HOME/.bun/bin:$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin"
 
 # GBrain's embed client (src/core/embedding.ts) reads process.env.OPENAI_API_KEY
 # directly — it does NOT use the stored gbrain config key. Cron does not source
