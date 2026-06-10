@@ -18,6 +18,17 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_PREFIX="[ensure-patches]"
 
+# OpenClaw >= 2026.6.5 ships everything these patches fixed as native config:
+#   cliBackends.<b>.reliability.outputLimits.{maxTurnRawChars,maxTurnLines}
+#   cliBackends.<b>.reliability.watchdog.{fresh,resume}.noOutputTimeoutMs
+# Detect native support by its resolver function and skip patching entirely —
+# the patches are retired, not just incompatible.
+DIST="${OPENCLAW_DIST:-$HOME/.npm-global/lib/node_modules/openclaw/dist}"
+if grep -lq "resolveClaudeLiveOutputLimits" "$DIST"/claude-live-session-*.js 2>/dev/null; then
+  echo "$LOG_PREFIX native reliability config detected (openclaw >= 2026.6.5) — patches retired, nothing to do"
+  exit 0
+fi
+
 run() {
   echo "$LOG_PREFIX $*"
   "$@" || echo "$LOG_PREFIX WARN: '$*' failed (exit $?) — continuing"
