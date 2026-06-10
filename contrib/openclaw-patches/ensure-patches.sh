@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# ensure-patches.sh — re-apply the supported OpenClaw dist patches at gateway boot.
+#
+# Wire as a non-blocking ExecStartPre on the gateway unit (note the leading `-`):
+#   ExecStartPre=-/bin/bash <repo>/contrib/openclaw-patches/ensure-patches.sh
+#
+# Applies only the patch set known to be safe against the current runtime:
+#   - output-limits        (manifest, marker-checked, no-op when present)
+#   - error-humanizer      (manifest, marker-checked, no-op when present)
+#   - watchdog stall cap   (standalone idempotent script; supersedes the
+#                           retired smart-watchdog manifest, see its header)
+#
+# Never exits non-zero: a failed patch must not block the gateway from starting.
+# That exact failure mode (ExecStartPre hard-failing) crash-looped the old
+# system-level unit 278k times between 2026-05-22 and 2026-06-10.
+
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_PREFIX="[ensure-patches]"
+
+run() {
+  echo "$LOG_PREFIX $*"
+  "$@" || echo "$LOG_PREFIX WARN: '$*' failed (exit $?) — continuing"
+}
+
+run node "$HERE/patch-manager.js" apply --patch=output-limits
+run node "$HERE/patch-manager.js" apply --patch=error-humanizer
+run node "$HERE/patch-watchdog-stall-cap.js"
+
+exit 0
