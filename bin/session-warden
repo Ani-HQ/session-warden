@@ -78,6 +78,10 @@ cmd_rotate() {
   exec "$WARDEN_HOME/bin/rotate.sh" "$agent" "$channel_key" "$cli_session_id" "$reason" "manual rotation"
 }
 
+cmd_doctor() {
+  exec "$WARDEN_HOME/bin/doctor.sh" "$@"
+}
+
 cmd_install() {
   exec "$WARDEN_HOME/install.sh"
 }
@@ -138,6 +142,11 @@ Commands:
   rotate <agent> <channel-key> [reason]
       Manually rotate a specific session.
 
+  doctor [--alert]
+      Verify the warden itself is alive and correctly wired: cron entries,
+      loop heartbeats, gateway, dependencies, state hygiene. Exit 0 healthy.
+      --alert sends a Telegram alert on failure (throttled, used by cron).
+
   install
       Install cron entries and create config file.
 
@@ -159,6 +168,7 @@ case "${1:-help}" in
   scan)      shift; cmd_scan "$@" ;;
   status)    shift; cmd_status "$@" ;;
   rotate)    shift; cmd_rotate "$@" ;;
+  doctor)    shift; cmd_doctor "$@" ;;
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;

@@ -201,11 +201,22 @@ compact_memory_file() {
   local content
   content=$(cat "$mem_file")
   local compacted
-  compacted=$(claude -p --model "$MEMORY_MODEL" "Compact this session memory file to ~40% of its current length. Keep the frontmatter block (--- to ---) exactly as-is. Preserve concrete details (paths, branches, decisions). Drop completed items. Keep pending items and context.
+  compacted=$(timeout 60 claude -p --model "$MEMORY_MODEL" "Compact this session memory file to ~40% of its current length. Keep the frontmatter block (--- to ---) exactly as-is. Preserve concrete details (paths, branches, decisions). Drop completed items. Keep pending items and context.
 
 ${content}" 2>/dev/null)
 
-  [ -n "$compacted" ] && echo "$compacted" > "$mem_file"
+  # Only overwrite if the result is plausibly a compaction: non-trivial length
+  # and actually smaller than the original. A timeout, refusal, or one-line
+  # apology must never clobber real memory.
+  local compacted_words original_bytes compacted_bytes
+  compacted_words=$(echo "$compacted" | wc -w)
+  original_bytes=${#content}
+  compacted_bytes=${#compacted}
+  if [ -z "$compacted" ] || [ "$compacted_words" -lt 30 ] || [ "$compacted_bytes" -ge "$original_bytes" ]; then
+    log "MEMORY: compaction rejected (${compacted_words} words, ${compacted_bytes}B vs ${original_bytes}B) — keeping original"
+    return 1
+  fi
+  echo "$compacted" > "$mem_file"
 }
 
 # Write session context to workspace files that bootstrap auto-loads.
