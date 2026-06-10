@@ -7,9 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const WARDEN_ROOT = path.resolve(__dirname, '..');
-const MANIFESTS_DIR = path.join(WARDEN_ROOT, 'patches', 'manifests');
-const CODE_DIR = path.join(WARDEN_ROOT, 'patches', 'code');
+// patches/ lives alongside this script (contrib/openclaw-patches/patches/)
+const PATCHES_ROOT = process.env.WARDEN_PATCHES_ROOT || __dirname;
+const MANIFESTS_DIR = path.join(PATCHES_ROOT, 'patches', 'manifests');
+const CODE_DIR = path.join(PATCHES_ROOT, 'patches', 'code');
 const REGION_PADDING = 60;
 const LLM_TIMEOUT_MS = 45000;
 const MAX_LLM_RETRIES = 1;
