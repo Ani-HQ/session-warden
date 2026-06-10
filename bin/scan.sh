@@ -172,7 +172,10 @@ This is graph-wide context for you (${ragent}) across recent sessions. Use it to
 ${gbrain_brief}"
         fi
 
-        timeout 180 openclaw agent \
+        # -k 30: openclaw ignores SIGTERM, so without a KILL escalation a hung
+        # delivery blocks the serial drain forever (observed: one delivery
+        # stuck 90+ min holding 16 queued recoveries; another since Apr 30).
+        timeout -k 30 180 openclaw agent \
           --agent "$ragent" \
           --session-id "$rchannel" \
           --message "$recovery_msg" \
