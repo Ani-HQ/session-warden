@@ -149,3 +149,63 @@ log_content=$(cat "$WARDEN_LOG_FILE" 2>/dev/null)
 assert_not_contains "$log_content" "ERROR" "no errors with empty agent directory"
 
 export WARDEN_DRY_RUN=0
+
+echo "  scan: stale recovery dropped at delivery"
+
+# ─── Recovery TTL: stale queue items must not deliver ─────
+
+setup_sandbox
+create_mock_openclaw
+rec_dir="$WARDEN_HOME/state/pending-recoveries"
+mkdir -p "$rec_dir" "$WARDEN_HOME/state/cooldowns"
+
+stale_item="$rec_dir/test-agent-stale.json"
+printf '{"agent":"test-agent","channel_key":"agent:test-agent:main","reason":"ZOMBIE"}' > "$stale_item"
+touch -d "2 hours ago" "$stale_item"
+
+"$WARDEN_HOME/bin/scan.sh" 2>/dev/null
+sleep 2
+
+log_out=$(cat "$WARDEN_LOG_FILE")
+assert_contains "$log_out" "dropped stale request for test-agent" "stale recovery dropped, not delivered"
+assert_not_contains "$log_out" "RECOVERY: sent to test-agent" "no delivery for stale item"
+assert_file_not_exists "$stale_item" "stale item removed from queue"
+
+echo "  scan: duplicate recovery skipped"
+
+# ─── Recovery dedup: recently-recovered channels skipped ──
+
+setup_sandbox
+create_mock_openclaw
+rec_dir="$WARDEN_HOME/state/pending-recoveries"
+mkdir -p "$rec_dir" "$WARDEN_HOME/state/cooldowns"
+
+dup_item="$rec_dir/test-agent-dup.json"
+printf '{"agent":"test-agent","channel_key":"agent:test-agent:main","reason":"ZOMBIE"}' > "$dup_item"
+date +%s > "$WARDEN_HOME/state/cooldowns/test-agent-agent_test-agent_main.recovered"
+
+"$WARDEN_HOME/bin/scan.sh" 2>/dev/null
+sleep 2
+
+log_out=$(cat "$WARDEN_LOG_FILE")
+assert_contains "$log_out" "skipped duplicate for test-agent" "duplicate recovery skipped"
+assert_not_contains "$log_out" "RECOVERY: sent to test-agent" "no delivery for duplicate"
+
+echo "  scan: fresh recovery delivers"
+
+# ─── Fresh, non-duplicate items still deliver ─────────────
+
+setup_sandbox
+create_mock_openclaw
+rec_dir="$WARDEN_HOME/state/pending-recoveries"
+mkdir -p "$rec_dir" "$WARDEN_HOME/state/cooldowns"
+
+fresh_item="$rec_dir/test-agent-fresh.json"
+printf '{"agent":"test-agent","channel_key":"agent:test-agent:main","reason":"ZOMBIE"}' > "$fresh_item"
+
+"$WARDEN_HOME/bin/scan.sh" 2>/dev/null
+sleep 2
+
+log_out=$(cat "$WARDEN_LOG_FILE")
+assert_contains "$log_out" "RECOVERY: sent to test-agent/agent:test-agent:main" "fresh recovery delivered"
+assert_file_exists "$WARDEN_HOME/state/cooldowns/test-agent-agent_test-agent_main.recovered" "recovered marker written after delivery"
