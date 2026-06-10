@@ -58,17 +58,32 @@ detect_sessions_problems() {
     end
   ' "$sjson" 2>/dev/null
 
-  # Pass 2: zombie detection — sessions with a CLI session ID but no live process
-  # and a stale JSONL (not modified in 30+ minutes).
-  # Skip sessions that were recently recovered to prevent rotation loops where
-  # the warden keeps rotating idle-but-healthy agents.
+  # Pass 2: zombie detection — a session someone is TRYING TO USE whose CLI is
+  # gone: recent channel activity (updatedAt) + dead process + stale JSONL.
+  #
+  # The activity requirement is load-bearing. "Process dead + stale JSONL"
+  # alone is the normal resting state of every idle session (the CLI exits
+  # when a conversation finishes), so without it the warden rotates idle
+  # fleets on a loop: rotate -> recovery prompt wakes the agent -> new session
+  # -> goes idle -> re-zombied as soon as the recovery grace expires. Observed
+  # live: all agents' :main sessions rotating in a batch every 2 hours with
+  # zero human usage. Idle sessions need nothing from us — if their next
+  # message fails, status becomes "failed" and pass 1 catches it.
   local now_epoch
   now_epoch=$(date +%s)
   local stale_threshold=1800
   local recovery_grace=7200  # 2 hours: don't re-zombie a recently recovered session
+  local active_window="${WARDEN_ZOMBIE_ACTIVE_WINDOW_SECONDS:-7200}"
 
-  while IFS='|' read -r channel_key cli_session_id; do
+  while IFS='|' read -r channel_key cli_session_id updated_at_ms; do
     [ -z "$cli_session_id" ] && continue
+
+    # Idle channel (no recent activity) -> not a zombie, leave it alone.
+    # Missing/zero updatedAt counts as idle: no evidence anyone needs it.
+    local updated_at_s=$(( ${updated_at_ms:-0} / 1000 ))
+    if [ $((now_epoch - updated_at_s)) -gt "$active_window" ]; then
+      continue
+    fi
 
     # Check if this session was recently recovered — skip if so
     local recovered_file="${WARDEN_HOME:-$HOME/session-warden}/state/cooldowns/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
@@ -98,6 +113,6 @@ detect_sessions_problems() {
     to_entries[] |
     select(.value.cliSessionIds["claude-cli"] // "" | length > 0) |
     select(.value.status != "failed") |
-    "\(.key)|\(.value.cliSessionIds["claude-cli"])"
+    "\(.key)|\(.value.cliSessionIds["claude-cli"])|\(.value.updatedAt // 0)"
   ' "$sjson" 2>/dev/null)
 }

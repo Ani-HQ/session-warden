@@ -248,3 +248,47 @@ problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/session
 assert_not_contains "$problems" "ZOMBIE" "skip zombie if recently recovered"
 
 rm -f "$WARDEN_HOME/state/cooldowns/test-agent-discord-dm.recovered"
+
+echo "  detect: idle session is not a zombie"
+
+# ─── Idle (no recent activity) must NOT be flagged ────────
+# Dead process + stale JSONL is the normal resting state of a finished
+# conversation. Without recent channel activity there is nothing to fix —
+# flagging it creates a rotate->recover->idle->rotate loop across the fleet.
+
+create_sessions_json "test-agent" '{
+  "discord-idle": {
+    "totalTokens": 100000,
+    "numTurns": 50,
+    "compactionCount": 1,
+    "status": "idle",
+    "updatedAt": '"$(ago_ms 10800)"',
+    "cliSessionIds": {"claude-cli": "sess-idle-001"}
+  }
+}'
+
+echo '{"type":"test"}' > "$jsonl_dir/sess-idle-001.jsonl"
+touch -d "3 hours ago" "$jsonl_dir/sess-idle-001.jsonl"
+
+problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
+assert_not_contains "$problems" "ZOMBIE" "idle session (old updatedAt) not flagged as zombie"
+
+echo "  detect: missing updatedAt treated as idle"
+
+# ─── No updatedAt at all -> no evidence anyone needs it ───
+
+create_sessions_json "test-agent" '{
+  "discord-unknown": {
+    "totalTokens": 100000,
+    "numTurns": 50,
+    "compactionCount": 1,
+    "status": "idle",
+    "cliSessionIds": {"claude-cli": "sess-unknown-001"}
+  }
+}'
+
+echo '{"type":"test"}' > "$jsonl_dir/sess-unknown-001.jsonl"
+touch -d "3 hours ago" "$jsonl_dir/sess-unknown-001.jsonl"
+
+problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
+assert_not_contains "$problems" "ZOMBIE" "session without updatedAt not flagged as zombie"
