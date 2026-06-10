@@ -50,6 +50,9 @@ mkdir -p "$(dirname "$LOG_FILE")" "$REAP_STATE" "$RECOVERY_DIR"
 exec 197>"$LOCKFILE"
 flock -n 197 || exit 0
 
+# Heartbeat for doctor.sh — proves the reaper loop is alive.
+touch "${STATE_DIR}/.last-reap-ts"
+
 now=$(date +%s)
 jsonl_whoami="$(whoami)"
 

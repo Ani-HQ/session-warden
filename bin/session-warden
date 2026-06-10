@@ -78,6 +78,10 @@ cmd_rotate() {
   exec "$WARDEN_HOME/bin/rotate.sh" "$agent" "$channel_key" "$cli_session_id" "$reason" "manual rotation"
 }
 
+cmd_doctor() {
+  exec "$WARDEN_HOME/bin/doctor.sh" "$@"
+}
+
 cmd_install() {
   exec "$WARDEN_HOME/install.sh"
 }
@@ -85,10 +89,14 @@ cmd_install() {
 cmd_uninstall() {
   local tag="# session-warden"
   local before after
+  # WARDEN_CRONTAB_CMD is overridable so tests can run against a mock crontab
+  # instead of the real one. The test suite once stripped the live cron entries
+  # on every run — the warden's own tests unwired the warden.
+  local crontab_cmd="${WARDEN_CRONTAB_CMD:-crontab}"
 
-  before=$(crontab -l 2>/dev/null | wc -l)
-  crontab -l 2>/dev/null | grep -v "$tag" | crontab -
-  after=$(crontab -l 2>/dev/null | wc -l)
+  before=$($crontab_cmd -l 2>/dev/null | wc -l)
+  $crontab_cmd -l 2>/dev/null | grep -v "$tag" | $crontab_cmd -
+  after=$($crontab_cmd -l 2>/dev/null | wc -l)
 
   local removed=$((before - after))
   if [ "$removed" -gt 0 ]; then
@@ -138,6 +146,11 @@ Commands:
   rotate <agent> <channel-key> [reason]
       Manually rotate a specific session.
 
+  doctor [--alert]
+      Verify the warden itself is alive and correctly wired: cron entries,
+      loop heartbeats, gateway, dependencies, state hygiene. Exit 0 healthy.
+      --alert sends a Telegram alert on failure (throttled, used by cron).
+
   install
       Install cron entries and create config file.
 
@@ -159,6 +172,7 @@ case "${1:-help}" in
   scan)      shift; cmd_scan "$@" ;;
   status)    shift; cmd_status "$@" ;;
   rotate)    shift; cmd_rotate "$@" ;;
+  doctor)    shift; cmd_doctor "$@" ;;
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;

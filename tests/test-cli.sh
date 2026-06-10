@@ -98,9 +98,40 @@ assert_contains "$output" "scan" "no args lists commands"
 
 echo "  cli: uninstall"
 
-# ─── Uninstall (safe: test won't actually modify real crontab) ──
+# ─── Uninstall against a MOCK crontab ─────────────────────
+# This test previously ran `uninstall` against the REAL crontab, stripping the
+# live scan/reap entries on every suite run — the warden's own tests unwired
+# the warden (the suspected cause of the May 22 silent outage). Never invoke
+# uninstall/install here without WARDEN_CRONTAB_CMD pointing at a mock.
 
-# This test just verifies the function exists and runs
-# We don't actually test crontab modification to avoid side effects
-output=$("$CLI" uninstall 2>/dev/null)
-assert_contains "$output" "session-warden" "uninstall mentions session-warden"
+mock_cron_state="$SANDBOX/mock-crontab-state"
+cat > "$mock_cron_state" <<EOF
+0 0 * * * /some/other/job
+* * * * * /bin/bash $WARDEN_HOME/bin/scan.sh # session-warden
+* * * * * /bin/bash $WARDEN_HOME/bin/reap-stalls.sh # session-warden-reap
+EOF
+
+mock_crontab_bin="$SANDBOX/mock-crontab-rw"
+cat > "$mock_crontab_bin" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-l" ]; then
+  cat "$mock_cron_state"
+elif [ "\${1:-}" = "-" ] || [ \$# -eq 0 ]; then
+  # Buffer then move: in 'crontab -l | grep | crontab -' both ends run
+  # concurrently — truncating the state file directly would race the reader.
+  cat > "$mock_cron_state.tmp" && mv "$mock_cron_state.tmp" "$mock_cron_state"
+fi
+EOF
+chmod +x "$mock_crontab_bin"
+
+real_cron_before=$(crontab -l 2>/dev/null)
+
+output=$(WARDEN_CRONTAB_CMD="$mock_crontab_bin" "$CLI" uninstall 2>/dev/null)
+assert_contains "$output" "Removed 2 cron entries" "uninstall strips tagged entries"
+remaining=$(cat "$mock_cron_state")
+assert_contains "$remaining" "/some/other/job" "uninstall keeps untagged entries"
+assert_not_contains "$remaining" "session-warden" "uninstall removes all tagged entries"
+
+# Real crontab must be byte-identical before and after this test
+real_cron_after=$(crontab -l 2>/dev/null)
+assert_eq "$real_cron_before" "$real_cron_after" "real crontab untouched by uninstall test (guard)"

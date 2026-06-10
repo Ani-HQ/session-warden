@@ -104,6 +104,9 @@ After install, use the `session-warden` CLI:
 # tail the log
 ~/session-warden/bin/session-warden logs -f
 
+# verify the warden itself is alive and correctly wired
+~/session-warden/bin/session-warden doctor
+
 # show version
 ~/session-warden/bin/session-warden version
 ```
@@ -113,8 +116,8 @@ Optionally, add `~/session-warden/bin` to your PATH for shorter commands.
 ### Verify
 
 ```bash
-# check cron is installed
-crontab -l | grep session-warden
+# one command: checks cron wiring, loop heartbeats, gateway, deps, state hygiene
+~/session-warden/bin/session-warden doctor
 
 # dry run
 ~/session-warden/bin/session-warden scan --dry-run
@@ -242,16 +245,42 @@ bash ~/session-warden/bin/mcp-supervisor.sh ensure  # idempotent, good for cron
 
 ### Archive cleanup
 
-Archived JSONL files accumulate on disk. Run the cleanup script daily via cron.
+Bounded growth for everything the warden writes: archived JSONLs, `scan.log`
+(size-based rotation, `WARDEN_LOG_MAX_BYTES`), stale recovery/summary queue
+items, and expired cooldown markers. Run daily via cron.
 
 ```bash
 # add to crontab
 30 3 * * * ~/session-warden/bin/cleanup-archives.sh
 ```
 
+### Doctor (self-health + dead-man's switch)
+
+The warden monitors agents; `doctor` monitors the warden. It derives the
+expected wiring and diffs it against reality — cron entries, loop heartbeats,
+gateway state, dist patches (opt-in), dependencies, disk, queue backlogs.
+
+```bash
+# manual check — exit 0 healthy, 1 unhealthy
+session-warden doctor
+
+# installed by install.sh: every 5 min, Telegram alert on failure (throttled 1/h)
+*/5 * * * * ~/session-warden/bin/doctor.sh --alert
+```
+
+Set `WARDEN_HEARTBEAT_URL` (e.g. a [healthchecks.io](https://healthchecks.io)
+check) and doctor pings it on every fully-healthy run. If the host dies or
+doctor itself gets unwired, the pings stop and the external service alerts you
+— covering the one failure no on-host check can report.
+
 ## OpenClaw patches (contrib)
 
-The `contrib/openclaw-patches/` directory contains optional scripts that patch OpenClaw's compiled JavaScript to fix specific runtime issues (output limits, watchdog behavior, error messages). They're version-specific and must be re-run after every `npm update -g openclaw`. See [contrib/openclaw-patches/README.md](contrib/openclaw-patches/README.md).
+The `contrib/openclaw-patches/` directory contains optional scripts that patch OpenClaw's compiled JavaScript to fix specific runtime issues (output limits, watchdog behavior, error messages). They're version-specific. Two helpers keep them durable:
+
+- `ensure-patches.sh` — idempotent, never exits non-zero; wire as `ExecStartPre=-` on the gateway unit so patches re-apply on every restart.
+- `update-openclaw.sh [version|--rollback]` — deliberate updates: snapshots the package, installs, re-applies patches, verifies every marker, and leaves the gateway restart to you.
+
+See [contrib/openclaw-patches/README.md](contrib/openclaw-patches/README.md).
 
 ## Tests
 
@@ -271,6 +300,9 @@ Tests use a sandboxed mock environment — no real OpenClaw sessions, cron entri
 ## Monitoring
 
 ```bash
+# is the warden itself healthy?
+session-warden doctor
+
 # watch the log
 tail -f ~/session-warden/state/scan.log
 

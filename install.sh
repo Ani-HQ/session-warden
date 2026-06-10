@@ -106,21 +106,26 @@ CRON_CMD_REAP_A="* * * * * /bin/bash ${WARDEN_HOME}/bin/reap-stalls.sh"
 CRON_CMD_REAP_B="* * * * * sleep 30 && /bin/bash ${WARDEN_HOME}/bin/reap-stalls.sh"
 SNAP_INTERVAL="${WARDEN_SNAPSHOT_INTERVAL_MINUTES:-30}"
 CRON_CMD_SNAP="*/${SNAP_INTERVAL} * * * * /bin/bash ${WARDEN_HOME}/bin/snapshot.sh"
+CRON_CMD_DOCTOR="*/5 * * * * /bin/bash ${WARDEN_HOME}/bin/doctor.sh --alert >/dev/null 2>&1"
 CRON_TAG="# session-warden"
 
 # Remove existing session-warden cron entries, then add fresh ones.
-# (The snapshot/reap tags also contain "# session-warden", so the grep -v clears them too.)
-( crontab -l 2>/dev/null | grep -v "$CRON_TAG" ; \
+# (The snapshot/reap/doctor tags also contain "# session-warden", so the grep -v clears them too.)
+# WARDEN_CRONTAB_CMD lets tests target a mock crontab instead of the real one.
+CRONTAB_CMD="${WARDEN_CRONTAB_CMD:-crontab}"
+( $CRONTAB_CMD -l 2>/dev/null | grep -v "$CRON_TAG" ; \
   echo "${CRON_CMD_A} ${CRON_TAG}" ; \
   echo "${CRON_CMD_B} ${CRON_TAG}-30s" ; \
   echo "${CRON_CMD_REAP_A} ${CRON_TAG}-reap" ; \
   echo "${CRON_CMD_REAP_B} ${CRON_TAG}-reap-30s" ; \
-  echo "${CRON_CMD_SNAP} ${CRON_TAG}-snapshot" ) | crontab -
+  echo "${CRON_CMD_SNAP} ${CRON_TAG}-snapshot" ; \
+  echo "${CRON_CMD_DOCTOR} ${CRON_TAG}-doctor" ) | $CRONTAB_CMD -
 
 echo "Installed:"
 echo "  Cron:    every 30 seconds -> ${WARDEN_HOME}/bin/scan.sh"
 echo "  Cron:    every 30 seconds -> ${WARDEN_HOME}/bin/reap-stalls.sh"
 echo "  Cron:    every ${SNAP_INTERVAL} min  -> ${WARDEN_HOME}/bin/snapshot.sh"
+echo "  Cron:    every 5 min  -> ${WARDEN_HOME}/bin/doctor.sh --alert (self-health)"
 echo "  Config:  ${CONFIG_FILE}"
 echo "  Log:     ${WARDEN_HOME}/state/scan.log"
 echo "  Agents:  ${OPENCLAW_HOME}/agents/"

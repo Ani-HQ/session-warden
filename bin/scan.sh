@@ -30,6 +30,10 @@ fi
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
+# Heartbeat for doctor.sh — scan.log only gets written on events, so its mtime
+# can't prove the loop is alive. This file can.
+touch "${WARDEN_HOME}/state/.last-scan-ts"
+
 rotated=0
 
 # Scan agents (allowlist or all)
