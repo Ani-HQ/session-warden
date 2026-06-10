@@ -89,10 +89,14 @@ cmd_install() {
 cmd_uninstall() {
   local tag="# session-warden"
   local before after
+  # WARDEN_CRONTAB_CMD is overridable so tests can run against a mock crontab
+  # instead of the real one. The test suite once stripped the live cron entries
+  # on every run — the warden's own tests unwired the warden.
+  local crontab_cmd="${WARDEN_CRONTAB_CMD:-crontab}"
 
-  before=$(crontab -l 2>/dev/null | wc -l)
-  crontab -l 2>/dev/null | grep -v "$tag" | crontab -
-  after=$(crontab -l 2>/dev/null | wc -l)
+  before=$($crontab_cmd -l 2>/dev/null | wc -l)
+  $crontab_cmd -l 2>/dev/null | grep -v "$tag" | $crontab_cmd -
+  after=$($crontab_cmd -l 2>/dev/null | wc -l)
 
   local removed=$((before - after))
   if [ "$removed" -gt 0 ]; then

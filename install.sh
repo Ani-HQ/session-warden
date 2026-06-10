@@ -111,13 +111,15 @@ CRON_TAG="# session-warden"
 
 # Remove existing session-warden cron entries, then add fresh ones.
 # (The snapshot/reap/doctor tags also contain "# session-warden", so the grep -v clears them too.)
-( crontab -l 2>/dev/null | grep -v "$CRON_TAG" ; \
+# WARDEN_CRONTAB_CMD lets tests target a mock crontab instead of the real one.
+CRONTAB_CMD="${WARDEN_CRONTAB_CMD:-crontab}"
+( $CRONTAB_CMD -l 2>/dev/null | grep -v "$CRON_TAG" ; \
   echo "${CRON_CMD_A} ${CRON_TAG}" ; \
   echo "${CRON_CMD_B} ${CRON_TAG}-30s" ; \
   echo "${CRON_CMD_REAP_A} ${CRON_TAG}-reap" ; \
   echo "${CRON_CMD_REAP_B} ${CRON_TAG}-reap-30s" ; \
   echo "${CRON_CMD_SNAP} ${CRON_TAG}-snapshot" ; \
-  echo "${CRON_CMD_DOCTOR} ${CRON_TAG}-doctor" ) | crontab -
+  echo "${CRON_CMD_DOCTOR} ${CRON_TAG}-doctor" ) | $CRONTAB_CMD -
 
 echo "Installed:"
 echo "  Cron:    every 30 seconds -> ${WARDEN_HOME}/bin/scan.sh"
