@@ -136,6 +136,21 @@ if [ "${WARDEN_DOCTOR_SKIP_GATEWAY:-0}" != "1" ]; then
   fi
 fi
 
+# ─── 5b. Channel parity (enabled channels must have plugins) ──
+# Catches the silent-channel failure mode: openclaw 2026.6.5 unbundled the
+# Discord plugin; the gateway booted "healthy" with channels.discord enabled
+# in config but no provider loaded, and nothing alerted for 14 hours.
+PARITY_SH="${WARDEN_PARITY_SH:-${WARDEN_HOME}/contrib/openclaw-patches/channel-parity.sh}"
+if [ "${WARDEN_DOCTOR_SKIP_GATEWAY:-0}" != "1" ] && [ -x "$PARITY_SH" ]; then
+  echo "channel parity:"
+  parity_out=$(bash "$PARITY_SH" check 2>&1)
+  if [ $? -eq 0 ]; then
+    ok "every enabled channel has an enabled plugin"
+  else
+    fail "channel/plugin mismatch — $(echo "$parity_out" | grep -o "channel '[a-z]*' is enabled in config but NO enabled plugin" | tr '\n' '; ')run channel-parity.sh heal"
+  fi
+fi
+
 # ─── 6. Dist patches (opt-in: contrib patches are host-specific) ──
 if [ "$CHECK_PATCHES" = "1" ] && [ -d "$OPENCLAW_DIST" ]; then
   echo "patches:"

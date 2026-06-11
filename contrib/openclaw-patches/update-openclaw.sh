@@ -47,23 +47,23 @@ echo ""
 
 # ─── 1. Snapshot ─────────────────────────────────────────
 mkdir -p "$SNAP_DIR"
-echo "[1/4] Snapshotting current package (${current_version})..."
+echo "[1/5] Snapshotting current package (${current_version})..."
 tar -czf "$SNAP_TARBALL" -C "$(dirname "$PKG_DIR")" "$(basename "$PKG_DIR")" \
   || die "snapshot failed — aborting before any change"
 echo "      -> $SNAP_TARBALL ($(du -h "$SNAP_TARBALL" | cut -f1))"
 
 # ─── 2. Install ──────────────────────────────────────────
-echo "[2/4] Installing openclaw@${target}..."
+echo "[2/5] Installing openclaw@${target}..."
 npm install -g "openclaw@${target}" || die "npm install failed — package unchanged or partially changed; --rollback if needed"
 new_version=$(node -p "require('${PKG_DIR}/package.json').version" 2>/dev/null || echo "unknown")
 echo "      -> installed ${new_version}"
 
 # ─── 3. Re-apply patches ─────────────────────────────────
-echo "[3/4] Re-applying dist patches..."
+echo "[3/5] Re-applying dist patches..."
 bash "${HERE}/ensure-patches.sh"
 
 # ─── 4. Verify markers ───────────────────────────────────
-echo "[4/4] Verifying patch markers in new dist..."
+echo "[4/5] Verifying patch markers in new dist..."
 DIST="${PKG_DIR}/dist"
 dist_js=$(find "$DIST" -maxdepth 1 -name '*.js' 2>/dev/null)
 missing=0
@@ -93,6 +93,22 @@ if [ "$missing" -eq 1 ]; then
   echo ""
   echo "Do NOT restart the gateway until you've decided — the running process"
   echo "still has the old (patched) code in memory."
+  exit 1
+fi
+
+# ─── 5. Channel parity ───────────────────────────────────
+# New openclaw versions can unbundle channel plugins (2026.6.5 dropped Discord
+# from core). A configured channel with no plugin is silently ignored at boot.
+echo "[5/5] Verifying every enabled channel still has a plugin..."
+if bash "${HERE}/channel-parity.sh" check; then
+  echo "      -> channel/plugin parity OK"
+else
+  echo ""
+  echo "RESULT: ${current_version} -> ${new_version}, but a configured channel"
+  echo "has NO plugin in the new package — restarting now would silently kill it."
+  echo "Install the official plugin first:"
+  echo "  openclaw plugins install clawhub:@openclaw/<channel>"
+  echo "then re-run this script, or rollback: $0 --rollback"
   exit 1
 fi
 
