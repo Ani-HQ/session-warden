@@ -70,6 +70,29 @@ reap_stall_verdict() {
   fi
 }
 
+# ─── PURE: contract self-check ───────────────────────────
+# The reaper reads openclaw's on-disk sessions.json schema. If a future openclaw
+# upgrade reshapes that file, reap_list_running would silently return nothing and
+# the reaper would no-op — reintroducing the exact silent-hang failure mode we
+# exist to kill. This check makes drift LOUD instead. Echoes "DRIFT" when a
+# sessions.json is present and non-empty but exposes NONE of the keys we depend
+# on (status / cliSessionIds / updatedAt), or is unparseable. Empty stores are
+# fine (echo ""). The orchestrator alerts (log + Telegram) on DRIFT.
+reap_schema_drift() {
+  local sjson="$1"
+  [ -f "$sjson" ] || { echo ""; return 0; }
+  jq -e . "$sjson" >/dev/null 2>&1 || { echo "DRIFT"; return 0; }
+  local entries
+  entries=$(jq -r 'to_entries | length' "$sjson" 2>/dev/null)
+  [ "${entries:-0}" -gt 0 ] || { echo ""; return 0; }
+  local recognizable
+  recognizable=$(jq -r '[to_entries[].value
+      | select(type == "object")
+      | select(has("status") or has("cliSessionIds") or has("updatedAt"))]
+      | length' "$sjson" 2>/dev/null)
+  if [ "${recognizable:-0}" -gt 0 ]; then echo ""; else echo "DRIFT"; fi
+}
+
 # ─── PURE: list running candidates from a sessions.json ──
 # Output: channel_key|cli_session_id|updatedAt_ms  (one per running session that
 # has a claude-cli session id). These are the only sessions worth probing.
@@ -85,23 +108,29 @@ reap_list_running() {
 }
 
 # ─── IMPURE: locate the agent CLI pid for a session ──────
-# Safety-gated so we NEVER kill a stray or interactive `claude` (e.g. a human's
-# Claude Code session, which has no OPENCLAW_MCP_* env). A pid qualifies only if
-# BOTH hold:
-#   1. its cmdline contains the cli session id (`--session-id <id>`), and
-#   2. its /proc environ has OPENCLAW_MCP_AGENT_ID == this agent.
-# Echoes the pid, or nothing. WARDEN_PROC (default /proc) is overridable for tests.
+# Match on /proc environ, NOT cmdline: the claude CLI overwrites its own process
+# title to bare "claude" shortly after startup, so `--session-id <id>` is gone
+# from cmdline for any process old enough to matter (verified 2026-06-09). The
+# env, however, is stable — openclaw sets OPENCLAW_MCP_SESSION_KEY (== the
+# sessions.json key) and OPENCLAW_MCP_AGENT_ID on every agent CLI child.
+#
+# A pid qualifies only if its environ has OPENCLAW_MCP_SESSION_KEY == this
+# session AND OPENCLAW_MCP_AGENT_ID == this agent. That precisely identifies the
+# child for THIS session and NEVER matches a stray/interactive `claude` (a
+# human's session has no OPENCLAW_MCP_* env). Echoes the pid, or nothing.
+# WARDEN_PROC (default /proc) is overridable for tests.
 reap_find_agent_pid() {
-  local cli_session_id="$1" agent="$2"
+  local session_key="$1" agent="$2"
   local procfs="${WARDEN_PROC:-/proc}"
-  [ -n "$cli_session_id" ] || return 0
+  [ -n "$session_key" ] || return 0
   local pid
-  for pid in $(pgrep -f -- "--session-id ${cli_session_id}" 2>/dev/null); do
+  for pid in $(pgrep -x claude 2>/dev/null); do
     local envfile="${procfs}/${pid}/environ"
     [ -r "$envfile" ] || continue
-    local env_agent
+    local env_agent env_key
     env_agent=$(tr '\0' '\n' < "$envfile" 2>/dev/null | sed -n 's/^OPENCLAW_MCP_AGENT_ID=//p' | head -1)
-    if [ -n "$env_agent" ] && [ "$env_agent" = "$agent" ]; then
+    env_key=$(tr '\0' '\n' < "$envfile" 2>/dev/null | sed -n 's/^OPENCLAW_MCP_SESSION_KEY=//p' | head -1)
+    if [ -n "$env_agent" ] && [ "$env_agent" = "$agent" ] && [ "$env_key" = "$session_key" ]; then
       echo "$pid"
       return 0
     fi

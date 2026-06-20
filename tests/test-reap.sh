@@ -70,6 +70,40 @@ assert_contains "$running" "1700000000000" "includes updatedAt"
 assert_not_contains "$running" "sess-done-2" "excludes done sessions"
 assert_not_contains "$running" "channel:3" "excludes running sessions without a cli id"
 
+# ─── reap_schema_drift (contract self-check) ─────────────
+echo "  reap: schema_drift"
+
+drift_dir="$SANDBOX/openclaw/agents/test-agent/sessions"; mkdir -p "$drift_dir"
+
+# healthy schema => no drift
+create_sessions_json "test-agent" '{
+  "agent:test-agent:c1": {"status":"done","updatedAt":1700000000000,"cliSessionIds":{"claude-cli":"s1"}}
+}'
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_empty "$result" "recognized schema is not drift"
+
+# empty store => not drift (fresh agent)
+create_sessions_json "test-agent" '{}'
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_empty "$result" "empty session store is not drift"
+
+# missing file => not drift (nothing to read)
+result=$(reap_schema_drift "$SANDBOX/openclaw/agents/test-agent/sessions/nope.json")
+assert_empty "$result" "missing file is not drift"
+
+# entries present but none expose our keys => DRIFT (schema changed under us)
+create_sessions_json "test-agent" '{
+  "agent:test-agent:c1": {"someNewShape":true,"foo":"bar"},
+  "agent:test-agent:c2": {"baz":1}
+}'
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_eq "DRIFT" "$result" "entries without status/cliSessionIds/updatedAt is DRIFT"
+
+# unparseable json => DRIFT (can't read state at all)
+echo 'this is not json {' > "$drift_dir/sessions.json"
+result=$(reap_schema_drift "$drift_dir/sessions.json")
+assert_eq "DRIFT" "$result" "unparseable sessions.json is DRIFT"
+
 # ─── reap_find_agent_pid (mock pgrep + fake /proc) ───────
 echo "  reap: find_agent_pid (safety-gated)"
 
@@ -82,32 +116,40 @@ MOCK
 chmod +x "$mock_bin/pgrep"
 export PATH="$mock_bin:$PATH"
 
-# Fake procfs with environ files
+# Fake procfs with environ files. Match is on env (OPENCLAW_MCP_SESSION_KEY +
+# AGENT_ID), NOT cmdline — the CLI overwrites its title to bare "claude".
 fake_proc="$SANDBOX/proc"; mkdir -p "$fake_proc/4242" "$fake_proc/9999"
-printf 'PATH=/usr/bin\0OPENCLAW_MCP_AGENT_ID=test-agent\0OTHER=x\0' > "$fake_proc/4242/environ"
-printf 'PATH=/usr/bin\0OPENCLAW_MCP_AGENT_ID=other-agent\0'        > "$fake_proc/9999/environ"
+printf 'PATH=/usr/bin\0OPENCLAW_MCP_AGENT_ID=test-agent\0OPENCLAW_MCP_SESSION_KEY=agent:test-agent:c1\0' > "$fake_proc/4242/environ"
+printf 'PATH=/usr/bin\0OPENCLAW_MCP_AGENT_ID=other-agent\0OPENCLAW_MCP_SESSION_KEY=agent:other-agent:c1\0' > "$fake_proc/9999/environ"
 export WARDEN_PROC="$fake_proc"
 
-# pid 4242 belongs to test-agent => matched
+# pid 4242: agent + session key both match => matched
 export REAP_TEST_PIDS="4242"
-result=$(reap_find_agent_pid "sess-x" "test-agent")
-assert_eq "4242" "$result" "returns pid when agent env matches"
+result=$(reap_find_agent_pid "agent:test-agent:c1" "test-agent")
+assert_eq "4242" "$result" "returns pid when agent + session key match"
 
 # pid 9999 belongs to a different agent => rejected (safety gate)
 export REAP_TEST_PIDS="9999"
-result=$(reap_find_agent_pid "sess-x" "test-agent")
+result=$(reap_find_agent_pid "agent:test-agent:c1" "test-agent")
 assert_empty "$result" "rejects pid whose OPENCLAW_MCP_AGENT_ID is a different agent"
+
+# right agent, WRONG session key => rejected (don't kill another session's child)
+mkdir -p "$fake_proc/4243"
+printf 'PATH=/usr/bin\0OPENCLAW_MCP_AGENT_ID=test-agent\0OPENCLAW_MCP_SESSION_KEY=agent:test-agent:OTHER\0' > "$fake_proc/4243/environ"
+export REAP_TEST_PIDS="4243"
+result=$(reap_find_agent_pid "agent:test-agent:c1" "test-agent")
+assert_empty "$result" "rejects same-agent pid bound to a different session"
 
 # a stray claude with no OPENCLAW env (e.g. a human's session) => rejected
 mkdir -p "$fake_proc/7777"
 printf 'PATH=/usr/bin\0HOME=/home/someone\0' > "$fake_proc/7777/environ"
 export REAP_TEST_PIDS="7777"
-result=$(reap_find_agent_pid "sess-x" "test-agent")
+result=$(reap_find_agent_pid "agent:test-agent:c1" "test-agent")
 assert_empty "$result" "rejects stray claude with no OPENCLAW_MCP env"
 
 # no candidate pids at all => empty
 export REAP_TEST_PIDS=""
-result=$(reap_find_agent_pid "sess-x" "test-agent")
+result=$(reap_find_agent_pid "agent:test-agent:c1" "test-agent")
 assert_empty "$result" "empty when no candidate processes"
 unset REAP_TEST_PIDS
 

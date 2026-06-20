@@ -37,14 +37,13 @@ RESTART_COOLDOWN="${WARDEN_GATEWAY_RESTART_COOLDOWN_SECONDS:-300}"
 LOG_FILE="${WARDEN_LOG_FILE:-$HOME/session-warden/state/scan.log}"
 STATE_DIR="${WARDEN_HOME}/state"
 REAP_STATE="${STATE_DIR}/reap"
-RECOVERY_DIR="${STATE_DIR}/pending-recoveries"
 LOCKFILE="${STATE_DIR}/reap.lock"
 
 log() { echo "[$(date -Iseconds)] [reap] $*" >> "$LOG_FILE"; }
 
 [ "$REAP_ENABLED" = "1" ] || exit 0
 
-mkdir -p "$(dirname "$LOG_FILE")" "$REAP_STATE" "$RECOVERY_DIR"
+mkdir -p "$(dirname "$LOG_FILE")" "$REAP_STATE"
 
 # Prevent overlapping reaps (a kill grace can take a few seconds).
 exec 197>"$LOCKFILE"
@@ -59,14 +58,42 @@ jsonl_whoami="$(whoami)"
 # sanitize a session key into a filename-safe token
 keytok() { echo "$1" | sed 's/[^a-zA-Z0-9_-]/_/g'; }
 
-# Drop a recovery request that scan.sh's drainer will deliver (it runs every
-# tick regardless of whether scan.sh rotated anything).
-enqueue_recovery() {
-  local agent="$1" channel_key="$2" reason="$3"
-  local tmp="${RECOVERY_DIR}/.$(keytok "${agent}-${channel_key}").tmp"
-  local dst="${RECOVERY_DIR}/$(keytok "${agent}-${channel_key}").json"
-  jq -n --arg agent "$agent" --arg ck "$channel_key" --arg r "$reason" \
-    '{agent:$agent, channel_key:$ck, reason:$r}' > "$tmp" 2>/dev/null && mv "$tmp" "$dst"
+# Deliver the "you're back" nudge directly, best-effort. We do NOT hand off to
+# scan.sh's pending-recoveries drainer: that loop is not guaranteed to be running
+# (and the whole point of this reaper is independence). Backgrounded with fd 197
+# closed so a slow agent turn never holds the reaper's lock into the next tick.
+# Goes through the gateway, so it works in the common single-turn-wedge case; if
+# the gateway itself is wedged, the escalation path restarts it instead.
+deliver_recovery() {
+  local agent="$1" channel_key="$2"
+  command -v openclaw >/dev/null 2>&1 || return 0
+  if [ "${WARDEN_DRY_RUN:-0}" = "1" ]; then
+    log "[dry-run] would deliver recovery to ${agent}/${channel_key}"
+    return 0
+  fi
+  local msg="You were just restarted: a stalled turn of yours was terminated by the watchdog. Check this channel's most recent messages to find what you were doing, send one short message confirming you're back, then resume that work."
+  (
+    exec 197>&-
+    if timeout 180 openclaw agent --agent "$agent" --session-id "$channel_key" \
+        --message "$msg" --timeout 120 --deliver >/dev/null 2>&1; then
+      echo "[$(date -Iseconds)] [reap] RECOVERY delivered to ${agent}/${channel_key}" >> "$LOG_FILE"
+    else
+      echo "[$(date -Iseconds)] [reap] WARN: recovery delivery failed for ${agent}/${channel_key}" >> "$LOG_FILE"
+    fi
+  ) &
+}
+
+# Loud alert (log + Telegram) when openclaw's sessions.json schema drifts out
+# from under us, throttled to once an hour so it never spams the 30s tick.
+alert_schema_drift() {
+  local sjson="$1"
+  local ts_file="${REAP_STATE}/.schema-alert-ts"
+  local last; last=$(cat "$ts_file" 2>/dev/null || echo 0)
+  log "SCHEMA DRIFT: ${sjson} no longer matches the expected sessions.json shape — reaper is BLIND until fixed (likely an openclaw upgrade)"
+  if [ $(( now - last )) -ge 3600 ]; then
+    date +%s > "$ts_file"
+    notify_rotation "session-warden" "reaper" "SCHEMA DRIFT — reaper blind" "sessions.json shape changed (likely openclaw upgrade). reap-stalls.sh cannot detect stalls until the schema mapping is updated."
+  fi
 }
 
 # Mark a running session failed on disk + null its dead CLI bindings, so the
@@ -117,6 +144,12 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     echo " ${WARDEN_SCAN_AGENTS} " | grep -q " ${agent} " || continue
   fi
 
+  # Contract self-check: bail loud (not silently) if the schema drifted.
+  if [ "$(reap_schema_drift "$sjson")" = "DRIFT" ]; then
+    alert_schema_drift "$sjson"
+    continue
+  fi
+
   jsonl_base="${WARDEN_CLAUDE_PROJECTS}/-home-${jsonl_whoami}--openclaw-agents-${agent}"
 
   while IFS='|' read -r channel_key cli_session_id updated_at_ms; do
@@ -132,7 +165,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     [ "$verdict" = "STUCK" ] || continue
 
     idle=$(( now - last_progress ))
-    pid=$(reap_find_agent_pid "$cli_session_id" "$agent")
+    pid=$(reap_find_agent_pid "$channel_key" "$agent")
     wchan="-"; [ -n "$pid" ] && wchan=$(reap_proc_wchan "$pid")
     tok=$(keytok "${agent}-${channel_key}")
     killed_marker="${REAP_STATE}/${tok}.killed"
@@ -159,7 +192,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
         log "REAPED: killed pid ${pid} for ${agent}/${channel_key}"
         date +%s > "$killed_marker"
         mark_failed "$sjson" "$channel_key"
-        enqueue_recovery "$agent" "$channel_key" "STALL_REAPED"
+        deliver_recovery "$agent" "$channel_key"
         notify_rotation "$agent" "$channel_key" "Stall reaped" "pid=${pid} idle=${idle}s wchan=${wchan} (no progress past ${HARD_CAP}s hard cap)"
         reaped=$(( reaped + 1 ))
       else
@@ -176,7 +209,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
       log "STALE-RUNNING (no live child): ${agent}/${channel_key} idle=${idle}s — clearing + recovering"
       date +%s > "$killed_marker"
       mark_failed "$sjson" "$channel_key"
-      enqueue_recovery "$agent" "$channel_key" "STALL_CLEARED"
+      deliver_recovery "$agent" "$channel_key"
       notify_rotation "$agent" "$channel_key" "Stale turn cleared" "no live child; status stuck at running for ${idle}s"
       reaped=$(( reaped + 1 ))
     fi
