@@ -97,7 +97,7 @@ What's unfinished, what failed, what needs verification next session.
 Gotchas, non-obvious findings, API quirks, credentials/env vars used.
 
 ## Entities
-Wikilinks to the named projects, repos, companies, or people this session touched, for the knowledge graph. One per line, [[type/slug]] form with a lowercase-kebab slug. Allowed types: project, company, person, repo. e.g. [[project/session-warden]], [[company/gbrain]], [[repo/yeet]]. Only real named entities, max 8. Omit if none.
+Wikilinks to the named projects, repos, companies, or people this session touched, for the knowledge graph. One per line, [[type/slug]] form with a lowercase-kebab slug. Allowed types: project, company, person, repo. e.g. [[project/session-warden]], [[company/acme]], [[repo/billing-service]]. Only real named entities, max 8. Omit if none.
 
 Keep it under 400 words. Skip sections that don't apply.
 PROMPT_EOF
