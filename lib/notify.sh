@@ -4,6 +4,11 @@
 notify_rotation() {
   local agent="$1" channel="$2" reason="$3" details="$4"
 
+  # Rotations are routine self-healing — operator-grade noise, not for the
+  # user's chat. Opt back in with WARDEN_NOTIFY_ROTATIONS=1. Doctor UNHEALTHY
+  # alerts (real failures) are unaffected. Rotations remain in the warden logs.
+  [ "${WARDEN_NOTIFY_ROTATIONS:-0}" = "1" ] || return 0
+
   [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
   [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
 

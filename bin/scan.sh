@@ -122,6 +122,7 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         [ -f "$rfile" ] || continue
         ragent=$(jq -r '.agent' "$rfile")
         rchannel=$(jq -r '.channel_key' "$rfile")
+        rreason=$(jq -r '.reason // ""' "$rfile")
 
         # A recovery prompt is only valuable fresh, once, and to a session
         # that needs it. Enforce all three here, at delivery time — the queue
@@ -204,6 +205,19 @@ This is graph-wide context for you (${ragent}) across recent sessions. Use it to
 ${gbrain_brief}"
         fi
 
+        # Routine threshold rotations with no crashed-out user messages get a
+        # SILENT recovery — no "I'm back" post in the channel, since routine
+        # rotation chatter is noise to the user. Crash/stall recoveries with
+        # unprocessed messages still announce and deliver so the user knows
+        # work resumed.
+        deliver_flag="--deliver"
+        if [ -z "$crash_buf" ] && [[ "$rreason" =~ ^(TOKENS|TURNS|SIZE|COMPACTIONS)$ ]]; then
+          deliver_flag=""
+          recovery_msg="${recovery_msg}
+
+NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that you're back and do NOT message the user about this restart. Silently re-orient and resume any pending work; only contact the user if something genuinely needs them."
+        fi
+
         # -k 30: openclaw ignores SIGTERM, so without a KILL escalation a hung
         # delivery blocks the serial drain forever (observed: one delivery
         # stuck 90+ min holding 16 queued recoveries; another since Apr 30).
@@ -212,7 +226,7 @@ ${gbrain_brief}"
           --session-id "$rchannel" \
           --message "$recovery_msg" \
           --timeout 120 \
-          --deliver \
+          ${deliver_flag} \
           >/dev/null 2>&1 && {
           echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE"
           # Clear crash buffer after successful recovery delivery

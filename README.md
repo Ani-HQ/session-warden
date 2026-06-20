@@ -73,6 +73,23 @@ Either way the killed session is marked failed and enqueued to `state/pending-re
 
 Runs on its own cron tick every 30s. Config: `WARDEN_REAP_ENABLED`, `WARDEN_STALL_HARD_CAP_SECONDS`, `WARDEN_STALL_KILL_GRACE_SECONDS`.
 
+## Channel/plugin parity (silent-channel backstop)
+
+Some OpenClaw upgrades unbundle a channel plugin from core. The gateway then boots "healthy", starts the channels whose plugins survived, and **silently ignores** an enabled channel that has no provider — no error, no log line, no health alert. The channel just goes dark. (Real incident, 2026-06-11: a release unbundled Discord; every Discord agent was deaf for ~14 hours before anyone noticed.)
+
+`contrib/openclaw-patches/channel-parity.sh` enforces the invariant: **every channel enabled in `openclaw.json` must have an installed, enabled plugin that provides it.**
+
+- `channel-parity.sh check` — report parity; exit 0 in-parity, 1 on mismatch.
+- `channel-parity.sh heal` — for each missing channel, install the **official** `@openclaw/<id>` plugin (that scope only — never community code), schedule one gateway restart, and alert via the warden's Telegram. Loop-guarded: at most one heal attempt per channel per `CHANNEL_PARITY_COOLDOWN_SECONDS` (default 6h).
+
+It's wired at three layers so a gap can't slip through any single one:
+
+- **boot** — `deploy/20-channel-parity.conf` adds an `ExecStartPost` that runs `heal` after every gateway start (leading `-` + backgrounded, so it never blocks or fails startup).
+- **cron** — `doctor.sh` runs `check` on its existing 5-min cadence and reports an unhealthy verdict on mismatch.
+- **upgrade** — the update flow runs `check` before blessing a new OpenClaw version.
+
+Missing prerequisites (no `jq`, no config) bail soft, never breaking gateway startup. Config: `OPENCLAW_CONFIG`, `OPENCLAW_BIN`, `CHANNEL_PARITY_COOLDOWN_SECONDS`, `CHANNEL_PARITY_STATE_DIR`.
+
 ## Quick start
 
 ```bash
@@ -156,6 +173,7 @@ All config lives in `config/thresholds.env`. Key settings:
 | `WARDEN_DRY_RUN` | 0 | Set to 1 to log without rotating |
 | `WARDEN_TELEGRAM_BOT_TOKEN` | (empty) | Telegram bot token for rotation alerts |
 | `WARDEN_TELEGRAM_CHAT_ID` | (empty) | Telegram chat ID for rotation alerts |
+| `WARDEN_NOTIFY_ROTATIONS` | 0 | Post a chat alert on every routine rotation. Off by default — routine threshold rotations recover silently (logged only); crash and stall recoveries always notify regardless |
 
 All `WARDEN_*` variables can be overridden via environment (env takes precedence over the config file).
 
