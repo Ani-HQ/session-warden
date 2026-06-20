@@ -90,9 +90,7 @@ This is the snapshotter, rewritten to live inside the warden and reuse its libra
    ```
    agent_from_cwd():
      *.openclaw/agents/<name>*  -> <name>     (OpenClaw agents)
-     *ai-holdingco*storybook*   -> storybook  (project-specific)
-     *ai-holdingco*yeet*        -> yeet
-     *crossval*|*cv-*           -> crossval
+     <user glob rules>          -> <name>     (optional config/agent-paths.env)
      $HOME or $HOME/            -> home
      *                          -> unknown
 

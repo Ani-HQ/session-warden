@@ -46,7 +46,7 @@ Every `WARDEN_SNAPSHOT_INTERVAL_MINUTES` (default 30) it:
 3. Extracts the transcript (`lib/extract.sh`), summarizes it with Haiku, and writes a typed GBrain page at `sessions/<date>/<agent>-<shortid>` (tags `[session, snapshot, <agent>]`), linked `performed_by` to its agent and with `mentions` edges to any entities the summary names
 4. Tracks `{last_mtime, last_turn_count}` per session in `state/snapshot/state.json`, re-summarizing only when the file changed **and** at least `WARDEN_SNAPSHOT_MIN_TURNS` (default 4) new turns accrued — so most runs are cheap no-ops and Haiku only fires on real activity
 
-The agent each session is attributed to is resolved from its working directory (`lib/agent-attribution.sh`): OpenClaw agents by name, `ai-holdingco`/`crossval` project paths, your home dir as `home`, everything else `unknown`.
+The agent each session is attributed to is resolved from its working directory (`lib/agent-attribution.sh`): OpenClaw agents by their `~/.openclaw/agents/<name>` directory, your home dir as `home`, everything else `unknown`. To attribute your own repos or project paths to named agents, add glob rules to `config/agent-paths.env` (copy `config/agent-paths.env.example`); without it, non-OpenClaw paths just resolve to `unknown`.
 
 **GBrain is a hard dependency for this module** — there is no graceful degradation. If the `gbrain` CLI isn't installed, snapshot exits with an error. GBrain is the canonical cross-session knowledge graph; snapshot writes there only (Claude Code's own auto-memory already handles local per-project persistence).
 

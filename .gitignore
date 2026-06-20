@@ -3,6 +3,7 @@ state/
 
 # User config (contains tokens, paths)
 config/thresholds.env
+config/agent-paths.env
 
 # Archives and transcripts
 *.log
