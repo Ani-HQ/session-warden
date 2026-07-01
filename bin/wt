@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# wt — ephemeral per-task git worktree helper for openclaw agents.
+#
+# Why this exists: multiple agents hit the same shared repo checkouts under ~
+# many times per hour. A shared checkout means one agent's `git checkout`/edit
+# corrupts another's working tree. Each code task gets its own isolated worktree
+# on its own `ani/<task>` branch instead. The session-warden GC
+# (reap-worktrees.sh) removes them once the work has landed or gone stale, so
+# the disk never fills up.
+#
+# Policy (see project_agent_worktree_policy_jun09):
+#   - source-only: agents edit / commit / push. No dep install, no .env copy,
+#     no build/test in the worktree. It stays tiny and secret-free.
+#   - one worktree per task, on `ani/<task>`, removed after use.
+#   - branches are based on each repo's default remote branch (origin/HEAD).
+#     None of our repos have a `staging` branch yet — flag that to Ani if the
+#     git protocol's "branch from staging" rule needs to hold.
+#
+# Usage:
+#   wt start <repo> <task>   create + print an isolated worktree, cd into it
+#   wt done  [path] [--force] commit-safe removal of a worktree (default: cwd)
+#   wt list                  show all live worktrees with status flags
+#   wt help
+#
+# <repo> may be a path to a checkout, or a bare name resolved under ~ (e.g.
+# `ai-holdingco`, `gbrain`, `session-warden`).
+set -uo pipefail
+
+WT_ROOT="${WT_ROOT:-$HOME/.openclaw/worktrees}"
+REGISTRY="$WT_ROOT/.registry"
+
+log()  { printf '%s\n' "$*" >&2; }
+die()  { log "wt: $*"; exit 1; }
+
+slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9._/-]+#-#g; s#^-+|-+$##g'; }
+
+# Resolve a <repo> argument to an absolute checkout path containing .git.
+resolve_repo() {
+  local arg="$1" cand
+  for cand in "$arg" "$HOME/$arg" "$HOME/ai-holdingco/$arg"; do
+    if [[ -e "$cand/.git" ]]; then ( cd "$cand" && pwd -P ); return 0; fi
+  done
+  return 1
+}
+
+default_base() {
+  # Prefer the remote's default branch; fall back to current HEAD.
+  local repo="$1" ref
+  git -C "$repo" fetch --quiet origin 2>/dev/null || true
+  ref="$(git -C "$repo" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)"
+  if [[ -n "$ref" ]]; then printf 'origin/%s' "${ref#refs/remotes/origin/}"; return; fi
+  # some repos never set origin/HEAD — probe common names
+  for b in staging main master; do
+    if git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$b"; then printf 'origin/%s' "$b"; return; fi
+  done
+  printf 'HEAD'
+}
+
+cmd_start() {
+  [[ $# -eq 2 ]] || die "usage: wt start <repo> <task>"
+  local repo task base bs repo_name path branch meta
+  repo="$(resolve_repo "$1")" || die "repo '$1' not found (looked in ., ~, ~/ai-holdingco)"
+  task="$(slug "$2")"; [[ -n "$task" ]] || die "empty task name"
+  repo_name="$(basename "$repo")"
+  branch="ani/$task"
+  path="$WT_ROOT/$repo_name/$task"
+
+  [[ -e "$path" ]] && die "worktree already exists: $path (cd into it, or 'wt done $path' first)"
+
+  base="$(default_base "$repo")"
+  [[ "$base" == "HEAD" ]] && log "wt: warning — no origin default branch found, basing on local HEAD"
+
+  mkdir -p "$WT_ROOT/$repo_name" "$REGISTRY"
+
+  # Reuse the branch if it already exists locally/remotely, else create fresh.
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch" \
+     || git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    git -C "$repo" worktree add "$path" "$branch" >&2 \
+      || die "git worktree add failed (branch $branch)"
+  else
+    git -C "$repo" worktree add "$path" -b "$branch" "$base" >&2 \
+      || die "git worktree add failed (new branch $branch off $base)"
+  fi
+
+  # Pin commit identity locally so agents don't need -c flags on every commit.
+  git -C "$path" config user.name  anianroid
+  git -C "$path" config user.email anianroid@gmail.com
+
+  # Registry entry for the GC + `wt list` (kept OUTSIDE the worktree so it never
+  # shows up as untracked). Key = repo_name--task.
+  meta="$REGISTRY/${repo_name}--${task}.env"
+  {
+    printf 'path=%s\n'    "$path"
+    printf 'repo=%s\n'    "$repo"
+    printf 'branch=%s\n'  "$branch"
+    printf 'base=%s\n'    "$base"
+    printf 'agent=%s\n'   "${OPENCLAW_AGENT_ID:-${WT_AGENT:-unknown}}"
+    printf 'created=%s\n' "$(date +%s)"
+  } > "$meta"
+
+  log "worktree ready:  $path"
+  log "branch:          $branch  (base $base)"
+  log "source-only:     no deps installed, no .env copied"
+  log "when done:       wt done \"$path\"   (commit + push first)"
+  # stdout = the path, so agents can:  cd \"$(wt start <repo> <task>)\"
+  printf '%s\n' "$path"
+}
+
+cmd_done() {
+  local path="" force=0 a
+  for a in "$@"; do
+    case "$a" in
+      --force|-f) force=1 ;;
+      *) path="$a" ;;
+    esac
+  done
+  [[ -n "$path" ]] || path="$(pwd -P)"
+  git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a worktree: $path"
+
+  local common main_root
+  common="$(git -C "$path" rev-parse --git-common-dir)"
+  main_root="$(cd "$(dirname "$common")" && pwd -P)"
+  [[ "$(cd "$common" && pwd -P)" != "$(git -C "$path" rev-parse --git-dir)" ]] \
+    || die "$path is the main checkout, not a linked worktree — refusing to remove"
+
+  if [[ $force -eq 0 ]]; then
+    if [[ -n "$(git -C "$path" status --porcelain)" ]]; then
+      die "uncommitted or untracked changes in $path — commit/push them, or 'wt done --force' to discard"
+    fi
+    local branch upstream
+    branch="$(git -C "$path" branch --show-current)"
+    if ! git -C "$path" rev-parse --verify --quiet "@{upstream}" >/dev/null 2>&1; then
+      die "branch '$branch' was never pushed — 'git push -u origin $branch' first, or --force to discard"
+    fi
+    if [[ -n "$(git -C "$path" log --oneline @{upstream}..HEAD 2>/dev/null)" ]]; then
+      die "unpushed commits on '$branch' — push them first, or --force to discard"
+    fi
+  fi
+
+  git -C "$main_root" worktree remove ${force:+--force} "$path" \
+    || die "git worktree remove failed"
+  git -C "$main_root" worktree prune
+  rm -f "$REGISTRY"/*"--$(basename "$path").env" 2>/dev/null
+  log "removed worktree: $path"
+}
+
+cmd_list() {
+  [[ -d "$WT_ROOT" ]] || { log "no worktrees (WT_ROOT=$WT_ROOT)"; return; }
+  local found=0 d meta age flags branch
+  shopt -s nullglob
+  for d in "$WT_ROOT"/*/*/; do
+    d="${d%/}"
+    git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
+    found=1
+    branch="$(git -C "$d" branch --show-current 2>/dev/null)"
+    flags=""
+    [[ -n "$(git -C "$d" status --porcelain 2>/dev/null)" ]] && flags+="dirty "
+    if git -C "$d" rev-parse --verify --quiet "@{upstream}" >/dev/null 2>&1; then
+      [[ -n "$(git -C "$d" log --oneline @{upstream}..HEAD 2>/dev/null)" ]] && flags+="unpushed "
+    else
+      flags+="never-pushed "
+    fi
+    [[ -z "$flags" ]] && flags="clean"
+    meta="$REGISTRY/$(basename "$(dirname "$d")")--$(basename "$d").env"
+    age="?"
+    if [[ -f "$meta" ]]; then
+      local created; created="$(sed -n 's/^created=//p' "$meta")"
+      [[ -n "$created" ]] && age="$(( ( $(date +%s) - created ) / 3600 ))h"
+    fi
+    printf '%-50s %-24s %-6s %s\n' "$d" "$branch" "$age" "$flags"
+  done
+  [[ $found -eq 0 ]] && log "no live worktrees under $WT_ROOT"
+}
+
+case "${1:-help}" in
+  start) shift; cmd_start "$@" ;;
+  done)  shift; cmd_done "$@" ;;
+  list)  shift; cmd_list "$@" ;;
+  help|-h|--help)
+    sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *) die "unknown command '${1}'. try: wt help" ;;
+esac

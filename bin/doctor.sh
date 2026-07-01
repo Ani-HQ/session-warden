@@ -96,6 +96,12 @@ if [ "$doctor_count" -ge 1 ]; then
 else
   warn "doctor.sh not in crontab — self-checks only run manually"
 fi
+wtgc_count=$(echo "$cron_content" | grep -cE "bin/reap-worktrees\.sh" || true)
+if [ "$wtgc_count" -ge 1 ]; then
+  ok "reap-worktrees.sh wired in cron (agent worktree GC)"
+else
+  warn "reap-worktrees.sh not in crontab — abandoned agent worktrees won't be swept"
+fi
 
 # ─── 4. Loop liveness (heartbeats, not log mtime) ─────────
 echo "liveness:"
@@ -193,6 +199,31 @@ if [ -n "$disk_avail_kb" ] && [ "$disk_avail_kb" -lt 2097152 ]; then
   fail "less than 2GB disk free ($((disk_avail_kb / 1024))MB)"
 else
   ok "disk space OK"
+fi
+
+# ─── 7b. Agent worktree hygiene ──────────────────────────
+# The GC (reap-worktrees.sh) removes landed/idle worktrees and ALERTS on stale
+# dirty/unpushed ones it won't auto-delete. Surface both here so hoarding or a
+# wedged GC can't silently fill the disk.
+WT_ROOT="${WT_ROOT:-$HOME/.openclaw/worktrees}"
+WT_COUNT_WARN="${WARDEN_DOCTOR_WT_COUNT_WARN:-20}"
+WT_SIZE_WARN_MB="${WARDEN_DOCTOR_WT_SIZE_WARN_MB:-2048}"
+if [ -d "$WT_ROOT" ]; then
+  echo "worktrees:"
+  wt_count=$(find "$WT_ROOT" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l)
+  wt_mb=$(du -sm "$WT_ROOT" 2>/dev/null | awk '{print $1}'); wt_mb="${wt_mb:-0}"
+  if [ "$wt_count" -gt "$WT_COUNT_WARN" ]; then
+    warn "${wt_count} agent worktrees live (>${WT_COUNT_WARN}) — GC may be behind or agents aren't running 'wt done'"
+  elif [ "$wt_mb" -gt "$WT_SIZE_WARN_MB" ]; then
+    warn "agent worktrees using ${wt_mb}MB (>${WT_SIZE_WARN_MB}MB)"
+  else
+    ok "agent worktrees OK (${wt_count} live, ${wt_mb}MB)"
+  fi
+  alert_file="${STATE_DIR}/.worktree-alerts"
+  if [ -s "$alert_file" ]; then
+    n=$(grep -c . "$alert_file" 2>/dev/null || echo 0)
+    warn "${n} stale worktree(s) flagged by GC (dirty/unpushed, need a human) — see ${alert_file}"
+  fi
 fi
 
 # ─── Verdict ─────────────────────────────────────────────

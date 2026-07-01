@@ -188,6 +188,9 @@ session-warden/
 ├── bin/
 │   ├── session-warden       # CLI entrypoint (scan, status, rotate, install, logs)
 │   ├── scan.sh              # cron entry point (every 30s)
+│   ├── reap-stalls.sh       # independent stall backstop (disk + /proc only)
+│   ├── reap-worktrees.sh    # GC for ephemeral agent worktrees (cron, 15 min)
+│   ├── wt                   # agent worktree helper (symlinked to ~/.local/bin/wt)
 │   ├── rotate.sh            # fast-path: backup, archive, cleanup
 │   ├── summarize.sh         # extract transcript, summarize, write memory
 │   ├── status.sh            # show session health across all agents
