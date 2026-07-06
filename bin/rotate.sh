@@ -128,6 +128,9 @@ fi
 # Step 1: backup sessions.json
 cp "$sessions_json" "${sessions_json}.pre-rotate-${ts}" || {
   log "ERROR: backup failed for $sessions_json"
+  # The rotation itself failed before completing — this is what the
+  # consecutive-failure counter counts.
+  echo $(( $(cat "$fail_counter_file" 2>/dev/null || echo 0) + 1 )) > "$fail_counter_file"
   exit 1
 }
 
@@ -164,12 +167,12 @@ fi
 
 date +%s > "$cooldown_file"
 
-# Track consecutive failures; reset on successful non-failure rotations
-if [ "$reason" = "FAILED" ] || [ "$reason" = "ZOMBIE" ]; then
-  echo $(( $(cat "$fail_counter_file" 2>/dev/null || echo 0) + 1 )) > "$fail_counter_file"
-else
-  rm -f "$fail_counter_file" "$backoff_marker"
-fi
+# The ROTATION completed — clear the consecutive-failure counter (and any
+# backoff-alert marker) regardless of reason. Recovery DELIVERY failures are
+# logged by scan.sh but must not poison this counter: an undeliverable session
+# whose rotations keep succeeding is not a crash loop. The counter is only
+# incremented where rotation itself fails before reaching this point.
+rm -f "$fail_counter_file" "$backoff_marker"
 
 log "ROTATE complete agent=$agent channel=$channel_key (fast path done)"
 
