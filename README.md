@@ -345,6 +345,24 @@ items, and expired cooldown markers. Run daily via cron.
 30 3 * * * ~/session-warden/bin/cleanup-archives.sh
 ```
 
+### Log rotation (logrotate)
+
+Weekly rotation for every log under `state/` (`scan.log`, `reflect.log`,
+`harvest.log`, ...): keep 4 generations, compressed, `copytruncate` so the
+append-only writers never notice. Install the policy system-wide:
+
+```bash
+sudo cp deploy/session-warden.logrotate /etc/logrotate.d/session-warden
+# dry-run to verify
+sudo logrotate -d /etc/logrotate.d/session-warden
+```
+
+Edit the path and `su` directive in the file if the repo doesn't live at
+`/home/anirudhmadhavan/session-warden`. The size-based rotation in
+`cleanup-archives.sh` (`WARDEN_LOG_MAX_BYTES`) stays on as a backstop for
+sudden log floods between weekly runs; `dateext` keeps the two schemes'
+filenames from colliding.
+
 ### Doctor (self-health + dead-man's switch)
 
 The warden monitors agents; `doctor` monitors the warden. It derives the
