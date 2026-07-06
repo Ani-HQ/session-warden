@@ -105,6 +105,14 @@ if [ -n "$GEN_AGENT" ]; then
     echo "eval-memory: ${agent} has no MEMORY.md content below the warden block" >&2
     exit 1
   fi
+  # A skeleton MEMORY.md (headings + comments only) carries nothing to eval —
+  # bail with a clear message instead of asking the model to invent cases.
+  mem_meat=$(printf '%s\n' "$mem" | grep -vE '^[[:space:]]*(#|<!--|-->|$)' | wc -c)
+  if [ "$mem_meat" -lt 120 ]; then
+    log "generate ${agent}: MEMORY.md below the warden block is effectively empty (${mem_meat}B of substance) — nothing to generate from"
+    echo "eval-memory: ${agent}'s MEMORY.md has no substantive content below the warden block (${mem_meat}B); populate it (or run the reflector/apply-lessons) before generating cases" >&2
+    exit 1
+  fi
 
   # GBrain lessons pages for this agent (full page bodies, bounded).
   lessons=""
@@ -152,8 +160,9 @@ Output ONLY the JSONL lines." 2>/dev/null)
   done < <(printf '%s\n' "$raw")
   n_cases=$(grep -c . "${cases_file}.tmp")
   if [ "$n_cases" -lt 5 ]; then
+    rm -f "${cases_file}.tmp"
     log "generate ${agent}: only ${n_cases} valid case(s) parsed — refusing to overwrite"
-    echo "eval-memory: generation for ${agent} produced only ${n_cases} valid cases (need >=5); raw kept at ${cases_file}.tmp" >&2
+    echo "eval-memory: generation for ${agent} produced only ${n_cases} valid cases (need >=5); the existing cases file (if any) was left untouched" >&2
     exit 1
   fi
   mv "${cases_file}.tmp" "$cases_file"
