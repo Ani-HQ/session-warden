@@ -1,0 +1,9 @@
+[Unit]
+Description=session-warden memory evals (monthly memory-quality regression)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/session-warden/bin/eval-memory.sh
+# Inherit the same user environment the warden cron uses (PATH, DBUS, etc.)
+Environment=HOME=%h
