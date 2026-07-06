@@ -2,7 +2,7 @@
 # scorecard.sh — weekly model A/B benchmark across the experimental Hermes agents.
 #
 # Three Hermes agents run the same fleet role on different models (carolyn:
-# gemini-3.5-flash, midi: zai-glm-4.7 on cerebras, baymax:
+# gemini-3.5-flash, midi: llama-3.3-70b on groq, baymax:
 # gemini-3.1-pro-preview). Nothing measures which model is actually better at
 # THIS fleet's work. This job closes that loop weekly: it runs a fixed task
 # set (config/scorecard-tasks.jsonl — factual reasoning, summarization,
@@ -88,7 +88,7 @@ hermes_home_for() { echo "$HOME/.hermes-$1"; }
 model_for() {
   case "$1" in
     carolyn) echo "gemini-3.5-flash" ;;
-    midi)    echo "zai-glm-4.7 (cerebras)" ;;
+    midi)    echo "llama-3.3-70b (groq)" ;;
     baymax)  echo "gemini-3.1-pro-preview" ;;
     *)       echo "unknown" ;;
   esac
