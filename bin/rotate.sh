@@ -99,6 +99,7 @@ if [[ "$reason" =~ ^(TOKENS|TURNS|COMPACTIONS)$ ]] && command -v openclaw >/dev/
   log "GRACEFUL: asking $agent to save state (${WARDEN_GRACEFUL_TIMEOUT}s timeout)"
   timeout "$WARDEN_GRACEFUL_TIMEOUT" openclaw agent \
     --agent "$agent" \
+    --channel last \
     --session-id "$channel_key" \
     --message "SESSION ROTATION IMMINENT: Your session will be rotated in ${WARDEN_GRACEFUL_TIMEOUT} seconds due to ${reason} threshold. Write all pending work, decisions, and context to your memory files NOW. Be specific: file paths, branch names, what you were doing, what's left to do." \
     --timeout "$((WARDEN_GRACEFUL_TIMEOUT - 5))" \
