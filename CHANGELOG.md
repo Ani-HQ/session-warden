@@ -1,7 +1,7 @@
 # Changelog
 
 Notable changes to session-warden. The sections below cover the current PR
-stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening`.
+stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/scorecard-evals`.
 
 ## [Unreleased] — 1.0.0
 
@@ -74,3 +74,28 @@ stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening`.
 
 Release note: 1.0.0 is cut by the repo owner after the PR stack
 (#16 → #17 → #18 → hardening) merges; nothing is tagged from the branches.
+### Added — model scorecard, weekly Hermes A/B benchmark (`feat/scorecard-evals`)
+
+- `bin/scorecard.sh` + `config/scorecard-tasks.jsonl`: runs a fixed 8-task
+  benchmark (factual reasoning, summarization, JSON extraction, style,
+  planning, GBrain-grounded tool use, clarify-before-acting judgment, logic)
+  through each experimental Hermes agent (carolyn/gemini-3.5-flash,
+  midi/zai-glm-4.7, baymax/gemini-3.1-pro-preview) as real non-interactive
+  turns, then scores 0-10 with a blind judge — the judge is never told which
+  agent/model answered. Report to `state/scorecard/<date>/REPORT.md`, GBrain
+  mirror `scorecards/YYYY-MM-DD` (scope: personal, source: scorecard,
+  trust: verified), Telegram totals digest.
+- `deploy/scorecard.{service,timer}`: Saturdays 06:00 UTC.
+
+### Added — memory evals, monthly memory-quality regression (`feat/scorecard-evals`)
+
+- `bin/eval-memory.sh`: per-agent eval cases
+  (`~/.openclaw/evals/<agent>/cases.jsonl`, generated once with
+  `--generate <agent>` from MEMORY.md + GBrain lessons; application-style, not
+  parroting) replayed monthly against the agent's CURRENT MEMORY.md +
+  AGENTS.md via the claude CLI, PASS/FAIL judged by Haiku. Per-agent pass
+  rates with deltas vs the previous run (the regression signal) in
+  `state/evals/<date>/REPORT.md`, GBrain mirror `evals/YYYY-MM-DD`
+  (scope: shared, source: eval-memory, trust: verified), Telegram digest.
+- `deploy/eval-memory.{service,timer}`: monthly, 1st 07:00 UTC.
+
