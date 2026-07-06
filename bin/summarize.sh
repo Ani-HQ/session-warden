@@ -9,6 +9,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/memory.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"   # gbrain_available, gbrain_slugify (GBrain refs)
@@ -48,7 +49,7 @@ for job_file in "$PENDING_DIR"/*.json; do
   extract_session_transcript "$archived_jsonl" > "$transcript_file"
 
   transcript_lines=$(wc -l < "$transcript_file")
-  transcript_bytes=$(stat -c%s "$transcript_file")
+  transcript_bytes=$(stat_size "$transcript_file")
   log "SUMMARY: extracted ${transcript_lines} lines, ${transcript_bytes} bytes"
 
   if [ "$transcript_bytes" -lt 10 ]; then

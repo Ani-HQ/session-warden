@@ -8,6 +8,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/notify.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
 
@@ -91,7 +92,7 @@ fi
 # actively working. Defer rotation to avoid killing it mid-response.
 WARDEN_ACTIVE_THRESHOLD_SECS="${WARDEN_ACTIVE_THRESHOLD_SECS:-60}"
 if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
-  jsonl_mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+  jsonl_mtime=$(stat_mtime "$jsonl_file")
   now_epoch=$(date +%s)
   age=$((now_epoch - jsonl_mtime))
   if [ "$age" -lt "$WARDEN_ACTIVE_THRESHOLD_SECS" ]; then

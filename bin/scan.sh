@@ -10,6 +10,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
@@ -130,7 +131,7 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         # recovery into noise that wakes agents for no reason.
 
         # Freshness: drop items older than the TTL instead of delivering.
-        rfile_mtime=$(stat -c %Y "$rfile" 2>/dev/null || echo 0)
+        rfile_mtime=$(stat_mtime "$rfile")
         now_recovery=$(date +%s)
         if [ $((now_recovery - rfile_mtime)) -gt "${WARDEN_RECOVERY_TTL_SECONDS:-1800}" ]; then
           echo "[$(date -Iseconds)] RECOVERY: dropped stale request for $ragent/$rchannel ($((now_recovery - rfile_mtime))s old, TTL ${WARDEN_RECOVERY_TTL_SECONDS:-1800}s)" >> "$LOG_FILE"

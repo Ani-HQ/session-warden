@@ -23,6 +23,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"   # agent_from_sessions_path
 source "${WARDEN_HOME}/lib/reap.sh"
@@ -175,7 +176,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     # Forward-progress timestamp: newest of updatedAt and the JSONL mtime.
     jsonl_file="${jsonl_base}/${cli_session_id}.jsonl"
     jsonl_mtime=0
-    [ -f "$jsonl_file" ] && jsonl_mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+    [ -f "$jsonl_file" ] && jsonl_mtime=$(stat_mtime "$jsonl_file")
     last_progress=$(reap_last_progress_epoch "$updated_at_ms" "$jsonl_mtime")
 
     verdict=$(reap_stall_verdict "running" "$now" "$last_progress" "$HARD_CAP")

@@ -24,6 +24,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
 source "${WARDEN_HOME}/lib/agent-attribution.sh"
@@ -149,7 +150,7 @@ while IFS= read -r jsonl; do
     continue
   fi
 
-  current_mtime=$(stat -c %Y "$jsonl" 2>/dev/null || stat -f %m "$jsonl" 2>/dev/null || echo 0)
+  current_mtime=$(stat_mtime "$jsonl")
   last_mtime=$(get_state_field "$session_id" "last_mtime")
   last_turns=$(get_state_field "$session_id" "last_turn_count")
 

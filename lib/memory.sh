@@ -4,6 +4,9 @@
 MEMORY_MODEL="${WARDEN_SUMMARY_MODEL:-claude-haiku-4-5-20251001}"
 MEMORY_MAX_FILE_BYTES="${WARDEN_MEMORY_MAX_BYTES:-16384}"
 
+# Portable stat helpers (stat_size)
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/portable.sh"
+
 # Source channel-history for crash buffer support
 if [ -f "${WARDEN_HOME}/lib/channel-history.sh" ]; then
   source "${WARDEN_HOME}/lib/channel-history.sh"
@@ -181,7 +184,7 @@ EOF
   echo "$entry_line" >> "$memory_index"
 
   local file_size
-  file_size=$(stat -c%s "$mem_file")
+  file_size=$(stat_size "$mem_file")
   log "MEMORY: written ${mem_file} (${file_size} bytes)"
 
   # Compact if too large
@@ -257,7 +260,7 @@ CTXEOF
     printf '\n%s\n' "$crash_buffer_content" >> "$context_file"
   fi
 
-  log "MEMORY: wrote CONTEXT.md for $agent ($(stat -c%s "$context_file") bytes, crash_buffer=$([ -n "$crash_buffer_content" ] && echo "yes" || echo "no"))"
+  log "MEMORY: wrote CONTEXT.md for $agent ($(stat_size "$context_file") bytes, crash_buffer=$([ -n "$crash_buffer_content" ] && echo "yes" || echo "no"))"
 
   # 2. Inject into workspace MEMORY.md (bootstrap loads this into system prompt)
   local existing=""

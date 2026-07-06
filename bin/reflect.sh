@@ -26,6 +26,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/extract.sh"
 [ -f "${WARDEN_HOME}/lib/notify.sh" ] && source "${WARDEN_HOME}/lib/notify.sh"
 
@@ -154,7 +155,7 @@ for agent in $REFLECT_AGENTS; do
     } >> "$material_file"
   done < <(find "${agent_home}/memory" -maxdepth 1 -name '*.md' -mmin -"$WINDOW_MINUTES" 2>/dev/null | sort)
 
-  material_bytes=$(stat -c%s "$material_file" 2>/dev/null || echo 0)
+  material_bytes=$(stat_size "$material_file")
   if [ "$material_bytes" -lt 200 ]; then
     log "$agent: no material in last $((WINDOW_MINUTES / 60))h (${material_bytes}B) — SKIP"
     rm -f "$material_file"

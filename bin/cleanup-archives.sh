@@ -9,6 +9,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 
 RETENTION_DAYS="${WARDEN_ARCHIVE_RETENTION_DAYS:-7}"
 QUEUE_RETENTION_DAYS="${WARDEN_QUEUE_RETENTION_DAYS:-7}"
@@ -26,7 +27,7 @@ deleted=0
 freed_bytes=0
 
 while IFS= read -r -d '' file; do
-  size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+  size=$(stat_size "$file")
   rm -f "$file"
   deleted=$((deleted + 1))
   freed_bytes=$((freed_bytes + size))
@@ -81,7 +82,7 @@ fi
 
 # ─── scan.log rotation ────────────────────────────────────
 # Size-based, self-contained (no logrotate dependency). scan.log -> .1 -> .2 ...
-log_bytes=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
+log_bytes=$(stat_size "$LOG_FILE")
 if [ "$log_bytes" -gt "$LOG_MAX_BYTES" ]; then
   i=$((LOG_KEEP - 1))
   while [ "$i" -ge 1 ]; do
