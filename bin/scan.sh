@@ -218,17 +218,35 @@ ${gbrain_brief}"
 NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that you're back and do NOT message the user about this restart. Silently re-orient and resume any pending work; only contact the user if something genuinely needs them."
         fi
 
+        # Channel-less sessions (explicit agent-to-agent sub-sessions, or
+        # entries with no channel/provider binding in sessions.json) can't
+        # take --deliver — there is no user-facing channel to post to. Send
+        # without it; the message still reaches the agent session.
+        sjson_path="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/sessions/sessions.json"
+        if [ -n "$deliver_flag" ]; then
+          rchannel_binding=$(jq -r --arg key "$rchannel" '.[$key] | (.lastChannel // .channel // empty)' "$sjson_path" 2>/dev/null)
+          case "$rchannel" in
+            agent:*:explicit:*) rchannel_binding="" ;;
+          esac
+          if [ -z "$rchannel_binding" ]; then
+            deliver_flag=""
+            echo "[$(date -Iseconds)] RECOVERY: $ragent/$rchannel — no delivery channel, sent without --deliver" >> "$LOG_FILE"
+          fi
+        fi
+
         # -k 30: openclaw ignores SIGTERM, so without a KILL escalation a hung
         # delivery blocks the serial drain forever (observed: one delivery
         # stuck 90+ min holding 16 queued recoveries; another since Apr 30).
-        timeout -k 30 180 openclaw agent \
+        # Keep stderr: silent delivery failures hid the #16 regression for
+        # three weeks. On failure the tail of it goes in the log line.
+        if delivery_err=$(timeout -k 30 180 openclaw agent \
           --agent "$ragent" \
           --channel last \
           --session-key "$rchannel" \
           --message "$recovery_msg" \
           --timeout 120 \
           ${deliver_flag} \
-          >/dev/null 2>&1 && {
+          2>&1 >/dev/null); then
           echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE"
           # Clear crash buffer after successful recovery delivery
           if type clear_crash_buffer &>/dev/null; then
@@ -241,7 +259,6 @@ NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that
           fail_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
           rm -f "$fail_file" "${fail_file%.failures}.backoff-alerted"
           # Clear status=failed in sessions.json so the gateway treats it as healthy
-          sjson_path="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/sessions/sessions.json"
           if [ -f "$sjson_path" ]; then
             jq --arg key "$rchannel" '
               if has($key) and .[$key].status == "failed" then
@@ -252,8 +269,11 @@ NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that
               else . end
             ' "$sjson_path" > "${sjson_path}.tmp" && mv "${sjson_path}.tmp" "$sjson_path"
           fi
-        } || \
-          echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (non-fatal)" >> "$LOG_FILE"
+        else
+          delivery_rc=$?
+          delivery_err=$(echo "$delivery_err" | tr '\n' ' ' | head -c 200)
+          echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (exit ${delivery_rc}${delivery_err:+: ${delivery_err}}) — non-fatal" >> "$LOG_FILE"
+        fi
         rm -f "$rfile"
       done
       flock -u 198
