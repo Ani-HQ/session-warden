@@ -1,0 +1,12 @@
+[Unit]
+Description=Run session-warden skill harvester weekly (Sunday early morning)
+
+[Timer]
+# Sun 05:00 UTC weekly — after that night's reflector (04:10) so the week's
+# lessons are already staged/applied; catch up if the machine was asleep.
+OnCalendar=Sun *-*-* 05:00:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
