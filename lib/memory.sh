@@ -123,6 +123,9 @@ Output exactly these sections:
 ## Context for next session
 (anything that would be confusing without this note — why something was done, blockers, relationships between tasks)
 
+## Lessons candidates
+(ONLY if this session contained a lesson-worthy event: a notable failure, a wrong assumption that got corrected, a repeated mistake, or a non-obvious discovery. 1-3 bullets, each phrased as a candidate GENERAL rule that would change future behavior — not a restatement of what happened. The nightly reflector reads these summaries and picks candidates up from this section. Omit the section entirely for routine sessions.)
+
 ## Entities
 (wikilinks to the named people, projects, repos, companies, or products this session touched, for the knowledge graph. One per line, using [[type/slug]] form with a lowercase-kebab slug. Allowed types: project, company, person, deal, repo. Examples: [[project/billing-migration]], [[company/acme]], [[person/jane-doe]], [[repo/session-warden]]. Only real named entities, max 8. Omit the section entirely if none.)
 
