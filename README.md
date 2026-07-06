@@ -86,6 +86,38 @@ Runs nightly at 04:10 UTC via `deploy/reflect.{service,timer}` — after the dre
 | `WARDEN_REFLECT_NOTIFY` | `1` | one Telegram digest per run |
 | `WARDEN_REFLECT_WINDOW_MINUTES` | `1440` | lookback window for material |
 
+## Skill harvester (weekly skill mining)
+
+The reflector distills one-line *lessons*; nothing captures repeated *workflows*. The **skill harvester** (`bin/harvest-skills.sh`) closes that loop weekly: if an agent did the same multi-step thing twice this week, that procedure should become a skill, not stay tribal knowledge in session summaries.
+
+For each agent in `WARDEN_HARVEST_AGENTS` it:
+
+1. **Gathers** the week's material (`WARDEN_HARVEST_WINDOW_DAYS`, default 7): the warden's rotation summaries, the agent's own daily notes in `memory/`, and lessons already applied in `memory/applied/`. Agents with no material are skipped (logged as SKIP).
+2. **Lists existing skills** — the agent's own (`~/.openclaw/agents/<agent>/skills/`), the shared fleet dir (`~/.openclaw/skills/`), and anything already staged — and feeds the names to the model so it never proposes a duplicate (a belt-and-braces name check enforces this even if the model ignores the instruction).
+3. **Mines** with one strong-model call per agent (`WARDEN_HARVEST_MODEL`, default Sonnet): identify workflows performed **2+ times** this week that no existing skill covers, and emit a complete `SKILL.md` draft for each — YAML frontmatter (`name`, `description` with trigger conditions) plus a body with steps, known failure modes, and anti-patterns, all grounded in the week's material. At most **2 proposals per agent per run**. If nothing clears the bar, the model outputs `NO_SKILLS`.
+4. **Stages** each draft at `~/.openclaw/skills-pending/<agent>/<skill-name>/SKILL.md` — it **never writes into a live skills dir**.
+5. **Notifies** once per run via Telegram (`WARDEN_HARVEST_NOTIFY=1`): per-agent proposal counts and names, where the drafts live, and the promote command.
+
+The **staged-approval flow**: read a draft, edit it if needed, then promote it with
+
+```bash
+bin/promote-skill.sh <agent> <skill-name>            # into the agent's own skills dir
+bin/promote-skill.sh <agent> <skill-name> --shared   # into ~/.openclaw/skills/ for the fleet
+```
+
+`promote-skill.sh` moves the pending dir into the live skills dir (refusing to overwrite an existing skill) and records the skill in GBrain as `skills/<skill-name>` with provenance frontmatter per the GBrain conventions (`scope:` work/personal by team, `source: skill-harvester`, `trust: inferred`).
+
+Flags on `harvest-skills.sh`: `--agent <name>` harvests a single agent; `--dry-run` prints the proposed drafts without writing or notifying. Logs to `state/harvest.log`; a lock file prevents overlapping runs; LLM failures are logged and skipped, never fatal.
+
+Runs weekly, Sunday 05:00 UTC, via `deploy/harvest.{service,timer}` — after that night's reflector (04:10) so the week's lessons are already staged. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_HARVEST_AGENTS` | `ping bloop dash isaac zara kai nova remy` | agents to harvest (ping/bloop/dash/isaac = work team, zara/kai/nova/remy = personal) |
+| `WARDEN_HARVEST_WINDOW_DAYS` | `7` | lookback window for material |
+| `WARDEN_HARVEST_MODEL` | `claude-sonnet-4-6` | skill-mining model |
+| `WARDEN_HARVEST_NOTIFY` | `1` | one Telegram digest per run |
+
 ## Stall reaper (silent-hang backstop)
 
 OpenClaw's gateway runs an in-process watchdog that kills a turn whose CLI child stops making progress. It's fast and precise, but it shares a failure domain with the gateway: it lives in the compiled runtime (a string patch that no-ops after `npm update openclaw`) and it needs the gateway's own event loop healthy enough to fire. When either fails, an agent turn hangs forever and the channel goes silent with no reply.
