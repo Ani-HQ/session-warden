@@ -70,10 +70,12 @@ if [ -d "${WARDEN_HOME}/state/cooldowns" ]; then
     rm -f "$file"
     cooldown_purged=$((cooldown_purged + 1))
   done < <(find "${WARDEN_HOME}/state/cooldowns" -name "*.recovered" -mtime +1 -print0 2>/dev/null)
+  # .backoff-alerted markers ride along with .failures: once the counter is
+  # purged the backoff episode is over, so the alert/log gate must reset too.
   while IFS= read -r -d '' file; do
     rm -f "$file"
     cooldown_purged=$((cooldown_purged + 1))
-  done < <(find "${WARDEN_HOME}/state/cooldowns" -name "*.failures" -mtime +"$COOLDOWN_RETENTION_DAYS" -print0 2>/dev/null)
+  done < <(find "${WARDEN_HOME}/state/cooldowns" \( -name "*.failures" -o -name "*.backoff-alerted" \) -mtime +"$COOLDOWN_RETENTION_DAYS" -print0 2>/dev/null)
 fi
 [ "$cooldown_purged" -gt 0 ] && log "CLEANUP: removed $cooldown_purged expired cooldown markers"
 

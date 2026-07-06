@@ -44,7 +44,8 @@ fi
 
 COOLDOWN_DIR="${WARDEN_HOME}/state/cooldowns"
 mkdir -p "$COOLDOWN_DIR"
-cooldown_file="${COOLDOWN_DIR}/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g')"
+safe_key="${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g')"
+cooldown_file="${COOLDOWN_DIR}/${safe_key}"
 COOLDOWN_SECONDS="${WARDEN_COOLDOWN_SECONDS:-600}"
 
 if [ -f "$cooldown_file" ]; then
@@ -58,13 +59,29 @@ if [ -f "$cooldown_file" ]; then
   fi
 fi
 
-# Consecutive failure limit: stop rotating after N failures to prevent crash loops
+# Consecutive failure limit: stop rotating after N failures to prevent crash loops.
+# On first hit: one Telegram alert + a .backoff-alerted marker. While the marker
+# exists, the BACKOFF log line is throttled to hourly (the 30s scan would
+# otherwise write it ~120x/hour). The marker stores the last-log timestamp and
+# is cleared wherever the failure counter is reset.
 WARDEN_MAX_CONSECUTIVE_FAILURES="${WARDEN_MAX_CONSECUTIVE_FAILURES:-3}"
-fail_counter_file="${COOLDOWN_DIR}/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
+fail_counter_file="${COOLDOWN_DIR}/${safe_key}.failures"
+backoff_marker="${COOLDOWN_DIR}/${safe_key}.backoff-alerted"
 if [ "$reason" = "FAILED" ] || [ "$reason" = "ZOMBIE" ]; then
   fail_count=$(cat "$fail_counter_file" 2>/dev/null || echo 0)
   if [ "$fail_count" -ge "$WARDEN_MAX_CONSECUTIVE_FAILURES" ]; then
-    log "BACKOFF: $agent/$channel_key has failed $fail_count consecutive times — manual intervention needed"
+    now_backoff=$(date +%s)
+    if [ ! -f "$backoff_marker" ]; then
+      log "BACKOFF: $agent/$channel_key has failed $fail_count consecutive times — manual intervention needed (alert sent, further logs hourly)"
+      notify_backoff "$agent" "$channel_key" "$fail_count"
+      echo "$now_backoff" > "$backoff_marker"
+    else
+      last_backoff_log=$(cat "$backoff_marker" 2>/dev/null || echo 0)
+      if [ $((now_backoff - last_backoff_log)) -ge 3600 ]; then
+        log "BACKOFF: $agent/$channel_key still backed off after $fail_count consecutive failures — manual intervention needed"
+        echo "$now_backoff" > "$backoff_marker"
+      fi
+    fi
     flock -u 200
     exit 2
   fi
@@ -151,7 +168,7 @@ date +%s > "$cooldown_file"
 if [ "$reason" = "FAILED" ] || [ "$reason" = "ZOMBIE" ]; then
   echo $(( $(cat "$fail_counter_file" 2>/dev/null || echo 0) + 1 )) > "$fail_counter_file"
 else
-  rm -f "$fail_counter_file"
+  rm -f "$fail_counter_file" "$backoff_marker"
 fi
 
 log "ROTATE complete agent=$agent channel=$channel_key (fast path done)"

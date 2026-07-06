@@ -237,9 +237,9 @@ NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that
           # Mark as recovered so zombie detection skips this session for 2 hours
           recovered_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
           date +%s > "$recovered_file"
-          # Reset failure counter on successful recovery
+          # Clear failure counter + backoff-alert marker on successful recovery
           fail_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
-          echo 0 > "$fail_file"
+          rm -f "$fail_file" "${fail_file%.failures}.backoff-alerted"
           # Clear status=failed in sessions.json so the gateway treats it as healthy
           sjson_path="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/sessions/sessions.json"
           if [ -f "$sjson_path" ]; then
