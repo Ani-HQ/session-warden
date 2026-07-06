@@ -74,7 +74,7 @@ deliver_recovery() {
   local msg="You were just restarted: a stalled turn of yours was terminated by the watchdog. Check this channel's most recent messages to find what you were doing, send one short message confirming you're back, then resume that work."
   (
     exec 197>&-
-    if timeout 180 openclaw agent --agent "$agent" --channel last --session-id "$channel_key" \
+    if timeout 180 openclaw agent --agent "$agent" --channel last --session-key "$channel_key" \
         --message "$msg" --timeout 120 --deliver >/dev/null 2>&1; then
       echo "[$(date -Iseconds)] [reap] RECOVERY delivered to ${agent}/${channel_key}" >> "$LOG_FILE"
     else
