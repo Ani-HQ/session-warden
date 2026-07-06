@@ -149,3 +149,47 @@ ${summary}"
     --data-urlencode "text=${msg}" 2>/dev/null)
   echo "$resp" | grep -q "\"ok\":true"
 }
+
+notify_scorecard() {
+  # Weekly model-scorecard digest (bin/scorecard.sh). Informational, one per run.
+  # Returns non-zero if the send fails so the scorecard can log it.
+  local summary="$1"
+
+  [ "${WARDEN_SCORECARD_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🏁 *session-warden model scorecard* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
+}
+
+notify_evals() {
+  # Monthly memory-evals digest (bin/eval-memory.sh). Informational, one per run.
+  # Returns non-zero if the send fails so the eval runner can log it.
+  local summary="$1"
+
+  [ "${WARDEN_EVAL_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🧪 *session-warden memory evals* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
+}
