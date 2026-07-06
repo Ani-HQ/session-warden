@@ -33,7 +33,9 @@ if ! flock -n 196; then
   exit 0
 fi
 
-gbrain_available || { log "gbrain CLI not found — skipping"; exit 0; }
+# Probe the brain itself, not just the CLI binary — a dead backend would
+# otherwise burn the 30-min embed timeout and error mid-run.
+gbrain_healthy || { log "GBRAIN UNAVAILABLE — skipping gbrain work"; exit 0; }
 
 MODEL="${WARDEN_SUMMARY_MODEL:-claude-haiku-4-5-20251001}"
 date_str=$(date +%Y-%m-%d)
