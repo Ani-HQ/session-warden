@@ -87,11 +87,13 @@ run_snapshot
 calls=$(cat "$SNAP_CALLS")
 assert_not_contains "$calls" "put sessions/${date_str}/unknown-aaaaaaaa" "unmodified session not re-ingested"
 
-echo "  snapshot: hard dependency on gbrain"
+echo "  snapshot: graceful skip when gbrain unavailable"
 
-# Run with a PATH that has no gbrain (HOME=sandbox so lib prepend can't find it either)
+# Run with a PATH that has no gbrain (HOME=sandbox so lib prepend can't find it
+# either). Graceful degradation: skip cleanly with exit 0, log the skip.
 HOME="$SANDBOX" PATH="/usr/bin:/bin" "$WARDEN_HOME/bin/snapshot.sh" >/dev/null 2>&1
-assert_eq "1" "$?" "exits non-zero when gbrain CLI is missing"
+assert_eq "0" "$?" "exits zero (clean skip) when gbrain is unavailable"
+assert_contains "$(cat "$WARDEN_LOG_FILE")" "GBRAIN UNAVAILABLE — skipping gbrain work" "skip is logged"
 
 echo "  snapshot: clean run with no sessions"
 
