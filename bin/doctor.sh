@@ -26,6 +26,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 [ -f "${WARDEN_HOME}/config/thresholds.env" ] && source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/notify.sh"
 
 LOG_FILE="${WARDEN_LOG_FILE:-${WARDEN_HOME}/state/scan.log}"
@@ -54,7 +55,7 @@ file_age() {
   # seconds since mtime, or empty if missing
   local f="$1"
   [ -f "$f" ] || { echo ""; return; }
-  echo $(( $(date +%s) - $(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0) ))
+  echo $(( $(date +%s) - $(stat_mtime "$f") ))
 }
 
 echo "session-warden doctor — $(date -Iseconds)"
@@ -181,7 +182,7 @@ fi
 # ─── 7. State hygiene ────────────────────────────────────
 echo "state:"
 if [ -f "$LOG_FILE" ]; then
-  log_bytes=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
+  log_bytes=$(stat_size "$LOG_FILE")
   if [ "$log_bytes" -gt "$LOG_WARN_BYTES" ]; then
     warn "scan.log is $((log_bytes / 1048576))MB — rotation overdue (cleanup-archives handles this daily)"
   else

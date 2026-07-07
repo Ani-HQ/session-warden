@@ -9,6 +9,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 
 RETENTION_DAYS="${WARDEN_ARCHIVE_RETENTION_DAYS:-7}"
 QUEUE_RETENTION_DAYS="${WARDEN_QUEUE_RETENTION_DAYS:-7}"
@@ -26,7 +27,7 @@ deleted=0
 freed_bytes=0
 
 while IFS= read -r -d '' file; do
-  size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+  size=$(stat_size "$file")
   rm -f "$file"
   deleted=$((deleted + 1))
   freed_bytes=$((freed_bytes + size))
@@ -70,16 +71,18 @@ if [ -d "${WARDEN_HOME}/state/cooldowns" ]; then
     rm -f "$file"
     cooldown_purged=$((cooldown_purged + 1))
   done < <(find "${WARDEN_HOME}/state/cooldowns" -name "*.recovered" -mtime +1 -print0 2>/dev/null)
+  # .backoff-alerted markers ride along with .failures: once the counter is
+  # purged the backoff episode is over, so the alert/log gate must reset too.
   while IFS= read -r -d '' file; do
     rm -f "$file"
     cooldown_purged=$((cooldown_purged + 1))
-  done < <(find "${WARDEN_HOME}/state/cooldowns" -name "*.failures" -mtime +"$COOLDOWN_RETENTION_DAYS" -print0 2>/dev/null)
+  done < <(find "${WARDEN_HOME}/state/cooldowns" \( -name "*.failures" -o -name "*.backoff-alerted" \) -mtime +"$COOLDOWN_RETENTION_DAYS" -print0 2>/dev/null)
 fi
 [ "$cooldown_purged" -gt 0 ] && log "CLEANUP: removed $cooldown_purged expired cooldown markers"
 
 # ─── scan.log rotation ────────────────────────────────────
 # Size-based, self-contained (no logrotate dependency). scan.log -> .1 -> .2 ...
-log_bytes=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
+log_bytes=$(stat_size "$LOG_FILE")
 if [ "$log_bytes" -gt "$LOG_MAX_BYTES" ]; then
   i=$((LOG_KEEP - 1))
   while [ "$i" -ge 1 ]; do

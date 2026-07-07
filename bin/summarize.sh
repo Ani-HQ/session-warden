@@ -9,8 +9,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/memory.sh"
+source "${WARDEN_HOME}/lib/gbrain.sh"   # gbrain_available, gbrain_slugify (GBrain refs)
 
 log() {
   echo "[$(date -Iseconds)] $*" >> "${WARDEN_LOG_FILE}"
@@ -47,7 +49,7 @@ for job_file in "$PENDING_DIR"/*.json; do
   extract_session_transcript "$archived_jsonl" > "$transcript_file"
 
   transcript_lines=$(wc -l < "$transcript_file")
-  transcript_bytes=$(stat -c%s "$transcript_file")
+  transcript_bytes=$(stat_size "$transcript_file")
   log "SUMMARY: extracted ${transcript_lines} lines, ${transcript_bytes} bytes"
 
   if [ "$transcript_bytes" -lt 10 ]; then
@@ -56,17 +58,29 @@ for job_file in "$PENDING_DIR"/*.json; do
     continue
   fi
 
+  local_mem_dir=$(claude_memory_dir "$agent")
+  safe_channel=$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g')
+  mem_file="${local_mem_dir}/session_${safe_channel}.md"
+
   # Summarize and write to Claude Code memory
   if write_session_memory "$agent" "$channel_key" "$cli_session_id" "$transcript_file"; then
     log "SUMMARY: memory written for $agent/$channel_key"
+    # GBrain refs: the post-summary gbrain hook writes this session's typed
+    # page at a deterministic slug, and context-sync keeps a rolling live
+    # page per session. Point at them instead of restating their facts.
+    if [ -f "$mem_file" ] && gbrain_available; then
+      {
+        echo ""
+        echo "## GBrain refs"
+        echo "- Rotation page: \`gbrain get session-warden/$(date +%Y-%m-%d)/${agent}-${cli_session_id:0:8}\`"
+        echo "- Live page: \`gbrain get session-warden/live/${agent}-$(gbrain_slugify "$channel_key")\`"
+      } >> "$mem_file"
+    fi
   else
     log "SUMMARY: memory write failed for $agent/$channel_key"
   fi
 
   # Run hooks in BACKGROUND — memory is written, don't block gateway restart
-  local_mem_dir=$(claude_memory_dir "$agent")
-  safe_channel=$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g')
-  mem_file="${local_mem_dir}/session_${safe_channel}.md"
 
   (
     exec 198>&-

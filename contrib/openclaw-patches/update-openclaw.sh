@@ -65,35 +65,43 @@ bash "${HERE}/ensure-patches.sh"
 # ─── 4. Verify markers ───────────────────────────────────
 echo "[4/5] Verifying patch markers in new dist..."
 DIST="${PKG_DIR}/dist"
-dist_js=$(find "$DIST" -maxdepth 1 -name '*.js' 2>/dev/null)
-missing=0
-check() {
-  local label="$1"; shift
-  local m
-  for m in "$@"; do
-    if grep -lq "$m" $dist_js 2>/dev/null; then
-      echo "  [ok]      $label"
-      return 0
-    fi
-  done
-  echo "  [MISSING] $label"
-  missing=1
-}
-check "output-limits"      "__WARDEN_OUTPUT_LIMITS__"
-check "watchdog-stall-cap" "__OC_HARD_TURN_CAP_MS"
-check "error-humanizer"    "__WARDEN_ERROR_HUMANIZER__" "__OPENCLAW_ERROR_HUMANIZER_PATCHED__"
 
-echo ""
-if [ "$missing" -eq 1 ]; then
-  echo "RESULT: ${current_version} -> ${new_version}, but some patches did NOT re-apply."
-  echo "The new compiled code likely shifted past the patch anchors. Options:"
-  echo "  - inspect: node ${HERE}/patch-manager.js status"
-  echo "  - retry:   node ${HERE}/patch-manager.js apply --patch=<id> -v"
-  echo "  - revert:  $0 --rollback"
+# openclaw >= 2026.6.5 ships everything these patches fixed as native config,
+# and ensure-patches.sh correctly retires the whole set (same detection grep).
+# Absent markers are then EXPECTED, not a failed re-apply — don't cry MISSING.
+if grep -lq "resolveClaudeLiveOutputLimits" "$DIST"/claude-live-session-*.js 2>/dev/null; then
+  echo "  patches retired (native support) — nothing to verify"
+else
+  dist_js=$(find "$DIST" -maxdepth 1 -name '*.js' 2>/dev/null)
+  missing=0
+  check() {
+    local label="$1"; shift
+    local m
+    for m in "$@"; do
+      if grep -lq "$m" $dist_js 2>/dev/null; then
+        echo "  [ok]      $label"
+        return 0
+      fi
+    done
+    echo "  [MISSING] $label"
+    missing=1
+  }
+  check "output-limits"      "__WARDEN_OUTPUT_LIMITS__"
+  check "watchdog-stall-cap" "__OC_HARD_TURN_CAP_MS"
+  check "error-humanizer"    "__WARDEN_ERROR_HUMANIZER__" "__OPENCLAW_ERROR_HUMANIZER_PATCHED__"
+
   echo ""
-  echo "Do NOT restart the gateway until you've decided — the running process"
-  echo "still has the old (patched) code in memory."
-  exit 1
+  if [ "$missing" -eq 1 ]; then
+    echo "RESULT: ${current_version} -> ${new_version}, but some patches did NOT re-apply."
+    echo "The new compiled code likely shifted past the patch anchors. Options:"
+    echo "  - inspect: node ${HERE}/patch-manager.js status"
+    echo "  - retry:   node ${HERE}/patch-manager.js apply --patch=<id> -v"
+    echo "  - revert:  $0 --rollback"
+    echo ""
+    echo "Do NOT restart the gateway until you've decided — the running process"
+    echo "still has the old (patched) code in memory."
+    exit 1
+  fi
 fi
 
 # ─── 5. Channel parity ───────────────────────────────────

@@ -73,6 +73,123 @@ ${details}
     > /dev/null 2>&1 || true
 }
 
+notify_backoff() {
+  # One-shot escalation when a session hits WARDEN_MAX_CONSECUTIVE_FAILURES and
+  # enters BACKOFF (bin/rotate.sh). Sent once per backoff episode — the
+  # .backoff-alerted marker gates repeats. Always sends (a wedged session is a
+  # real failure, not routine rotation noise).
+  local agent="$1" channel="$2" fail_count="$3"
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🛑 *session-warden BACKOFF* \`${agent}\`
+
+*Channel:* \`${channel}\`
+*Consecutive failures:* ${fail_count}
+
+Rotation is suspended for this session until the failure counter clears. Inspect it with the CLI:
+\`\`\`
+session-warden status
+session-warden logs
+session-warden rotate ${agent} ${channel}
+\`\`\`"
+
+  curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" \
+    > /dev/null 2>&1 || true
+}
+
 notify_test() {
   notify_rotation "test-agent" "test-channel" "Test alert" "session-warden online"
+}
+
+notify_reflector() {
+  # Nightly reflector digest (bin/reflect.sh). Informational, one per run.
+  # Returns non-zero if the send fails so the reflector can log it.
+  local summary="$1"
+
+  [ "${WARDEN_REFLECT_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🌙 *session-warden reflector* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
+}
+
+notify_harvester() {
+  # Weekly skill-harvester digest (bin/harvest-skills.sh). Informational, one per run.
+  # Returns non-zero if the send fails so the harvester can log it.
+  local summary="$1"
+
+  [ "${WARDEN_HARVEST_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🧰 *session-warden skill harvester* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
+}
+
+notify_scorecard() {
+  # Weekly model-scorecard digest (bin/scorecard.sh). Informational, one per run.
+  # Returns non-zero if the send fails so the scorecard can log it.
+  local summary="$1"
+
+  [ "${WARDEN_SCORECARD_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🏁 *session-warden model scorecard* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
+}
+
+notify_evals() {
+  # Monthly memory-evals digest (bin/eval-memory.sh). Informational, one per run.
+  # Returns non-zero if the send fails so the eval runner can log it.
+  local summary="$1"
+
+  [ "${WARDEN_EVAL_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🧪 *session-warden memory evals* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
 }

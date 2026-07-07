@@ -11,8 +11,9 @@
 #      re-summarize only when mtime changed AND >= MIN_TURNS new turns since the
 #      last snapshot (cheap no-op on most runs)
 #
-# GBrain is a HARD dependency — no graceful degradation. If the gbrain CLI is
-# missing, this exits with an error.
+# GBrain degrades gracefully: if the CLI is missing or the brain isn't
+# answering (gbrain_healthy), the run is skipped cleanly with exit 0 — a down
+# brain must never turn a scheduled snapshot into an error.
 #
 # Runs every WARDEN_SNAPSHOT_INTERVAL_MINUTES via cron or systemd timer.
 
@@ -23,6 +24,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
 source "${WARDEN_HOME}/lib/agent-attribution.sh"
@@ -37,9 +39,14 @@ MAX_TURNS="${WARDEN_SNAPSHOT_MAX_TURNS:-40}"
 MODEL="${WARDEN_SUMMARY_MODEL:-claude-haiku-4-5-20251001}"
 CLAUDE_PROJECTS="${WARDEN_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
 
-# ─── Hard dependencies ────────────────────────────────────
-# GBrain is the canonical persistence layer — no soft guards here.
-for cmd in gbrain claude jq; do
+# ─── Dependencies ─────────────────────────────────────────
+# GBrain is the whole point of this module, so probe it FIRST and skip the run
+# cleanly when it's down — never error a scheduled unit over a sick brain.
+if ! gbrain_healthy; then
+  log "GBRAIN UNAVAILABLE — skipping gbrain work"
+  exit 0
+fi
+for cmd in claude jq; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     log "ERROR: required command '$cmd' not found on PATH — aborting"
     echo "snapshot: required command '$cmd' not found" >&2
@@ -143,7 +150,7 @@ while IFS= read -r jsonl; do
     continue
   fi
 
-  current_mtime=$(stat -c %Y "$jsonl" 2>/dev/null || stat -f %m "$jsonl" 2>/dev/null || echo 0)
+  current_mtime=$(stat_mtime "$jsonl")
   last_mtime=$(get_state_field "$session_id" "last_mtime")
   last_turns=$(get_state_field "$session_id" "last_turn_count")
 

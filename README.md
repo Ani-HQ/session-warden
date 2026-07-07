@@ -52,6 +52,124 @@ The agent each session is attributed to is resolved from its working directory (
 
 Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cron entry; `deploy/snapshot.{service,timer}` are the systemd alternatives.
 
+## Reflector (nightly lesson distillation)
+
+Session memory answers "what was I doing?"; nothing answers "what should I have learned?". The **reflector** (`bin/reflect.sh`) closes that loop nightly, ACE-style (append-only context engineering — new rules are only ever added, never rewritten over existing ones).
+
+For each agent in `WARDEN_REFLECT_AGENTS` it:
+
+1. **Gathers** the last 24h of material: session JSONLs under `~/.openclaw/agents/<agent>/sessions/` (extracted with `lib/extract.sh`), the warden's rotation summaries, and the agent's own daily notes in `memory/`. Agents with no material are skipped (logged as SKIP).
+2. **Distills** 0-5 lesson bullets with a stronger model (`WARDEN_REFLECT_MODEL`, default Sonnet). The prompt demands general rules that would change future behavior — not restatements of what happened — and feeds in the agent's current `## General rules` + `## Lessons learned` so it never duplicates an existing rule. Each bullet is tagged `[YYYY-MM-DD, source: <agent> sessions]`. If nothing clears the bar, the model outputs `NO_LESSONS`.
+3. **Verifies** with a second, cheaper model (`WARDEN_REFLECT_VERIFY_MODEL`, default Haiku) acting as a skeptic: each bullet is marked KEEP or REJECT — rejected if it is not grounded in the source material, is too specific to today, contradicts an existing rule, or derives from untrusted external content. Only KEEPs survive. If the verifier itself fails, bullets are staged with an UNVERIFIED warning and auto-apply is blocked.
+4. **Stages** survivors in `~/.openclaw/agents/<agent>/memory/pending-lessons-YYYY-MM-DD.md` for human review. Nothing touches MEMORY.md unless `WARDEN_REFLECT_AUTO_APPLY=1` (default 0), in which case verified bullets are appended directly under `## Lessons learned` (below the warden block).
+5. **Notifies** once per run via Telegram (`WARDEN_REFLECT_NOTIFY=1`): per-agent lesson counts, where the pending files live, and the apply command.
+
+The **staged-approval flow**: review a pending file, delete any bullet you disagree with, then promote the survivors with
+
+```bash
+bin/apply-lessons.sh <agent>          # apply the most recent pending file
+bin/apply-lessons.sh <agent> --all    # apply every pending file for the agent
+```
+
+`apply-lessons.sh` appends the bullets under `## Lessons learned` in the agent's `MEMORY.md`, records each lesson in GBrain as `lessons/<agent>/YYYY-MM-DD-<n>` with provenance frontmatter per the GBrain conventions (`scope:` work/personal by team, `source: reflector`, `trust: inferred`), and archives the pending file to `memory/applied/`.
+
+Flags on `reflect.sh`: `--agent <name>` reflects a single agent; `--dry-run` prints the distilled+verified bullets without writing or notifying. Logs to `state/reflect.log`; a lock file prevents overlapping runs; LLM failures are logged and skipped, never fatal.
+
+Runs nightly at 04:10 UTC via `deploy/reflect.{service,timer}` — after the dream-cycle (03:30), so the day's GBrain pages are already embedded. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_REFLECT_AGENTS` | `ping bloop dash isaac zara kai nova remy` | agents to reflect on (ping/bloop/dash/isaac = work team, zara/kai/nova/remy = personal) |
+| `WARDEN_REFLECT_MODEL` | `claude-sonnet-4-6` | distillation model |
+| `WARDEN_REFLECT_VERIFY_MODEL` | `claude-haiku-4-5-20251001` | skeptic/verifier model |
+| `WARDEN_REFLECT_AUTO_APPLY` | `0` | `1` = skip staging, append verified lessons straight to MEMORY.md |
+| `WARDEN_REFLECT_NOTIFY` | `1` | one Telegram digest per run |
+| `WARDEN_REFLECT_WINDOW_MINUTES` | `1440` | lookback window for material |
+
+## Skill harvester (weekly skill mining)
+
+The reflector distills one-line *lessons*; nothing captures repeated *workflows*. The **skill harvester** (`bin/harvest-skills.sh`) closes that loop weekly: if an agent did the same multi-step thing twice this week, that procedure should become a skill, not stay tribal knowledge in session summaries.
+
+For each agent in `WARDEN_HARVEST_AGENTS` it:
+
+1. **Gathers** the week's material (`WARDEN_HARVEST_WINDOW_DAYS`, default 7): the warden's rotation summaries, the agent's own daily notes in `memory/`, and lessons already applied in `memory/applied/`. Agents with no material are skipped (logged as SKIP).
+2. **Lists existing skills** — the agent's own (`~/.openclaw/agents/<agent>/skills/`), the shared fleet dir (`~/.openclaw/skills/`), and anything already staged — and feeds the names to the model so it never proposes a duplicate (a belt-and-braces name check enforces this even if the model ignores the instruction).
+3. **Mines** with one strong-model call per agent (`WARDEN_HARVEST_MODEL`, default Sonnet): identify workflows performed **2+ times** this week that no existing skill covers, and emit a complete `SKILL.md` draft for each — YAML frontmatter (`name`, `description` with trigger conditions) plus a body with steps, known failure modes, and anti-patterns, all grounded in the week's material. At most **2 proposals per agent per run**. If nothing clears the bar, the model outputs `NO_SKILLS`.
+4. **Stages** each draft at `~/.openclaw/skills-pending/<agent>/<skill-name>/SKILL.md` — it **never writes into a live skills dir**.
+5. **Notifies** once per run via Telegram (`WARDEN_HARVEST_NOTIFY=1`): per-agent proposal counts and names, where the drafts live, and the promote command.
+
+The **staged-approval flow**: read a draft, edit it if needed, then promote it with
+
+```bash
+bin/promote-skill.sh <agent> <skill-name>            # into the agent's own skills dir
+bin/promote-skill.sh <agent> <skill-name> --shared   # into ~/.openclaw/skills/ for the fleet
+```
+
+`promote-skill.sh` moves the pending dir into the live skills dir (refusing to overwrite an existing skill) and records the skill in GBrain as `skills/<skill-name>` with provenance frontmatter per the GBrain conventions (`scope:` work/personal by team, `source: skill-harvester`, `trust: inferred`).
+
+Flags on `harvest-skills.sh`: `--agent <name>` harvests a single agent; `--dry-run` prints the proposed drafts without writing or notifying. Logs to `state/harvest.log`; a lock file prevents overlapping runs; LLM failures are logged and skipped, never fatal.
+
+Runs weekly, Sunday 05:00 UTC, via `deploy/harvest.{service,timer}` — after that night's reflector (04:10) so the week's lessons are already staged. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_HARVEST_AGENTS` | `ping bloop dash isaac zara kai nova remy` | agents to harvest (ping/bloop/dash/isaac = work team, zara/kai/nova/remy = personal) |
+| `WARDEN_HARVEST_WINDOW_DAYS` | `7` | lookback window for material |
+| `WARDEN_HARVEST_MODEL` | `claude-sonnet-4-6` | skill-mining model |
+| `WARDEN_HARVEST_NOTIFY` | `1` | one Telegram digest per run |
+
+## Model scorecard (weekly A/B benchmark)
+
+Three experimental Hermes agents run the same fleet role on different models — `carolyn` (gemini-3.5-flash), `midi` (zai-glm-4.7 on cerebras), `baymax` (gemini-3.1-pro-preview) — but nothing measured which model is actually better at this fleet's work. The **model scorecard** (`bin/scorecard.sh`) closes that loop weekly with a fixed, committed benchmark.
+
+Each run it:
+
+1. **Runs the task set** — `config/scorecard-tasks.jsonl`, 8 fixed tasks spanning factual reasoning, summarization, structured extraction (JSON), writing in Ani's style, planning, a GBrain-grounded question (tests MCP tool use — only carolyn and baymax have the gbrain server), a clarify-before-acting judgment check, and a logic puzzle. Every agent answers every task as a real non-interactive Hermes turn (`HERMES_HOME=<home> hermes chat -Q -q <prompt>`, `WARDEN_SCORECARD_TURN_TIMEOUT` 180s). Raw answers land in `state/scorecard/<date>/<agent>/<task-id>.txt`; a dead turn is recorded verbatim and scored 0.
+2. **Judges blind** — one call per answer to the claude CLI (`WARDEN_SCORECARD_JUDGE_MODEL`, default Sonnet): task prompt + rubric + answer, score 0-10 with a one-line justification. The judge is **never told which agent or model produced the answer** — model names appear only in the report, added after judging.
+3. **Reports** — `state/scorecard/<date>/REPORT.md`: per-task/per-category scores and a totals row per agent, plus every judge justification. Mirrored to GBrain as `scorecards/YYYY-MM-DD` (`scope: personal`, `source: scorecard`, `trust: verified` — scores are measured against a fixed rubric, not asserted).
+4. **Notifies** once per run via Telegram (`WARDEN_SCORECARD_NOTIFY=1`): the totals table.
+
+Because the task set is committed and fixed, week-over-week totals are comparable — a model/config regression in one agent shows up as a falling total, not vibes. Change the task set deliberately and rarely; history resets when you do.
+
+Flags: `--agent <name>` benchmarks a single agent; `--task <id>` runs a single task; `--dry-run` prints answers + scores without writing the report or notifying. Logs to `state/scorecard.log`; a lock file prevents overlapping runs.
+
+Runs weekly, Saturday 06:00 UTC, via `deploy/scorecard.{service,timer}`. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_SCORECARD_AGENTS` | `carolyn midi baymax` | experimental Hermes agents (homes at `~/.hermes-<name>`) |
+| `WARDEN_SCORECARD_JUDGE_MODEL` | `claude-sonnet-4-6` | blind judge |
+| `WARDEN_SCORECARD_TURN_TIMEOUT` | `180` | seconds per agent turn before it's scored 0 |
+| `WARDEN_SCORECARD_NOTIFY` | `1` | one Telegram digest per run |
+| `WARDEN_HERMES_BIN` | `~/hermes-agent/venv/bin/hermes` | Hermes v0.18 CLI (shared venv, per-agent via `HERMES_HOME`) |
+
+## Memory evals (monthly regression)
+
+The reflector writes memory; nothing checked whether the memory files actually carry the knowledge an agent needs. The **memory eval** (`bin/eval-memory.sh`) closes that loop monthly for the 8 core OpenClaw agents: a fixed set of eval cases per agent, replayed against the agent's *current* `MEMORY.md` + `AGENTS.md`, with the pass-rate delta against the previous run as the regression signal.
+
+**Generating cases** (one-time per agent, `--generate <agent>`): reads the agent's `MEMORY.md` below the warden block plus its GBrain lessons pages (`gbrain search "lessons/<agent>"`), and asks the claude CLI (`WARDEN_EVAL_GEN_MODEL`, default Sonnet) for 10-15 cases into `~/.openclaw/evals/<agent>/cases.jsonl` — each `{"id", "question", "expected"}` where `question` is a realistic situation in which the agent should apply a stored rule/fact and `expected` is the rule/fact a correct answer must surface. Cases test **application**, not parroting: the question never names the rule. Lines are validated individually; a batch under 5 valid cases refuses to overwrite. Keep cases fixed between runs — deltas are only meaningful against a stable set.
+
+**Running** (default mode), for each agent with a cases file:
+
+1. **Answers** each case with the claude CLI (`WARDEN_EVAL_MODEL`, default Sonnet) with the agent's current `MEMORY.md` (below the warden block) + `AGENTS.md` piped in as context — we're testing whether the memory files carry the knowledge, not burning live agent sessions.
+2. **Judges** each answer with a cheap model (`WARDEN_EVAL_JUDGE_MODEL`, default Haiku): does it reflect the expected rule/fact? PASS/FAIL + one-line note. Paraphrase passes; ignoring or contradicting fails.
+3. **Reports** — `state/evals/<date>/REPORT.md`: per-agent pass rates with a per-agent delta vs the previous run's `rates.tsv` (the regression signal), plus every failure with its judge note. Raw answers in `state/evals/<date>/<agent>/<case-id>.txt`. Mirrored to GBrain as `evals/YYYY-MM-DD` (`scope: shared`, `source: eval-memory`, `trust: verified`).
+4. **Notifies** once per run via Telegram (`WARDEN_EVAL_NOTIFY=1`): pass rates + failure count.
+
+A falling pass rate means memory quality regressed — a lesson got lost in a rewrite, a migration to GBrain dropped context the agent still needs, or MEMORY.md bloated past usefulness.
+
+Flags: `--agent <name>` evaluates a single agent; `--generate <agent>` (re)generates that agent's case set and exits; `--dry-run` prints per-case verdicts without writing the report or notifying. Logs to `state/evals.log`; a lock file prevents overlapping runs.
+
+Runs monthly, 1st 07:00 UTC, via `deploy/eval-memory.{service,timer}`. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_EVAL_AGENTS` | `ping bloop dash isaac zara kai nova remy` | core OpenClaw agents under eval |
+| `WARDEN_EVAL_MODEL` | `claude-sonnet-4-6` | answers each case with the agent's memory attached |
+| `WARDEN_EVAL_JUDGE_MODEL` | `claude-haiku-4-5-20251001` | PASS/FAIL judge |
+| `WARDEN_EVAL_GEN_MODEL` | `claude-sonnet-4-6` | `--generate` case writer |
+| `WARDEN_EVAL_NOTIFY` | `1` | one Telegram digest per run |
+
 ## Stall reaper (silent-hang backstop)
 
 OpenClaw's gateway runs an in-process watchdog that kills a turn whose CLI child stops making progress. It's fast and precise, but it shares a failure domain with the gateway: it lives in the compiled runtime (a string patch that no-ops after `npm update openclaw`) and it needs the gateway's own event loop healthy enough to fire. When either fails, an agent turn hangs forever and the channel goes silent with no reply.
@@ -278,6 +396,24 @@ items, and expired cooldown markers. Run daily via cron.
 # add to crontab
 30 3 * * * ~/session-warden/bin/cleanup-archives.sh
 ```
+
+### Log rotation (logrotate)
+
+Weekly rotation for every log under `state/` (`scan.log`, `reflect.log`,
+`harvest.log`, ...): keep 4 generations, compressed, `copytruncate` so the
+append-only writers never notice. Install the policy system-wide:
+
+```bash
+sudo cp deploy/session-warden.logrotate /etc/logrotate.d/session-warden
+# dry-run to verify
+sudo logrotate -d /etc/logrotate.d/session-warden
+```
+
+Edit the path and `su` directive in the file if the repo doesn't live at
+`/home/anirudhmadhavan/session-warden`. The size-based rotation in
+`cleanup-archives.sh` (`WARDEN_LOG_MAX_BYTES`) stays on as a backstop for
+sudden log floods between weekly runs; `dateext` keeps the two schemes'
+filenames from colliding.
 
 ### Doctor (self-health + dead-man's switch)
 

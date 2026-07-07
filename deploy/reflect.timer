@@ -1,0 +1,12 @@
+[Unit]
+Description=Run session-warden reflector nightly (after the dream-cycle)
+
+[Timer]
+# 04:10 UTC daily — after dream-cycle (03:30 + jitter) so the day's pages are
+# already embedded; catch up if the machine was asleep.
+OnCalendar=*-*-* 04:10:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

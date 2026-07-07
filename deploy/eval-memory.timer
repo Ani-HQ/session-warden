@@ -1,0 +1,13 @@
+[Unit]
+Description=Run session-warden memory evals monthly (1st of the month)
+
+[Timer]
+# 1st of the month 07:00 UTC — after that night's reflector (04:10) so the
+# freshest lessons are already staged/applied; catch up if the machine was
+# asleep on the 1st.
+OnCalendar=*-*-01 07:00:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

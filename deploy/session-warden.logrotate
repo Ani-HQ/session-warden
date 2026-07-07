@@ -1,0 +1,26 @@
+# session-warden logrotate policy — install to /etc/logrotate.d/session-warden:
+#   sudo cp deploy/session-warden.logrotate /etc/logrotate.d/session-warden
+#
+# Covers every log the warden writes (scan.log, reflect.log, harvest.log, ...).
+# Adjust the path and the su directive if the repo lives somewhere else.
+#
+# Notes:
+#   - copytruncate: writers append via `>>` with no reopen signal, so truncate
+#     in place instead of moving the file out from under them.
+#   - dateext: keeps names disjoint from cleanup-archives.sh's size-based
+#     emergency rotation (scan.log.1, .2, ...), which stays as the between-runs
+#     backstop for sudden log floods.
+#   - su: state/ is user-owned; without this logrotate (running as root)
+#     refuses to rotate inside a non-root-owned parent directory.
+
+/home/anirudhmadhavan/session-warden/state/*.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    dateext
+    missingok
+    notifempty
+    copytruncate
+    su anirudhmadhavan anirudhmadhavan
+}

@@ -41,6 +41,17 @@ gbrain_available() {
   command -v gbrain >/dev/null 2>&1
 }
 
+# Cheap liveness probe: CLI present AND the brain answering (one-row list is
+# the cheapest real round-trip; ~11s wall on this host, dominated by bun
+# startup + remote DB). Bulk gbrain jobs (snapshot, dream-cycle) call this at
+# start and skip cleanly on failure instead of erroring mid-run —
+# rotation/scan must never block on gbrain. Goes through _gb so the bound
+# (GBRAIN_TIMEOUT, default 25s) and the no-`timeout` bun quirk stay in one place.
+gbrain_healthy() {
+  gbrain_available || return 1
+  _gb list -n 1 >/dev/null 2>&1
+}
+
 _gb() {
   # Bounded gbrain runner. We do NOT use `timeout` here: the bun-based gbrain
   # CLI hangs under `timeout` when `put` reads stdin (its event loop stays
@@ -169,9 +180,9 @@ gbrain_ingest_session() {
 }
 
 # Ingest a standalone (non-OpenClaw) Claude Code session into GBrain as a typed,
-# linked page. Used by bin/snapshot.sh. Unlike gbrain_ingest_session this is a
-# HARD dependency on gbrain (no gbrain_available guard) — bin/snapshot.sh checks
-# gbrain up front and exits if it's missing.
+# linked page. Used by bin/snapshot.sh. Unlike gbrain_ingest_session there is no
+# per-call gbrain_available guard — bin/snapshot.sh probes gbrain_healthy up
+# front and skips the whole run when the brain is down.
 #
 # Slug: sessions/<date>/<agent>-<shortid>   tags: [session, snapshot, <agent>]
 # Args: $1=agent  $2=session_id  $3=summary_file  $4=cwd  $5=turns

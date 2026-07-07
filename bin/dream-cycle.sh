@@ -12,8 +12,9 @@
 #                        `daily-digest` page that links the day's sessions, so
 #                        the graph gains a queryable rollup per day.
 #
-# Run nightly via systemd timer (see deploy/dream-cycle.{service,timer}).
-# NOT enabled automatically — enable after review.
+# Runs nightly at 03:30 local (600s jitter, Persistent=true) via the user
+# systemd timer deploy/dream-cycle.timer — installed and ENABLED on this host:
+#   systemctl --user status dream-cycle.timer
 
 set -uo pipefail
 
@@ -33,7 +34,9 @@ if ! flock -n 196; then
   exit 0
 fi
 
-gbrain_available || { log "gbrain CLI not found — skipping"; exit 0; }
+# Probe the brain itself, not just the CLI binary — a dead backend would
+# otherwise burn the 30-min embed timeout and error mid-run.
+gbrain_healthy || { log "GBRAIN UNAVAILABLE — skipping gbrain work"; exit 0; }
 
 MODEL="${WARDEN_SUMMARY_MODEL:-claude-haiku-4-5-20251001}"
 date_str=$(date +%Y-%m-%d)

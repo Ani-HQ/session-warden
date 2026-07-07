@@ -204,7 +204,13 @@ fresh_item="$rec_dir/test-agent-fresh.json"
 printf '{"agent":"test-agent","channel_key":"agent:test-agent:main","reason":"ZOMBIE"}' > "$fresh_item"
 
 "$WARDEN_HOME/bin/scan.sh" 2>/dev/null
-sleep 2
+
+# Delivery happens in a background batch; when a real gbrain is on the host
+# PATH the pre-delivery graph query alone takes ~10s. Poll instead of racing.
+for _ in $(seq 1 30); do
+  grep -q "RECOVERY: sent to test-agent/agent:test-agent:main" "$WARDEN_LOG_FILE" 2>/dev/null && break
+  sleep 1
+done
 
 log_out=$(cat "$WARDEN_LOG_FILE")
 assert_contains "$log_out" "RECOVERY: sent to test-agent/agent:test-agent:main" "fresh recovery delivered"

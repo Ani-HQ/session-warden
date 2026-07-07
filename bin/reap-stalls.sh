@@ -23,6 +23,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"   # agent_from_sessions_path
 source "${WARDEN_HOME}/lib/reap.sh"
@@ -65,20 +66,37 @@ keytok() { echo "$1" | sed 's/[^a-zA-Z0-9_-]/_/g'; }
 # Goes through the gateway, so it works in the common single-turn-wedge case; if
 # the gateway itself is wedged, the escalation path restarts it instead.
 deliver_recovery() {
-  local agent="$1" channel_key="$2"
+  local agent="$1" channel_key="$2" sjson="${3:-}"
   command -v openclaw >/dev/null 2>&1 || return 0
   if [ "${WARDEN_DRY_RUN:-0}" = "1" ]; then
     log "[dry-run] would deliver recovery to ${agent}/${channel_key}"
     return 0
   fi
+  # Channel-less sessions (explicit agent-to-agent sub-sessions, or entries
+  # with no channel/provider binding) can't take --deliver — send without it;
+  # the message still reaches the agent session.
+  local deliver_flag="--deliver" binding=""
+  case "$channel_key" in
+    agent:*:explicit:*) deliver_flag="" ;;
+    *)
+      if [ -n "$sjson" ] && [ -f "$sjson" ]; then
+        binding=$(jq -r --arg key "$channel_key" '.[$key] | (.lastChannel // .channel // empty)' "$sjson" 2>/dev/null)
+        [ -z "$binding" ] && deliver_flag=""
+      fi
+      ;;
+  esac
+  [ -z "$deliver_flag" ] && log "RECOVERY: ${agent}/${channel_key} — no delivery channel, sent without --deliver"
   local msg="You were just restarted: a stalled turn of yours was terminated by the watchdog. Check this channel's most recent messages to find what you were doing, send one short message confirming you're back, then resume that work."
   (
     exec 197>&-
-    if timeout 180 openclaw agent --agent "$agent" --channel last --session-key "$channel_key" \
-        --message "$msg" --timeout 120 --deliver >/dev/null 2>&1; then
+    # Keep stderr: silent delivery failures hid the #16 regression for weeks.
+    if err=$(timeout 180 openclaw agent --agent "$agent" --channel last --session-key "$channel_key" \
+        --message "$msg" --timeout 120 ${deliver_flag} 2>&1 >/dev/null); then
       echo "[$(date -Iseconds)] [reap] RECOVERY delivered to ${agent}/${channel_key}" >> "$LOG_FILE"
     else
-      echo "[$(date -Iseconds)] [reap] WARN: recovery delivery failed for ${agent}/${channel_key}" >> "$LOG_FILE"
+      rc=$?
+      err=$(echo "$err" | tr '\n' ' ' | head -c 200)
+      echo "[$(date -Iseconds)] [reap] WARN: recovery delivery failed for ${agent}/${channel_key} (exit ${rc}${err:+: ${err}})" >> "$LOG_FILE"
     fi
   ) &
 }
@@ -158,7 +176,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     # Forward-progress timestamp: newest of updatedAt and the JSONL mtime.
     jsonl_file="${jsonl_base}/${cli_session_id}.jsonl"
     jsonl_mtime=0
-    [ -f "$jsonl_file" ] && jsonl_mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+    [ -f "$jsonl_file" ] && jsonl_mtime=$(stat_mtime "$jsonl_file")
     last_progress=$(reap_last_progress_epoch "$updated_at_ms" "$jsonl_mtime")
 
     verdict=$(reap_stall_verdict "running" "$now" "$last_progress" "$HARD_CAP")
@@ -192,7 +210,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
         log "REAPED: killed pid ${pid} for ${agent}/${channel_key}"
         date +%s > "$killed_marker"
         mark_failed "$sjson" "$channel_key"
-        deliver_recovery "$agent" "$channel_key"
+        deliver_recovery "$agent" "$channel_key" "$sjson"
         notify_rotation "$agent" "$channel_key" "Stall reaped" "pid=${pid} idle=${idle}s wchan=${wchan} (no progress past ${HARD_CAP}s hard cap)"
         reaped=$(( reaped + 1 ))
       else
@@ -209,7 +227,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
       log "STALE-RUNNING (no live child): ${agent}/${channel_key} idle=${idle}s — clearing + recovering"
       date +%s > "$killed_marker"
       mark_failed "$sjson" "$channel_key"
-      deliver_recovery "$agent" "$channel_key"
+      deliver_recovery "$agent" "$channel_key" "$sjson"
       notify_rotation "$agent" "$channel_key" "Stale turn cleared" "no live child; status stuck at running for ${idle}s"
       reaped=$(( reaped + 1 ))
     fi
