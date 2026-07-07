@@ -21,12 +21,17 @@ for cmd in jq claude curl; do
 done
 
 # Optional deps
-# shellcheck disable=SC2043  # intentional single-item loop; append future optional deps here
-for cmd in python3; do
+optional_note() {
+  case "$1" in
+    python3) echo "crash buffer detection" ;;
+    gbrain)  echo "snapshot module + GBrain knowledge-graph memory" ;;
+  esac
+}
+for cmd in python3 gbrain; do
   if command -v "$cmd" >/dev/null; then
-    echo "  [ok] $cmd (optional: crash buffer detection)"
+    echo "  [ok] $cmd (optional: $(optional_note "$cmd"))"
   else
-    echo "  [--] $cmd not found (optional: crash buffer detection will be skipped)"
+    echo "  [--] $cmd not found (optional: $(optional_note "$cmd") will be skipped)"
   fi
 done
 

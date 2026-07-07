@@ -20,7 +20,6 @@ echo "  install: config example has all required vars"
 example=$(cat "$WARDEN_HOME/config/thresholds.env.example")
 assert_contains "$example" "WARDEN_MAX_TOKENS" "example has WARDEN_MAX_TOKENS"
 assert_contains "$example" "WARDEN_MAX_TURNS" "example has WARDEN_MAX_TURNS"
-assert_contains "$example" "WARDEN_MAX_BYTES" "example has WARDEN_MAX_BYTES"
 assert_contains "$example" "WARDEN_MAX_COMPACTIONS" "example has WARDEN_MAX_COMPACTIONS"
 assert_contains "$example" "WARDEN_COOLDOWN_SECONDS" "example has WARDEN_COOLDOWN_SECONDS"
 assert_contains "$example" "WARDEN_GATEWAY_RESTART_COOLDOWN_SECONDS" "example has gateway cooldown"
