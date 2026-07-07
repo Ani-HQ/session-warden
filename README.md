@@ -118,6 +118,58 @@ Runs weekly, Sunday 05:00 UTC, via `deploy/harvest.{service,timer}` — after th
 | `WARDEN_HARVEST_MODEL` | `claude-sonnet-4-6` | skill-mining model |
 | `WARDEN_HARVEST_NOTIFY` | `1` | one Telegram digest per run |
 
+## Model scorecard (weekly A/B benchmark)
+
+Three experimental Hermes agents run the same fleet role on different models — `carolyn` (gemini-3.5-flash), `midi` (zai-glm-4.7 on cerebras), `baymax` (gemini-3.1-pro-preview) — but nothing measured which model is actually better at this fleet's work. The **model scorecard** (`bin/scorecard.sh`) closes that loop weekly with a fixed, committed benchmark.
+
+Each run it:
+
+1. **Runs the task set** — `config/scorecard-tasks.jsonl`, 8 fixed tasks spanning factual reasoning, summarization, structured extraction (JSON), writing in Ani's style, planning, a GBrain-grounded question (tests MCP tool use — only carolyn and baymax have the gbrain server), a clarify-before-acting judgment check, and a logic puzzle. Every agent answers every task as a real non-interactive Hermes turn (`HERMES_HOME=<home> hermes chat -Q -q <prompt>`, `WARDEN_SCORECARD_TURN_TIMEOUT` 180s). Raw answers land in `state/scorecard/<date>/<agent>/<task-id>.txt`; a dead turn is recorded verbatim and scored 0.
+2. **Judges blind** — one call per answer to the claude CLI (`WARDEN_SCORECARD_JUDGE_MODEL`, default Sonnet): task prompt + rubric + answer, score 0-10 with a one-line justification. The judge is **never told which agent or model produced the answer** — model names appear only in the report, added after judging.
+3. **Reports** — `state/scorecard/<date>/REPORT.md`: per-task/per-category scores and a totals row per agent, plus every judge justification. Mirrored to GBrain as `scorecards/YYYY-MM-DD` (`scope: personal`, `source: scorecard`, `trust: verified` — scores are measured against a fixed rubric, not asserted).
+4. **Notifies** once per run via Telegram (`WARDEN_SCORECARD_NOTIFY=1`): the totals table.
+
+Because the task set is committed and fixed, week-over-week totals are comparable — a model/config regression in one agent shows up as a falling total, not vibes. Change the task set deliberately and rarely; history resets when you do.
+
+Flags: `--agent <name>` benchmarks a single agent; `--task <id>` runs a single task; `--dry-run` prints answers + scores without writing the report or notifying. Logs to `state/scorecard.log`; a lock file prevents overlapping runs.
+
+Runs weekly, Saturday 06:00 UTC, via `deploy/scorecard.{service,timer}`. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_SCORECARD_AGENTS` | `carolyn midi baymax` | experimental Hermes agents (homes at `~/.hermes-<name>`) |
+| `WARDEN_SCORECARD_JUDGE_MODEL` | `claude-sonnet-4-6` | blind judge |
+| `WARDEN_SCORECARD_TURN_TIMEOUT` | `180` | seconds per agent turn before it's scored 0 |
+| `WARDEN_SCORECARD_NOTIFY` | `1` | one Telegram digest per run |
+| `WARDEN_HERMES_BIN` | `~/hermes-agent/venv/bin/hermes` | Hermes v0.18 CLI (shared venv, per-agent via `HERMES_HOME`) |
+
+## Memory evals (monthly regression)
+
+The reflector writes memory; nothing checked whether the memory files actually carry the knowledge an agent needs. The **memory eval** (`bin/eval-memory.sh`) closes that loop monthly for the 8 core OpenClaw agents: a fixed set of eval cases per agent, replayed against the agent's *current* `MEMORY.md` + `AGENTS.md`, with the pass-rate delta against the previous run as the regression signal.
+
+**Generating cases** (one-time per agent, `--generate <agent>`): reads the agent's `MEMORY.md` below the warden block plus its GBrain lessons pages (`gbrain search "lessons/<agent>"`), and asks the claude CLI (`WARDEN_EVAL_GEN_MODEL`, default Sonnet) for 10-15 cases into `~/.openclaw/evals/<agent>/cases.jsonl` — each `{"id", "question", "expected"}` where `question` is a realistic situation in which the agent should apply a stored rule/fact and `expected` is the rule/fact a correct answer must surface. Cases test **application**, not parroting: the question never names the rule. Lines are validated individually; a batch under 5 valid cases refuses to overwrite. Keep cases fixed between runs — deltas are only meaningful against a stable set.
+
+**Running** (default mode), for each agent with a cases file:
+
+1. **Answers** each case with the claude CLI (`WARDEN_EVAL_MODEL`, default Sonnet) with the agent's current `MEMORY.md` (below the warden block) + `AGENTS.md` piped in as context — we're testing whether the memory files carry the knowledge, not burning live agent sessions.
+2. **Judges** each answer with a cheap model (`WARDEN_EVAL_JUDGE_MODEL`, default Haiku): does it reflect the expected rule/fact? PASS/FAIL + one-line note. Paraphrase passes; ignoring or contradicting fails.
+3. **Reports** — `state/evals/<date>/REPORT.md`: per-agent pass rates with a per-agent delta vs the previous run's `rates.tsv` (the regression signal), plus every failure with its judge note. Raw answers in `state/evals/<date>/<agent>/<case-id>.txt`. Mirrored to GBrain as `evals/YYYY-MM-DD` (`scope: shared`, `source: eval-memory`, `trust: verified`).
+4. **Notifies** once per run via Telegram (`WARDEN_EVAL_NOTIFY=1`): pass rates + failure count.
+
+A falling pass rate means memory quality regressed — a lesson got lost in a rewrite, a migration to GBrain dropped context the agent still needs, or MEMORY.md bloated past usefulness.
+
+Flags: `--agent <name>` evaluates a single agent; `--generate <agent>` (re)generates that agent's case set and exits; `--dry-run` prints per-case verdicts without writing the report or notifying. Logs to `state/evals.log`; a lock file prevents overlapping runs.
+
+Runs monthly, 1st 07:00 UTC, via `deploy/eval-memory.{service,timer}`. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_EVAL_AGENTS` | `ping bloop dash isaac zara kai nova remy` | core OpenClaw agents under eval |
+| `WARDEN_EVAL_MODEL` | `claude-sonnet-4-6` | answers each case with the agent's memory attached |
+| `WARDEN_EVAL_JUDGE_MODEL` | `claude-haiku-4-5-20251001` | PASS/FAIL judge |
+| `WARDEN_EVAL_GEN_MODEL` | `claude-sonnet-4-6` | `--generate` case writer |
+| `WARDEN_EVAL_NOTIFY` | `1` | one Telegram digest per run |
+
 ## Stall reaper (silent-hang backstop)
 
 OpenClaw's gateway runs an in-process watchdog that kills a turn whose CLI child stops making progress. It's fast and precise, but it shares a failure domain with the gateway: it lives in the compiled runtime (a string patch that no-ops after `npm update openclaw`) and it needs the gateway's own event loop healthy enough to fire. When either fails, an agent turn hangs forever and the channel goes silent with no reply.

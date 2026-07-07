@@ -1,0 +1,12 @@
+[Unit]
+Description=Run session-warden model scorecard weekly (Saturday morning)
+
+[Timer]
+# Sat 06:00 UTC weekly — after Saturday's reflector (04:10) and clear of the
+# Sunday harvest (05:00); catch up if the machine was asleep.
+OnCalendar=Sat *-*-* 06:00:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
