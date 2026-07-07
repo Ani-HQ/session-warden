@@ -52,6 +52,40 @@ The agent each session is attributed to is resolved from its working directory (
 
 Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cron entry; `deploy/snapshot.{service,timer}` are the systemd alternatives.
 
+## Reflector (nightly lesson distillation)
+
+Session memory answers "what was I doing?"; nothing answers "what should I have learned?". The **reflector** (`bin/reflect.sh`) closes that loop nightly, ACE-style (append-only context engineering — new rules are only ever added, never rewritten over existing ones).
+
+For each agent in `WARDEN_REFLECT_AGENTS` it:
+
+1. **Gathers** the last 24h of material: session JSONLs under `~/.openclaw/agents/<agent>/sessions/` (extracted with `lib/extract.sh`), the warden's rotation summaries, and the agent's own daily notes in `memory/`. Agents with no material are skipped (logged as SKIP).
+2. **Distills** 0-5 lesson bullets with a stronger model (`WARDEN_REFLECT_MODEL`, default Sonnet). The prompt demands general rules that would change future behavior — not restatements of what happened — and feeds in the agent's current `## General rules` + `## Lessons learned` so it never duplicates an existing rule. Each bullet is tagged `[YYYY-MM-DD, source: <agent> sessions]`. If nothing clears the bar, the model outputs `NO_LESSONS`.
+3. **Verifies** with a second, cheaper model (`WARDEN_REFLECT_VERIFY_MODEL`, default Haiku) acting as a skeptic: each bullet is marked KEEP or REJECT — rejected if it is not grounded in the source material, is too specific to today, contradicts an existing rule, or derives from untrusted external content. Only KEEPs survive. If the verifier itself fails, bullets are staged with an UNVERIFIED warning and auto-apply is blocked.
+4. **Stages** survivors in `~/.openclaw/agents/<agent>/memory/pending-lessons-YYYY-MM-DD.md` for human review. Nothing touches MEMORY.md unless `WARDEN_REFLECT_AUTO_APPLY=1` (default 0), in which case verified bullets are appended directly under `## Lessons learned` (below the warden block).
+5. **Notifies** once per run via Telegram (`WARDEN_REFLECT_NOTIFY=1`): per-agent lesson counts, where the pending files live, and the apply command.
+
+The **staged-approval flow**: review a pending file, delete any bullet you disagree with, then promote the survivors with
+
+```bash
+bin/apply-lessons.sh <agent>          # apply the most recent pending file
+bin/apply-lessons.sh <agent> --all    # apply every pending file for the agent
+```
+
+`apply-lessons.sh` appends the bullets under `## Lessons learned` in the agent's `MEMORY.md`, records each lesson in GBrain as `lessons/<agent>/YYYY-MM-DD-<n>` with provenance frontmatter per the GBrain conventions (`scope:` work/personal by team, `source: reflector`, `trust: inferred`), and archives the pending file to `memory/applied/`.
+
+Flags on `reflect.sh`: `--agent <name>` reflects a single agent; `--dry-run` prints the distilled+verified bullets without writing or notifying. Logs to `state/reflect.log`; a lock file prevents overlapping runs; LLM failures are logged and skipped, never fatal.
+
+Runs nightly at 04:10 UTC via `deploy/reflect.{service,timer}` — after the dream-cycle (03:30), so the day's GBrain pages are already embedded. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_REFLECT_AGENTS` | `ping bloop dash isaac zara kai nova remy` | agents to reflect on (ping/bloop/dash/isaac = work team, zara/kai/nova/remy = personal) |
+| `WARDEN_REFLECT_MODEL` | `claude-sonnet-4-6` | distillation model |
+| `WARDEN_REFLECT_VERIFY_MODEL` | `claude-haiku-4-5-20251001` | skeptic/verifier model |
+| `WARDEN_REFLECT_AUTO_APPLY` | `0` | `1` = skip staging, append verified lessons straight to MEMORY.md |
+| `WARDEN_REFLECT_NOTIFY` | `1` | one Telegram digest per run |
+| `WARDEN_REFLECT_WINDOW_MINUTES` | `1440` | lookback window for material |
+
 ## Stall reaper (silent-hang backstop)
 
 OpenClaw's gateway runs an in-process watchdog that kills a turn whose CLI child stops making progress. It's fast and precise, but it shares a failure domain with the gateway: it lives in the compiled runtime (a string patch that no-ops after `npm update openclaw`) and it needs the gateway's own event loop healthy enough to fire. When either fails, an agent turn hangs forever and the channel goes silent with no reply.

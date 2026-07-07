@@ -1,0 +1,9 @@
+[Unit]
+Description=session-warden reflector (nightly lesson distillation)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/session-warden/bin/reflect.sh
+# Inherit the same user environment the warden cron uses (PATH, DBUS, etc.)
+Environment=HOME=%h

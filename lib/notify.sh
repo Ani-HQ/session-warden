@@ -76,3 +76,25 @@ ${details}
 notify_test() {
   notify_rotation "test-agent" "test-channel" "Test alert" "session-warden online"
 }
+
+notify_reflector() {
+  # Nightly reflector digest (bin/reflect.sh). Informational, one per run.
+  # Returns non-zero if the send fails so the reflector can log it.
+  local summary="$1"
+
+  [ "${WARDEN_REFLECT_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🌙 *session-warden reflector* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
+}
