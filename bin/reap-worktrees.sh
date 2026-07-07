@@ -73,7 +73,7 @@ for d in "$WT_ROOT"/*/*/; do
   dirty=0; [[ -n "$(git -C "$d" status --porcelain 2>/dev/null)" ]] && dirty=1
   unpushed=0
   if git -C "$d" rev-parse --verify --quiet "@{upstream}" >/dev/null 2>&1; then
-    [[ -n "$(git -C "$d" log --oneline @{upstream}..HEAD 2>/dev/null)" ]] && unpushed=1
+    [[ -n "$(git -C "$d" log --oneline "@{upstream}..HEAD" 2>/dev/null)" ]] && unpushed=1
   else
     unpushed=1   # never pushed
   fi

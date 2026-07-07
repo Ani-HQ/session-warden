@@ -78,7 +78,6 @@ setup_sandbox() {
   export WARDEN_DRY_RUN=0
   export WARDEN_MAX_TOKENS=2000000
   export WARDEN_MAX_TURNS=500
-  export WARDEN_MAX_BYTES=4194304
   export WARDEN_MAX_COMPACTIONS=10
   export WARDEN_COOLDOWN_SECONDS=600
   export WARDEN_MAX_CONSECUTIVE_FAILURES=3
@@ -234,7 +233,8 @@ create_sessions_json() {
 # Create a mock JSONL file
 create_mock_jsonl() {
   local agent="$1" session_id="$2" content="${3:-}"
-  local dir="$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-${agent}"
+  local dir
+  dir="$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-${agent}"
   mkdir -p "$dir"
   local file="$dir/${session_id}.jsonl"
 

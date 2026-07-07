@@ -63,6 +63,7 @@ for test_file in "${test_files[@]}"; do
   setup_sandbox
 
   # Run test file in a subshell — it writes results to TEST_RESULTS_FILE
+  # shellcheck disable=SC1090  # test files are enumerated at runtime
   ( source "$test_file" )
 done
 

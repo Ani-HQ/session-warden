@@ -15,7 +15,8 @@ fi
 # Resolve the Claude Code memory directory for an agent
 claude_memory_dir() {
   local agent="$1"
-  local dir="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}/memory"
+  local dir
+  dir="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}/memory"
   mkdir -p "$dir"
   echo "$dir"
 }

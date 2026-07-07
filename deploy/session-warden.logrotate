@@ -1,8 +1,10 @@
 # session-warden logrotate policy — install to /etc/logrotate.d/session-warden:
-#   sudo cp deploy/session-warden.logrotate /etc/logrotate.d/session-warden
+#   sed "s/YOUR_USER/$(whoami)/g" deploy/session-warden.logrotate \
+#     | sudo tee /etc/logrotate.d/session-warden >/dev/null
 #
 # Covers every log the warden writes (scan.log, reflect.log, harvest.log, ...).
-# Adjust the path and the su directive if the repo lives somewhere else.
+# Replace YOUR_USER below (or use the sed one-liner above), and adjust the
+# path if the repo doesn't live at ~/session-warden.
 #
 # Notes:
 #   - copytruncate: writers append via `>>` with no reopen signal, so truncate
@@ -13,7 +15,7 @@
 #   - su: state/ is user-owned; without this logrotate (running as root)
 #     refuses to rotate inside a non-root-owned parent directory.
 
-/home/anirudhmadhavan/session-warden/state/*.log {
+/home/YOUR_USER/session-warden/state/*.log {
     weekly
     rotate 4
     compress
@@ -22,5 +24,5 @@
     missingok
     notifempty
     copytruncate
-    su anirudhmadhavan anirudhmadhavan
+    su YOUR_USER YOUR_USER
 }

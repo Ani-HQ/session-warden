@@ -13,7 +13,7 @@
 #                        the graph gains a queryable rollup per day.
 #
 # Runs nightly at 03:30 local (600s jitter, Persistent=true) via the user
-# systemd timer deploy/dream-cycle.timer — installed and ENABLED on this host:
+# systemd timer deploy/dream-cycle.timer:
 #   systemctl --user status dream-cycle.timer
 
 set -uo pipefail

@@ -1,10 +1,23 @@
 # session-warden
 
-Auto-rotate bloated Claude Code sessions. Preserve agent memory across rotations so agents pick up where they left off.
+Session lifeguard and self-improvement harness for persistent [OpenClaw](https://github.com/openclaw/openclaw) agent fleets.
+
+The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, and monthly memory evals.
 
 ## Who this is for
 
-Anyone running Claude Code as a persistent agent — via [OpenClaw](https://github.com/openclaw/openclaw), a custom wrapper, or manual `--resume` workflows. If your sessions accumulate tokens until they die, and you lose context every time, this fixes that.
+Anyone running Claude Code as a persistent agent fleet. If your sessions accumulate tokens until they die, and you lose context every time, this fixes that.
+
+The rotation core (and `install.sh`) assumes OpenClaw — it reads OpenClaw's on-disk session state and restarts the OpenClaw gateway. If you run a custom wrapper or manual `--resume` workflows instead, the building blocks (`lib/extract.sh`, `lib/memory.sh`, `bin/snapshot.sh`) are reusable, but you'll be adapting scripts rather than installing a turnkey tool.
+
+## What you need
+
+- **[OpenClaw](https://github.com/openclaw/openclaw) gateway** (required) — the warden manages the sessions OpenClaw stores in `~/.openclaw/agents/` and restarts its gateway after rotations
+- **`claude` CLI** (required) — post-rotation summarization, reflector/harvester/eval model calls
+- **`jq`** (required) and **`curl`** (required for alerts)
+- **GBrain** (optional) — a knowledge-graph CLI; hard dependency only for the snapshot module, dream cycle, and the GBrain mirrors of lessons/skills/scorecards. Everything else degrades gracefully without it
+- **Telegram bot** (optional) — token + chat ID for alerts and digests; leave unset to disable
+- **python3** (optional) — crash buffer detection for Discord crash recovery
 
 ## The problem
 
@@ -14,7 +27,7 @@ For OpenClaw users specifically: when a session fails, OpenClaw keeps the dead s
 
 ## How it works
 
-A cron job runs every 30 seconds. When it finds a session that's failed or exceeds configurable thresholds (tokens, turns, file size, compaction count), it runs a 4-step rotation:
+A cron job runs every 30 seconds. When it finds a session that's failed or exceeds configurable thresholds (tokens, turns, compaction count), it runs a 4-step rotation:
 
 1. **Detect** — scan session state for bloat, failures, or zombies (dead CLI process with stale JSONL)
 2. **Rotate** — backup state, archive the JSONL (never deleted), clean up the stale session reference
@@ -22,6 +35,26 @@ A cron job runs every 30 seconds. When it finds a session that's failed or excee
 4. **Restart** — restart the agent gateway so agents boot with full context already loaded
 
 The agent comes back online in under a second, knowing what it was doing.
+
+## Module map
+
+| Module | Entry point | Schedule | What it does |
+|---|---|---|---|
+| Scan + rotate | `bin/scan.sh` → `bin/rotate.sh`, `bin/summarize.sh` | cron, 30s (install.sh) | detect bloated/failed/zombie sessions; archive, summarize into memory, restart |
+| Stall reaper | `bin/reap-stalls.sh` | cron, 30s (install.sh) | gateway-independent backstop that kills silently wedged turns |
+| Doctor | `bin/doctor.sh` | cron, 5 min (install.sh) | warden self-health + dead-man's switch |
+| Snapshot | `bin/snapshot.sh` | cron, 30 min (install.sh) | capture standalone Claude Code sessions into GBrain |
+| Context sync | `bin/context-sync.sh` | cron, 5 min (manual) | refresh MEMORY.md/CONTEXT.md from *live* sessions so restarts are always fresh |
+| Archive cleanup | `bin/cleanup-archives.sh` | cron, daily (manual) | bounded growth for archives, logs, queues, cooldowns |
+| Worktree GC | `bin/reap-worktrees.sh` + `bin/wt` | cron, 15 min (manual) | ephemeral per-task git worktrees for agents, garbage-collected |
+| Dream cycle | `bin/dream-cycle.sh` | nightly 03:30 (`deploy/dream-cycle.timer`) | GBrain maintenance: embed stale pages, doctor, daily digest |
+| Reflector | `bin/reflect.sh` | nightly 04:10 (`deploy/reflect.timer`) | distill verified lessons per agent, staged for human review |
+| Skill harvester | `bin/harvest-skills.sh` | weekly Sun 05:00 (`deploy/harvest.timer`) | mine repeated workflows into staged SKILL.md drafts |
+| Model scorecard | `bin/scorecard.sh` | weekly Sat 06:00 (`deploy/scorecard.timer`) | fixed benchmark across models, blind-judged |
+| Memory evals | `bin/eval-memory.sh` | monthly 1st 07:00 (`deploy/eval-memory.timer`) | replay fixed cases against current memory; pass-rate delta is the regression signal |
+| MCP supervisor | `bin/mcp-supervisor.sh` | manual / cron | keep heavy MCP servers alive across rotations |
+
+`install.sh` wires the cron entries marked *(install.sh)*. Rows marked *(manual)* need a crontab line you add yourself (shown in each section below); the timer-based rows are systemd user units you copy from `deploy/` (see Quick start).
 
 ## Session memory
 
@@ -52,6 +85,16 @@ The agent each session is attributed to is resolved from its working directory (
 
 Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cron entry; `deploy/snapshot.{service,timer}` are the systemd alternatives.
 
+## Dream cycle (nightly GBrain maintenance)
+
+GBrain's value compounds only if the graph is maintained while idle. The **dream cycle** (`bin/dream-cycle.sh`) does the maintenance the warden's per-rotation writes intentionally skip, nightly at 03:30 via `deploy/dream-cycle.{service,timer}`:
+
+1. **`gbrain embed --stale`** — `gbrain put` does not embed inline, so without this pass embedding coverage decays toward zero and search quality with it
+2. **`gbrain doctor`** — graph health check; Telegram alert on warn/error
+3. **Daily digest** — synthesizes the day's session pages into a single `daily-digest` page linking them, so the graph gains a queryable per-day rollup
+
+It runs *before* the reflector (04:10) on purpose: by the time lessons are distilled, the day's pages are already embedded and searchable. Requires the `gbrain` CLI; a lock file prevents overlapping runs.
+
 ## Reflector (nightly lesson distillation)
 
 Session memory answers "what was I doing?"; nothing answers "what should I have learned?". The **reflector** (`bin/reflect.sh`) closes that loop nightly, ACE-style (append-only context engineering — new rules are only ever added, never rewritten over existing ones).
@@ -79,7 +122,7 @@ Runs nightly at 04:10 UTC via `deploy/reflect.{service,timer}` — after the dre
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_REFLECT_AGENTS` | `ping bloop dash isaac zara kai nova remy` | agents to reflect on (ping/bloop/dash/isaac = work team, zara/kai/nova/remy = personal) |
+| `WARDEN_REFLECT_AGENTS` | (example fleet names) | space-separated agents to reflect on — set your own |
 | `WARDEN_REFLECT_MODEL` | `claude-sonnet-4-6` | distillation model |
 | `WARDEN_REFLECT_VERIFY_MODEL` | `claude-haiku-4-5-20251001` | skeptic/verifier model |
 | `WARDEN_REFLECT_AUTO_APPLY` | `0` | `1` = skip staging, append verified lessons straight to MEMORY.md |
@@ -113,18 +156,18 @@ Runs weekly, Sunday 05:00 UTC, via `deploy/harvest.{service,timer}` — after th
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_HARVEST_AGENTS` | `ping bloop dash isaac zara kai nova remy` | agents to harvest (ping/bloop/dash/isaac = work team, zara/kai/nova/remy = personal) |
+| `WARDEN_HARVEST_AGENTS` | (example fleet names) | space-separated agents to harvest — set your own |
 | `WARDEN_HARVEST_WINDOW_DAYS` | `7` | lookback window for material |
 | `WARDEN_HARVEST_MODEL` | `claude-sonnet-4-6` | skill-mining model |
 | `WARDEN_HARVEST_NOTIFY` | `1` | one Telegram digest per run |
 
 ## Model scorecard (weekly A/B benchmark)
 
-Three experimental Hermes agents run the same fleet role on different models — `carolyn` (gemini-3.5-flash), `midi` (zai-glm-4.7 on cerebras), `baymax` (gemini-3.1-pro-preview) — but nothing measured which model is actually better at this fleet's work. The **model scorecard** (`bin/scorecard.sh`) closes that loop weekly with a fixed, committed benchmark.
+When several experimental agents run the same fleet role on different models, nothing measures which model is actually better at the fleet's work. The **model scorecard** (`bin/scorecard.sh`) closes that loop weekly with a fixed, committed benchmark across the Hermes agents you list in `WARDEN_SCORECARD_AGENTS`.
 
 Each run it:
 
-1. **Runs the task set** — `config/scorecard-tasks.jsonl`, 8 fixed tasks spanning factual reasoning, summarization, structured extraction (JSON), writing in Ani's style, planning, a GBrain-grounded question (tests MCP tool use — only carolyn and baymax have the gbrain server), a clarify-before-acting judgment check, and a logic puzzle. Every agent answers every task as a real non-interactive Hermes turn (`HERMES_HOME=<home> hermes chat -Q -q <prompt>`, `WARDEN_SCORECARD_TURN_TIMEOUT` 180s). Raw answers land in `state/scorecard/<date>/<agent>/<task-id>.txt`; a dead turn is recorded verbatim and scored 0.
+1. **Runs the task set** — `config/scorecard-tasks.jsonl`, 8 fixed tasks spanning factual reasoning, summarization, structured extraction (JSON), writing in a constrained style, planning, a GBrain-grounded question (tests MCP tool use, for agents with the gbrain server), a clarify-before-acting judgment check, and a logic puzzle. Every agent answers every task as a real non-interactive Hermes turn (`HERMES_HOME=<home> hermes chat -Q -q <prompt>`, `WARDEN_SCORECARD_TURN_TIMEOUT` 180s). Raw answers land in `state/scorecard/<date>/<agent>/<task-id>.txt`; a dead turn is recorded verbatim and scored 0.
 2. **Judges blind** — one call per answer to the claude CLI (`WARDEN_SCORECARD_JUDGE_MODEL`, default Sonnet): task prompt + rubric + answer, score 0-10 with a one-line justification. The judge is **never told which agent or model produced the answer** — model names appear only in the report, added after judging.
 3. **Reports** — `state/scorecard/<date>/REPORT.md`: per-task/per-category scores and a totals row per agent, plus every judge justification. Mirrored to GBrain as `scorecards/YYYY-MM-DD` (`scope: personal`, `source: scorecard`, `trust: verified` — scores are measured against a fixed rubric, not asserted).
 4. **Notifies** once per run via Telegram (`WARDEN_SCORECARD_NOTIFY=1`): the totals table.
@@ -137,7 +180,7 @@ Runs weekly, Saturday 06:00 UTC, via `deploy/scorecard.{service,timer}`. Config 
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_SCORECARD_AGENTS` | `carolyn midi baymax` | experimental Hermes agents (homes at `~/.hermes-<name>`) |
+| `WARDEN_SCORECARD_AGENTS` | (example fleet names) | experimental Hermes agents (homes at `~/.hermes-<name>`) — set your own |
 | `WARDEN_SCORECARD_JUDGE_MODEL` | `claude-sonnet-4-6` | blind judge |
 | `WARDEN_SCORECARD_TURN_TIMEOUT` | `180` | seconds per agent turn before it's scored 0 |
 | `WARDEN_SCORECARD_NOTIFY` | `1` | one Telegram digest per run |
@@ -164,7 +207,7 @@ Runs monthly, 1st 07:00 UTC, via `deploy/eval-memory.{service,timer}`. Config (`
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_EVAL_AGENTS` | `ping bloop dash isaac zara kai nova remy` | core OpenClaw agents under eval |
+| `WARDEN_EVAL_AGENTS` | (example fleet names) | space-separated OpenClaw agents under eval — set your own |
 | `WARDEN_EVAL_MODEL` | `claude-sonnet-4-6` | answers each case with the agent's memory attached |
 | `WARDEN_EVAL_JUDGE_MODEL` | `claude-haiku-4-5-20251001` | PASS/FAIL judge |
 | `WARDEN_EVAL_GEN_MODEL` | `claude-sonnet-4-6` | `--generate` case writer |
@@ -221,10 +264,20 @@ bash install.sh
 ```
 
 The installer will:
-- Check dependencies (`jq`, `claude` CLI, `curl`; `gbrain` is required for the snapshot module and GBrain memory)
-- Detect your OpenClaw installation path
-- Create a config file from the example (edit it to tune thresholds)
-- Install cron entries (rotation scan every 30 seconds; snapshot every 30 minutes)
+- Check dependencies (`jq`, `claude` CLI, `curl` required; `python3` and `gbrain` optional — `gbrain` is required only for the snapshot module and GBrain memory)
+- Detect your OpenClaw installation path (it exits if OpenClaw isn't installed)
+- Create a config file from the example, then **stop and ask you to review it** — edit `config/thresholds.env`, then run `bash install.sh` a second time
+- On the second run: install cron entries (rotation scan + stall reaper every 30 seconds, doctor every 5 minutes, snapshot every 30 minutes)
+
+The nightly/weekly modules (dream cycle, reflector, harvester, scorecard, evals) are systemd user timers, installed separately:
+
+```bash
+cp deploy/*.service deploy/*.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now dream-cycle.timer reflect.timer harvest.timer scorecard.timer eval-memory.timer
+```
+
+Only enable the timers whose modules you actually use (the dream cycle requires GBrain; the others mirror into GBrain when it's available).
 
 ### CLI
 
@@ -268,14 +321,6 @@ source ~/session-warden/lib/notify.sh
 notify_test
 ```
 
-## Dependencies
-
-- `jq` — JSON processing
-- `claude` CLI (Anthropic) — session summarization via Haiku
-- `curl` — Telegram alerts (optional)
-- `python3` — crash buffer detection (optional, for Discord crash recovery)
-- OpenClaw — the warden manages sessions stored in `~/.openclaw/agents/`
-
 ## Configuration
 
 All config lives in `config/thresholds.env`. Key settings:
@@ -284,7 +329,6 @@ All config lives in `config/thresholds.env`. Key settings:
 |---|---|---|
 | `WARDEN_MAX_TOKENS` | 2,000,000 | Rotate when session exceeds this token count |
 | `WARDEN_MAX_TURNS` | 500 | Rotate when session exceeds this many turns |
-| `WARDEN_MAX_BYTES` | 4,194,304 | Rotate when JSONL exceeds 4 MB |
 | `WARDEN_MAX_COMPACTIONS` | 10 | Rotate after this many compaction cycles |
 | `WARDEN_MAX_CONSECUTIVE_FAILURES` | 3 | Back off after N consecutive rotation failures |
 | `WARDEN_COOLDOWN_SECONDS` | 600 | Skip re-rotating same session within this window |
@@ -297,7 +341,7 @@ All config lives in `config/thresholds.env`. Key settings:
 | `WARDEN_TELEGRAM_CHAT_ID` | (empty) | Telegram chat ID for rotation alerts |
 | `WARDEN_NOTIFY_ROTATIONS` | 0 | Post a chat alert on every routine rotation. Off by default — routine threshold rotations recover silently (logged only); crash and stall recoveries always notify regardless |
 
-All `WARDEN_*` variables can be overridden via environment (env takes precedence over the config file).
+All `WARDEN_*` variables can be overridden via environment (env takes precedence over the config file). The table above is the short list — [`config/thresholds.env.example`](config/thresholds.env.example) is the complete, commented reference for every variable the scripts read, including all the per-module (reflector/harvester/scorecard/eval) settings and advanced knobs.
 
 ## Architecture
 
@@ -308,11 +352,19 @@ session-warden/
 │   ├── scan.sh              # cron entry point (every 30s)
 │   ├── reap-stalls.sh       # independent stall backstop (disk + /proc only)
 │   ├── reap-worktrees.sh    # GC for ephemeral agent worktrees (cron, 15 min)
-│   ├── wt                   # agent worktree helper (symlinked to ~/.local/bin/wt)
+│   ├── wt                   # agent worktree helper (symlink to ~/.local/bin/wt)
 │   ├── rotate.sh            # fast-path: backup, archive, cleanup
 │   ├── summarize.sh         # extract transcript, summarize, write memory
 │   ├── status.sh            # show session health across all agents
 │   ├── context-sync.sh      # periodic context capture for active sessions
+│   ├── snapshot.sh          # standalone Claude Code sessions → GBrain
+│   ├── dream-cycle.sh       # nightly GBrain maintenance + daily digest
+│   ├── reflect.sh           # nightly lesson distillation (+ apply-lessons.sh)
+│   ├── harvest-skills.sh    # weekly skill mining (+ promote-skill.sh)
+│   ├── scorecard.sh         # weekly blind model benchmark
+│   ├── eval-memory.sh       # monthly memory-quality regression
+│   ├── doctor.sh            # warden self-health + dead-man's switch
+│   ├── backfill-gbrain-links.sh  # one-shot graph-edge backfill for old pages
 │   ├── cleanup-archives.sh  # delete old archived JSONL (cron daily)
 │   └── mcp-supervisor.sh    # keep MCP servers alive across rotations
 ├── lib/
@@ -320,6 +372,10 @@ session-warden/
 │   ├── extract.sh           # JSONL → conversation transcript (text + tools)
 │   ├── memory.sh            # summarize + write to Claude Code native memory
 │   ├── notify.sh            # Telegram alerts
+│   ├── gbrain.sh            # bounded GBrain CLI wrappers
+│   ├── agent-attribution.sh # working dir → agent name resolution
+│   ├── portable.sh          # GNU/BSD stat helpers
+│   ├── reap.sh              # stall detection + safe kill logic
 │   ├── channel-history.sh   # fetch recent Discord/Telegram messages
 │   ├── detect-unprocessed.py  # identify unprocessed messages after crash
 │   └── write-crash-buffer.py  # write crash buffer JSON
@@ -328,9 +384,12 @@ session-warden/
 │       └── 01-gbrain.sh    # ingest memory into GBrain
 ├── contrib/
 │   └── openclaw-patches/   # optional OpenClaw JS patches (version-specific)
-├── tests/                  # full test suite
+├── deploy/                 # systemd user units, logrotate policy
+├── tests/                  # full test suite (bash tests/run-tests.sh)
 ├── config/
-│   ├── thresholds.env.example
+│   ├── thresholds.env.example    # complete config reference
+│   ├── agent-paths.env.example   # optional path-glob → agent attribution map
+│   ├── scorecard-tasks.jsonl     # fixed scorecard benchmark task set
 │   └── thresholds.env      # your config (gitignored)
 ├── state/                  # runtime state (gitignored)
 ├── install.sh
@@ -409,8 +468,8 @@ sudo cp deploy/session-warden.logrotate /etc/logrotate.d/session-warden
 sudo logrotate -d /etc/logrotate.d/session-warden
 ```
 
-Edit the path and `su` directive in the file if the repo doesn't live at
-`/home/anirudhmadhavan/session-warden`. The size-based rotation in
+Replace `YOUR_USER` in the file (path and `su` directive) with your username
+first — the header comment has a `sed` one-liner. The size-based rotation in
 `cleanup-archives.sh` (`WARDEN_LOG_MAX_BYTES`) stays on as a backstop for
 sudden log floods between weekly runs; `dateext` keeps the two schemes'
 filenames from colliding.

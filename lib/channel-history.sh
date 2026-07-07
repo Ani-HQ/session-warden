@@ -133,6 +133,7 @@ capture_crash_buffer() {
   [ -z "$metadata" ] && return 1
 
   local provider delivery_to updated_at
+  # shellcheck disable=SC2034  # updated_at is a placeholder for the trailing field
   IFS='|' read -r provider delivery_to updated_at <<< "$metadata"
 
   local messages="[]"

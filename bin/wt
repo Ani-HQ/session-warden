@@ -4,17 +4,16 @@
 # Why this exists: multiple agents hit the same shared repo checkouts under ~
 # many times per hour. A shared checkout means one agent's `git checkout`/edit
 # corrupts another's working tree. Each code task gets its own isolated worktree
-# on its own `ani/<task>` branch instead. The session-warden GC
+# on its own `<prefix>/<task>` branch instead. The session-warden GC
 # (reap-worktrees.sh) removes them once the work has landed or gone stale, so
 # the disk never fills up.
 #
-# Policy (see project_agent_worktree_policy_jun09):
+# Policy:
 #   - source-only: agents edit / commit / push. No dep install, no .env copy,
 #     no build/test in the worktree. It stays tiny and secret-free.
-#   - one worktree per task, on `ani/<task>`, removed after use.
+#   - one worktree per task, on `<prefix>/<task>` (WT_BRANCH_PREFIX), removed
+#     after use.
 #   - branches are based on each repo's default remote branch (origin/HEAD).
-#     None of our repos have a `staging` branch yet — flag that to Ani if the
-#     git protocol's "branch from staging" rule needs to hold.
 #
 # Usage:
 #   wt start <repo> <task>   create + print an isolated worktree, cd into it
@@ -22,8 +21,11 @@
 #   wt list                  show all live worktrees with status flags
 #   wt help
 #
-# <repo> may be a path to a checkout, or a bare name resolved under ~ (e.g.
-# `ai-holdingco`, `gbrain`, `session-warden`).
+# <repo> may be a path to a checkout, or a bare name resolved under ~ or any
+# direct subdirectory of ~ (e.g. `my-monorepo`, `session-warden`).
+#
+# Env knobs: WT_ROOT (worktree base dir), WT_BRANCH_PREFIX (branch namespace),
+# WT_GIT_NAME / WT_GIT_EMAIL (pin a commit identity inside each worktree).
 set -uo pipefail
 
 WT_ROOT="${WT_ROOT:-$HOME/.openclaw/worktrees}"
@@ -35,9 +37,11 @@ die()  { log "wt: $*"; exit 1; }
 slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9._/-]+#-#g; s#^-+|-+$##g'; }
 
 # Resolve a <repo> argument to an absolute checkout path containing .git.
+# Search order: the argument as a path, then ~/<name>, then ~/*/<name>
+# (first match wins, in glob order).
 resolve_repo() {
   local arg="$1" cand
-  for cand in "$arg" "$HOME/$arg" "$HOME/ai-holdingco/$arg"; do
+  for cand in "$arg" "$HOME/$arg" "$HOME"/*/"$arg"; do
     if [[ -e "$cand/.git" ]]; then ( cd "$cand" && pwd -P ); return 0; fi
   done
   return 1
@@ -58,11 +62,11 @@ default_base() {
 
 cmd_start() {
   [[ $# -eq 2 ]] || die "usage: wt start <repo> <task>"
-  local repo task base bs repo_name path branch meta
-  repo="$(resolve_repo "$1")" || die "repo '$1' not found (looked in ., ~, ~/ai-holdingco)"
+  local repo task base repo_name path branch meta
+  repo="$(resolve_repo "$1")" || die "repo '$1' not found (looked in ., ~, ~/*/)"
   task="$(slug "$2")"; [[ -n "$task" ]] || die "empty task name"
   repo_name="$(basename "$repo")"
-  branch="ani/$task"
+  branch="${WT_BRANCH_PREFIX:-ani}/$task"
   path="$WT_ROOT/$repo_name/$task"
 
   [[ -e "$path" ]] && die "worktree already exists: $path (cd into it, or 'wt done $path' first)"
@@ -82,9 +86,10 @@ cmd_start() {
       || die "git worktree add failed (new branch $branch off $base)"
   fi
 
-  # Pin commit identity locally so agents don't need -c flags on every commit.
-  git -C "$path" config user.name  anianroid
-  git -C "$path" config user.email anianroid@gmail.com
+  # Optionally pin a commit identity inside the worktree so agents don't need
+  # -c flags on every commit. Unset = inherit normal git config.
+  [[ -n "${WT_GIT_NAME:-}"  ]] && git -C "$path" config user.name  "$WT_GIT_NAME"
+  [[ -n "${WT_GIT_EMAIL:-}" ]] && git -C "$path" config user.email "$WT_GIT_EMAIL"
 
   # Registry entry for the GC + `wt list` (kept OUTSIDE the worktree so it never
   # shows up as untracked). Key = repo_name--task.
@@ -127,12 +132,12 @@ cmd_done() {
     if [[ -n "$(git -C "$path" status --porcelain)" ]]; then
       die "uncommitted or untracked changes in $path — commit/push them, or 'wt done --force' to discard"
     fi
-    local branch upstream
+    local branch
     branch="$(git -C "$path" branch --show-current)"
     if ! git -C "$path" rev-parse --verify --quiet "@{upstream}" >/dev/null 2>&1; then
       die "branch '$branch' was never pushed — 'git push -u origin $branch' first, or --force to discard"
     fi
-    if [[ -n "$(git -C "$path" log --oneline @{upstream}..HEAD 2>/dev/null)" ]]; then
+    if [[ -n "$(git -C "$path" log --oneline "@{upstream}..HEAD" 2>/dev/null)" ]]; then
       die "unpushed commits on '$branch' — push them first, or --force to discard"
     fi
   fi
@@ -156,7 +161,7 @@ cmd_list() {
     flags=""
     [[ -n "$(git -C "$d" status --porcelain 2>/dev/null)" ]] && flags+="dirty "
     if git -C "$d" rev-parse --verify --quiet "@{upstream}" >/dev/null 2>&1; then
-      [[ -n "$(git -C "$d" log --oneline @{upstream}..HEAD 2>/dev/null)" ]] && flags+="unpushed "
+      [[ -n "$(git -C "$d" log --oneline "@{upstream}..HEAD" 2>/dev/null)" ]] && flags+="unpushed "
     else
       flags+="never-pushed "
     fi
@@ -177,7 +182,7 @@ case "${1:-help}" in
   done)  shift; cmd_done "$@" ;;
   list)  shift; cmd_list "$@" ;;
   help|-h|--help)
-    sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *) die "unknown command '${1}'. try: wt help" ;;
 esac
