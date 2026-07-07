@@ -163,4 +163,5 @@ out=$(reap_kill_pid 999999 1)
 rc=$?
 assert_eq "0" "$rc" "dry-run kill returns success"
 assert_contains "$out" "dry-run" "dry-run kill announces intent, kills nothing"
-WARDEN_DRY_RUN=0
+# re-export the setup.sh default so later tests are not dry-run
+export WARDEN_DRY_RUN=0
