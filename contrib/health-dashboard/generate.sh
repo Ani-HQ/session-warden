@@ -178,7 +178,7 @@ scan_log="$STATE/scan.log"
 CUTOFF_1H="$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -u -v-1H '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)"
 rot_24h=0; backoff_24h=0; backoff_1h=0
 if [ -r "$scan_log" ] && [ -n "$CUTOFF_24H" ]; then
-  rot_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /ROTATE/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
+  rot_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /ROTATE start/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
   backoff_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
   [ -n "$CUTOFF_1H" ] && backoff_1h=$(awk -v c="$CUTOFF_1H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
 fi
@@ -197,6 +197,39 @@ if [ "$overall_red" = 1 ]; then overall=$(pill red "ATTENTION")
 elif [ "$overall_amber" = 1 ]; then overall=$(pill amber "DEGRADED")
 else overall=$(pill green "ALL SYSTEMS GO"); fi
 
+# ----------------------------------------------- plain-language summary layer
+svc_total=${#SERVICES[@]}
+svc_online=$(printf '%s' "$services_rows" | grep -o 'pill green' | wc -l | tr -d ' ')
+[ "$svc_online" -eq "$svc_total" ] && agents_led=green || agents_led=red
+gbrain_pages=$(printf '%s\n' "$gbrain_out" | awk '/Pages:/ {print $2; exit}')
+[ -z "$gbrain_pages" ] && gbrain_pages="?"
+latest_rates="$(ls -t "$STATE"/evals/*/rates.tsv 2>/dev/null | head -1)"
+eval_pct="--"; eval_line="no report card yet"
+if [ -n "$latest_rates" ]; then
+  eval_pct=$(awk -F'\t' '{p+=$2; t+=$3} END {if (t>0) printf "%d", (p/t)*100; else print "--"}' "$latest_rates")
+  eval_line="how much of its own rules the fleet remembers"
+fi
+last_reflect_line="$(grep 'run complete' "$STATE/reflect.log" 2>/dev/null | tail -1)"
+reflect_summary="hasn't run yet"
+if [ -n "$last_reflect_line" ]; then
+  rl_date=$(printf '%s' "$last_reflect_line" | sed -n 's/^\[\([0-9-]*\)T.*/\1/p')
+  rl_count=$(printf '%s' "$last_reflect_line" | grep -oE '[0-9]+ lesson' | grep -oE '[0-9]+' | head -1)
+  reflect_summary="learned ${rl_count:-0} on ${rl_date:-?}"
+fi
+if [ "${backoff_1h:-0}" -gt 0 ]; then watchdog_line="${backoff_1h} session(s) stuck right now"; watchdog_led=amber
+elif [ "${rot_24h:-0}" -gt 0 ]; then watchdog_line="restarts in 24h, all recovered fine"; watchdog_led=green
+else watchdog_line="quiet day: nothing needed a restart"; watchdog_led=green; fi
+if [ "$overall_red" = 1 ]; then
+  hero_icon="✖"; hero_word="NEEDS ATTENTION"; hero_class="red"
+  hero_line="something is broken and needs you. open the nerd stats and find the red badge."
+elif [ "$overall_amber" = 1 ]; then
+  hero_icon="⚠"; hero_word="MOSTLY FINE"; hero_class="amber"
+  hero_line="running, but one thing wants a look. open the nerd stats and find the yellow badge."
+else
+  hero_icon="♥"; hero_word="ALL SYSTEMS GO"; hero_class="green"
+  hero_line="every agent is up, nothing is stuck, and the fleet keeps learning on schedule."
+fi
+
 # ---------------------------------------------------------------------- html
 tmp="$(mktemp "${OUTPUT_FILE}.XXXXXX" 2>/dev/null || mktemp)"
 cat > "$tmp" <<HTML
@@ -208,6 +241,8 @@ cat > "$tmp" <<HTML
 <meta http-equiv="refresh" content="300">
 <meta name="robots" content="noindex,nofollow">
 <title>fleet health — ani-holdingco</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg:#050805; --panel:#070c07; --ink:#0a120a;
@@ -225,8 +260,10 @@ cat > "$tmp" <<HTML
     padding:20px 16px 60px; max-width:1180px; margin:0 auto;
     text-shadow:var(--glow);
     position:relative;
+    animation:powerup .5s ease-out;
   }
-  /* CRT scanlines + vignette */
+  .pixel { font-family:'Press Start 2P', var(--mono); line-height:1.6; }
+  /* CRT scanlines + vignette + sweep */
   body::before {
     content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
     background:repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px);
@@ -235,6 +272,13 @@ cat > "$tmp" <<HTML
     content:""; position:fixed; inset:0; pointer-events:none; z-index:9998;
     background:radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,.5) 100%);
   }
+  .sweep {
+    position:fixed; left:0; right:0; height:90px; pointer-events:none; z-index:9997;
+    background:linear-gradient(180deg, transparent, rgba(93,255,126,.05), transparent);
+    animation:sweep 9s linear infinite;
+  }
+  @keyframes sweep { 0% { top:-15% } 100% { top:115% } }
+  @keyframes powerup { 0% { opacity:0; transform:scale(1.01) } 40% { opacity:.6 } 100% { opacity:1 } }
   ::selection { background:#1d3a1d; }
   header { margin-bottom:4px; }
   .banner { font-size:11px; line-height:1.15; color:var(--text); white-space:pre; overflow-x:auto; }
@@ -245,6 +289,61 @@ cat > "$tmp" <<HTML
   .cursor { display:inline-block; width:8px; height:14px; background:var(--text);
             vertical-align:-2px; animation:blink 1.1s steps(1) infinite; }
   @keyframes blink { 50% { opacity:0 } }
+
+  /* ---------- simple layer: hero + tiles ---------- */
+  .hero {
+    text-align:center; padding:30px 14px 26px; margin-bottom:18px;
+    border:3px solid var(--edge2); background:var(--panel);
+    box-shadow:6px 6px 0 #0d1f0d, inset 0 0 34px rgba(0,50,0,.4);
+  }
+  .hero-icon { font-size:52px; line-height:1; display:inline-block; animation:beat 1.6s ease-in-out infinite; }
+  .hero.green .hero-icon { color:var(--green); }
+  .hero.amber .hero-icon { color:var(--amber); animation:blink 1.2s steps(1) infinite; }
+  .hero.red   .hero-icon { color:var(--red);   animation:blink .7s steps(1) infinite; }
+  @keyframes beat { 0%,100% { transform:scale(1) } 12% { transform:scale(1.18) } 24% { transform:scale(1) } 36% { transform:scale(1.1) } 48% { transform:scale(1) } }
+  .hero-word { font-size:clamp(14px,4.5vw,26px); margin-top:16px; letter-spacing:.04em; }
+  .hero.green .hero-word { color:var(--green); }
+  .hero.amber .hero-word { color:var(--amber); }
+  .hero.red   .hero-word { color:var(--red); }
+  .hero-line { color:var(--muted); font-size:13px; margin-top:12px; text-shadow:none; }
+  .tiles {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:12px; margin-bottom:22px;
+  }
+  .tile {
+    background:var(--panel); border:3px solid var(--edge); padding:14px 12px 12px;
+    box-shadow:5px 5px 0 #0d1f0d; position:relative;
+    transition:transform .08s steps(2), box-shadow .08s steps(2);
+  }
+  .tile:hover { transform:translate(3px,3px); box-shadow:2px 2px 0 #0d1f0d; }
+  .led {
+    position:absolute; top:10px; right:10px; width:10px; height:10px;
+    image-rendering:pixelated;
+  }
+  .led.green { background:var(--green); box-shadow:0 0 8px var(--green); animation:ledpulse 2.4s ease-in-out infinite; }
+  .led.amber { background:var(--amber); box-shadow:0 0 8px var(--amber); animation:blink 1s steps(1) infinite; }
+  .led.red   { background:var(--red);   box-shadow:0 0 8px var(--red);   animation:blink .6s steps(1) infinite; }
+  @keyframes ledpulse { 0%,100% { opacity:1 } 50% { opacity:.45 } }
+  .t-num { font-family:'Press Start 2P',var(--mono); font-size:20px; color:var(--text); margin-bottom:8px; }
+  .t-label { font-size:9px; color:var(--amber); text-transform:uppercase; margin-bottom:6px; text-shadow:none; }
+  .t-line { font-size:11.5px; color:var(--muted); line-height:1.45; text-shadow:none; }
+  details.nerd { margin-top:4px; }
+  details.nerd > summary {
+    list-style:none; cursor:pointer; user-select:none;
+    display:inline-block; font-size:10px; color:var(--text);
+    background:var(--panel); border:3px solid var(--edge2);
+    padding:10px 16px; margin-bottom:16px;
+    box-shadow:5px 5px 0 #0d1f0d;
+    transition:transform .08s steps(2), box-shadow .08s steps(2);
+  }
+  details.nerd > summary:hover { transform:translate(3px,3px); box-shadow:2px 2px 0 #0d1f0d; }
+  details.nerd > summary::-webkit-details-marker { display:none; }
+  details.nerd > summary::before { content:"► "; color:var(--amber); }
+  details.nerd[open] > summary::before { content:"▼ "; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+    .sweep { display:none; }
+  }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px; }
   .card {
     background:var(--panel); border:1px solid var(--edge); border-radius:0;
@@ -318,7 +417,39 @@ cat > "$tmp" <<HTML
 </div>
 </header>
 <div class="stamp">sys.generated $NOW_UTC · autorefresh 300s <span class="cursor"></span></div>
+<div class="sweep" aria-hidden="true"></div>
 
+<section class="hero $hero_class">
+  <div class="hero-icon" aria-hidden="true">$hero_icon</div>
+  <div class="hero-word pixel">$hero_word</div>
+  <div class="hero-line">$hero_line</div>
+</section>
+
+<div class="tiles">
+  <div class="tile"><span class="led $agents_led" aria-hidden="true"></span>
+    <div class="t-num">$svc_online/$svc_total</div>
+    <div class="t-label pixel">agents up</div>
+    <div class="t-line">gateways and services currently online</div></div>
+  <div class="tile"><span class="led $watchdog_led" aria-hidden="true"></span>
+    <div class="t-num">${rot_24h:-0}</div>
+    <div class="t-label pixel">watchdog</div>
+    <div class="t-line">$watchdog_line</div></div>
+  <div class="tile"><span class="led green" aria-hidden="true"></span>
+    <div class="t-num">$gbrain_pages</div>
+    <div class="t-label pixel">memories</div>
+    <div class="t-line">pages stored in the shared brain</div></div>
+  <div class="tile"><span class="led green" aria-hidden="true"></span>
+    <div class="t-num">$total_pending</div>
+    <div class="t-label pixel">learning</div>
+    <div class="t-line">lessons waiting for review · $reflect_summary</div></div>
+  <div class="tile"><span class="led green" aria-hidden="true"></span>
+    <div class="t-num">${eval_pct}%</div>
+    <div class="t-label pixel">report card</div>
+    <div class="t-line">$eval_line</div></div>
+</div>
+
+<details class="nerd">
+<summary class="pixel">nerd stats — full telemetry</summary>
 <div class="grid">
 
   <div class="card">
@@ -388,6 +519,7 @@ cat > "$tmp" <<HTML
   </div>
 
 </div>
+</details>
 <footer>── session-warden ▪ health-dashboard ▪ $(hostname -s 2>/dev/null) ──</footer>
 </body>
 </html>
