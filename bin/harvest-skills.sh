@@ -58,7 +58,6 @@ if ! flock -n 196; then
   exit 0
 fi
 
-date_str=$(date +%Y-%m-%d)
 CLAUDE_BASE="${WARDEN_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
 OPENCLAW_BASE="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}"
 PENDING_BASE="${OPENCLAW_BASE}/skills-pending"

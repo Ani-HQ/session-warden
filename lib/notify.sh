@@ -116,7 +116,8 @@ notify_reflector() {
   [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
   [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
 
-  local msg="🌙 *session-warden reflector* — $(date +%Y-%m-%d)
+  local msg
+  msg="🌙 *session-warden reflector* — $(date +%Y-%m-%d)
 
 ${summary}"
 
@@ -138,7 +139,8 @@ notify_harvester() {
   [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
   [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
 
-  local msg="🧰 *session-warden skill harvester* — $(date +%Y-%m-%d)
+  local msg
+  msg="🧰 *session-warden skill harvester* — $(date +%Y-%m-%d)
 
 ${summary}"
 
@@ -160,7 +162,8 @@ notify_scorecard() {
   [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
   [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
 
-  local msg="🏁 *session-warden model scorecard* — $(date +%Y-%m-%d)
+  local msg
+  msg="🏁 *session-warden model scorecard* — $(date +%Y-%m-%d)
 
 ${summary}"
 
@@ -182,7 +185,8 @@ notify_evals() {
   [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
   [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
 
-  local msg="🧪 *session-warden memory evals* — $(date +%Y-%m-%d)
+  local msg
+  msg="🧪 *session-warden memory evals* — $(date +%Y-%m-%d)
 
 ${summary}"
 

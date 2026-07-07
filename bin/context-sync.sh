@@ -37,6 +37,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
 
   jsonl_base="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
 
+  # shellcheck disable=SC2034  # status is a placeholder for the trailing field
   while IFS='|' read -r channel_key cli_session_id status; do
     [ -z "$cli_session_id" ] && continue
 

@@ -20,7 +20,8 @@ detect_sessions_problems() {
 
   local agent
   agent=$(agent_from_sessions_path "$sjson")
-  local jsonl_base="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
+  local jsonl_base
+  jsonl_base="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
 
   # Pass 1: threshold-based detection
   # For status=failed: only flag if updatedAt is stale (>1 hour old).
@@ -87,7 +88,8 @@ detect_sessions_problems() {
     fi
 
     # Check if this session was recently recovered — skip if so
-    local recovered_file="${WARDEN_HOME:-$HOME/session-warden}/state/cooldowns/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
+    local recovered_file
+    recovered_file="${WARDEN_HOME:-$HOME/session-warden}/state/cooldowns/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
     if [ -f "$recovered_file" ]; then
       local recovered_at
       recovered_at=$(cat "$recovered_file" 2>/dev/null || echo 0)

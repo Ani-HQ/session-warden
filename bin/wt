@@ -62,7 +62,7 @@ default_base() {
 
 cmd_start() {
   [[ $# -eq 2 ]] || die "usage: wt start <repo> <task>"
-  local repo task base bs repo_name path branch meta
+  local repo task base repo_name path branch meta
   repo="$(resolve_repo "$1")" || die "repo '$1' not found (looked in ., ~, ~/*/)"
   task="$(slug "$2")"; [[ -n "$task" ]] || die "empty task name"
   repo_name="$(basename "$repo")"
@@ -132,12 +132,12 @@ cmd_done() {
     if [[ -n "$(git -C "$path" status --porcelain)" ]]; then
       die "uncommitted or untracked changes in $path — commit/push them, or 'wt done --force' to discard"
     fi
-    local branch upstream
+    local branch
     branch="$(git -C "$path" branch --show-current)"
     if ! git -C "$path" rev-parse --verify --quiet "@{upstream}" >/dev/null 2>&1; then
       die "branch '$branch' was never pushed — 'git push -u origin $branch' first, or --force to discard"
     fi
-    if [[ -n "$(git -C "$path" log --oneline @{upstream}..HEAD 2>/dev/null)" ]]; then
+    if [[ -n "$(git -C "$path" log --oneline "@{upstream}..HEAD" 2>/dev/null)" ]]; then
       die "unpushed commits on '$branch' — push them first, or --force to discard"
     fi
   fi
@@ -161,7 +161,7 @@ cmd_list() {
     flags=""
     [[ -n "$(git -C "$d" status --porcelain 2>/dev/null)" ]] && flags+="dirty "
     if git -C "$d" rev-parse --verify --quiet "@{upstream}" >/dev/null 2>&1; then
-      [[ -n "$(git -C "$d" log --oneline @{upstream}..HEAD 2>/dev/null)" ]] && flags+="unpushed "
+      [[ -n "$(git -C "$d" log --oneline "@{upstream}..HEAD" 2>/dev/null)" ]] && flags+="unpushed "
     else
       flags+="never-pushed "
     fi

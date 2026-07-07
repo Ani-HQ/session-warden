@@ -36,7 +36,8 @@ _agent_from_path_map() {
     pat="${pat#"${pat%%[![:space:]]*}"}";   pat="${pat%"${pat##*[![:space:]]}"}"     # trim
     name="${name#"${name%%[![:space:]]*}"}"; name="${name%"${name##*[![:space:]]}"}"
     [ -n "$pat" ] && [ -n "$name" ] || continue
-    # shellcheck disable=SC2254  -- $pat is an intentional glob
+    # $pat is an intentional glob pattern, not a variable to quote
+    # shellcheck disable=SC2254
     case "$cwd" in
       $pat) printf '%s' "$name"; return 0 ;;
     esac

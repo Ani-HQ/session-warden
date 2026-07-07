@@ -21,6 +21,7 @@ for cmd in jq claude curl; do
 done
 
 # Optional deps
+# shellcheck disable=SC2043  # intentional single-item loop; append future optional deps here
 for cmd in python3; do
   if command -v "$cmd" >/dev/null; then
     echo "  [ok] $cmd (optional: crash buffer detection)"

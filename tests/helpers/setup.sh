@@ -234,7 +234,8 @@ create_sessions_json() {
 # Create a mock JSONL file
 create_mock_jsonl() {
   local agent="$1" session_id="$2" content="${3:-}"
-  local dir="$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-${agent}"
+  local dir
+  dir="$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-${agent}"
   mkdir -p "$dir"
   local file="$dir/${session_id}.jsonl"
 

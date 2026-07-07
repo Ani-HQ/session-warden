@@ -36,6 +36,7 @@ declare -A MCP_SERVERS=(
 # Load user overrides if present
 MCP_SERVERS_CONFIG="${WARDEN_HOME}/config/mcp-servers.env"
 if [ -f "$MCP_SERVERS_CONFIG" ]; then
+  # shellcheck source=/dev/null  # optional user-provided config
   source "$MCP_SERVERS_CONFIG"
 fi
 
