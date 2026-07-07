@@ -170,13 +170,20 @@ last_dream="$(journalctl --user -u dream-cycle.service -n 20 --no-pager -o cat 2
 [ -z "$last_dream" ] && last_dream="$(printf '%s\n' "$timers_raw" | grep dream-cycle | head -1 | esc)"
 
 # --------------------------------------------------------------- scan health
+# BACKOFF in the last hour = live problem (amber, degrades overall status).
+# BACKOFF only in the 24h tail = recent history worth seeing, but quiet now
+# (gray, informational) — a resolved storm should not hold the badge amber
+# for a day after the fix.
 scan_log="$STATE/scan.log"
-rot_24h=0; backoff_24h=0
+CUTOFF_1H="$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -u -v-1H '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)"
+rot_24h=0; backoff_24h=0; backoff_1h=0
 if [ -r "$scan_log" ] && [ -n "$CUTOFF_24H" ]; then
   rot_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /ROTATE/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
   backoff_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
+  [ -n "$CUTOFF_1H" ] && backoff_1h=$(awk -v c="$CUTOFF_1H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
 fi
-if [ "${backoff_24h:-0}" -gt 0 ]; then scan_pill=$(pill amber "$backoff_24h backoff"); overall_amber=1
+if [ "${backoff_1h:-0}" -gt 0 ]; then scan_pill=$(pill amber "$backoff_1h backoff/1h"); overall_amber=1
+elif [ "${backoff_24h:-0}" -gt 0 ]; then scan_pill=$(pill gray "quiet now, $backoff_24h in 24h")
 else scan_pill=$(pill green "no backoff"); fi
 scan_tail="$(grep -E 'ROTATE|BACKOFF' "$scan_log" 2>/dev/null | tail -5 | esc)"
 [ -z "$scan_tail" ] && scan_tail="(no ROTATE/BACKOFF lines in current scan.log)"
@@ -203,75 +210,114 @@ cat > "$tmp" <<HTML
 <title>fleet health — ani-holdingco</title>
 <style>
   :root {
-    --bg:#0b0e14; --card:#12161f; --edge:#1f2633; --edge2:#2a3347;
-    --text:#d7dde8; --muted:#78829a; --accent:#7aa2f7;
-    --green:#10b981; --green-bg:rgba(16,185,129,.12);
-    --amber:#f59e0b; --amber-bg:rgba(245,158,11,.12);
-    --red:#ef4444;   --red-bg:rgba(239,68,68,.14);
-    --gray:#6b7280;  --gray-bg:rgba(107,114,128,.15);
-    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --bg:#050805; --panel:#070c07; --ink:#0a120a;
+    --edge:#1d3a1d; --edge2:#2a512a;
+    --text:#5dff7e; --dim:#2f8a44; --muted:#3d7a4d;
+    --green:#5dff7e; --amber:#ffb347; --red:#ff5555; --gray:#5a7a5a;
+    --glow:0 0 6px rgba(93,255,126,.45);
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,'Courier New',monospace;
   }
   * { box-sizing:border-box; margin:0; padding:0; }
+  html { background:var(--bg); }
   body {
     background:var(--bg); color:var(--text);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+    font:14px/1.55 var(--mono);
     padding:20px 16px 60px; max-width:1180px; margin:0 auto;
+    text-shadow:var(--glow);
+    position:relative;
   }
-  header { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px 16px; margin-bottom:6px; }
-  h1 { font-size:19px; font-weight:650; letter-spacing:.02em; }
-  h1 .dim { color:var(--muted); font-weight:400; }
-  .stamp { color:var(--muted); font-family:var(--mono); font-size:12px; margin-bottom:18px; }
+  /* CRT scanlines + vignette */
+  body::before {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px);
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:9998;
+    background:radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,.5) 100%);
+  }
+  ::selection { background:#1d3a1d; }
+  header { margin-bottom:4px; }
+  .banner { font-size:11px; line-height:1.15; color:var(--text); white-space:pre; overflow-x:auto; }
+  .topline { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin-top:8px; }
+  h1 { font-size:15px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+  h1 .dim { color:var(--dim); font-weight:400; }
+  .stamp { color:var(--dim); font-size:12px; margin:6px 0 20px; }
+  .cursor { display:inline-block; width:8px; height:14px; background:var(--text);
+            vertical-align:-2px; animation:blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0 } }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px; }
   .card {
-    background:var(--card); border:1px solid var(--edge); border-radius:10px;
-    padding:16px 18px; overflow:hidden;
+    background:var(--panel); border:1px solid var(--edge); border-radius:0;
+    padding:0 0 14px; overflow:hidden;
+    box-shadow:inset 0 0 24px rgba(0,40,0,.35);
   }
   .card.wide { grid-column:1 / -1; }
   .card h2 {
-    font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.12em;
-    color:var(--muted); margin-bottom:12px; display:flex; align-items:center; gap:8px;
+    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.14em;
+    color:var(--text); background:var(--ink); border-bottom:1px solid var(--edge);
+    padding:8px 14px; margin-bottom:12px;
+    display:flex; align-items:center; gap:8px;
   }
+  .card h2::before { content:"█▓▒░ "; color:var(--dim); letter-spacing:0; text-shadow:none; }
   .card h2 .pill { margin-left:auto; }
-  h4 { font-size:13px; color:var(--accent); margin:12px 0 6px; font-weight:600; }
+  .card > *:not(h2) { margin-left:14px; margin-right:14px; }
+  h4 { font-size:12px; color:var(--amber); margin:12px 0 6px; font-weight:700;
+       text-transform:uppercase; letter-spacing:.08em; }
+  h4::before { content:">> "; color:var(--dim); }
   .pill {
-    display:inline-block; padding:2px 9px; border-radius:999px;
-    font:600 11px/1.6 var(--mono); letter-spacing:.04em; white-space:nowrap;
+    display:inline-block; padding:0 2px; border-radius:0; background:none; border:none;
+    font:700 11px/1.6 var(--mono); letter-spacing:.06em; white-space:nowrap;
   }
-  .pill.green { color:var(--green); background:var(--green-bg); border:1px solid rgba(16,185,129,.35); }
-  .pill.amber { color:var(--amber); background:var(--amber-bg); border:1px solid rgba(245,158,11,.35); }
-  .pill.red   { color:var(--red);   background:var(--red-bg);   border:1px solid rgba(239,68,68,.4); }
-  .pill.gray  { color:var(--gray);  background:var(--gray-bg);  border:1px solid rgba(107,114,128,.35); }
-  table { width:100%; border-collapse:collapse; font-size:13.5px; }
-  th { text-align:left; color:var(--muted); font-weight:600; font-size:11px;
-       text-transform:uppercase; letter-spacing:.08em; padding:5px 10px 5px 0; border-bottom:1px solid var(--edge2); }
-  td { padding:6px 10px 6px 0; border-bottom:1px solid var(--edge); vertical-align:top; }
+  .pill::before { content:"["; color:var(--dim); font-weight:400; }
+  .pill::after  { content:"]"; color:var(--dim); font-weight:400; }
+  .pill.green { color:var(--green); }
+  .pill.amber { color:var(--amber); text-shadow:0 0 6px rgba(255,179,71,.5); }
+  .pill.red   { color:var(--red);   text-shadow:0 0 6px rgba(255,85,85,.55); animation:blink 1.4s steps(1) infinite; }
+  .pill.gray  { color:var(--gray);  text-shadow:none; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--dim); font-weight:700; font-size:11px;
+       text-transform:uppercase; letter-spacing:.1em; padding:5px 10px 5px 0;
+       border-bottom:1px dashed var(--edge2); }
+  td { padding:5px 10px 5px 0; border-bottom:1px dotted var(--edge); vertical-align:top; }
   tr:last-child td { border-bottom:none; }
-  td.name { font-family:var(--mono); font-size:13px; color:var(--text); }
-  .mono { font-family:var(--mono); font-size:12.5px; color:#a8b3c9; }
+  td.name { color:var(--text); font-size:13px; }
+  td.name::before { content:"· "; color:var(--dim); }
+  .mono { font-size:12.5px; color:var(--dim); }
   pre {
-    font:12px/1.5 var(--mono); color:#9aa5bc; background:#0d1119;
-    border:1px solid var(--edge); border-radius:7px; padding:10px 12px;
-    overflow-x:auto; white-space:pre; margin-top:8px;
+    font:12px/1.5 var(--mono); color:var(--dim); background:var(--ink);
+    border:1px dashed var(--edge); border-radius:0; padding:10px 12px;
+    overflow-x:auto; white-space:pre; margin-top:8px; text-shadow:none;
   }
   .tblwrap { overflow-x:auto; margin-top:6px; }
-  .kv { display:flex; flex-wrap:wrap; gap:8px 20px; margin-bottom:8px; }
+  .kv { display:flex; flex-wrap:wrap; gap:8px 22px; margin-bottom:8px; }
   .kv div { font-size:13px; }
-  .kv b { font-family:var(--mono); font-weight:600; color:var(--text); display:block; font-size:17px; }
-  .kv span { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
-  p.md { font-size:13px; color:#b6bfd2; margin:4px 0; }
-  p.src { color:var(--muted); font-size:11.5px; margin-bottom:2px; }
-  p.empty { color:var(--muted); font-size:13px; font-style:italic; }
-  .loglabel { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; margin-top:10px; }
-  footer { margin-top:26px; color:var(--muted); font-size:11.5px; font-family:var(--mono); text-align:center; }
-  @media (max-width:640px){ body{padding:14px 10px 40px} .card{padding:13px 14px} }
+  .kv b { font-weight:700; color:var(--text); display:block; font-size:18px; }
+  .kv span { color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.1em; }
+  p.md { font-size:13px; color:var(--muted); margin:4px 0; text-shadow:none; }
+  p.src { color:var(--dim); font-size:11.5px; margin-bottom:2px; }
+  p.empty { color:var(--dim); font-size:13px; }
+  p.empty::before { content:"~ "; }
+  .loglabel { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.1em; margin-top:10px; }
+  .loglabel::before { content:"$ "; }
+  footer { margin-top:26px; color:var(--dim); font-size:11.5px; text-align:center; text-shadow:none; }
+  @media (max-width:640px){
+    body{padding:14px 8px 40px}
+    .banner{font-size:7px}
+    .card > *:not(h2){margin-left:10px;margin-right:10px}
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>FLEET HEALTH <span class="dim">/ ai-holdingco</span></h1>
+<div class="banner">╔═╗╦  ╔═╗╔═╗╔╦╗  ╦ ╦╔═╗╔═╗╦  ╔╦╗╦ ╦
+╠╣ ║  ║╣ ║╣  ║   ╠═╣║╣ ╠═╣║   ║ ╠═╣
+╚  ╩═╝╚═╝╚═╝ ╩   ╩ ╩╚═╝╩ ╩╩═╝ ╩ ╩ ╩</div>
+<div class="topline">
+  <h1>ai-holdingco <span class="dim">// fleet control</span></h1>
   $overall
+</div>
 </header>
-<div class="stamp">generated $NOW_UTC · refreshes every 5 min</div>
+<div class="stamp">sys.generated $NOW_UTC · autorefresh 300s <span class="cursor"></span></div>
 
 <div class="grid">
 
@@ -327,9 +373,10 @@ cat > "$tmp" <<HTML
   </div>
 
   <div class="card">
-    <h2>Scan Health (24h) $scan_pill</h2>
+    <h2>Scan Health $scan_pill</h2>
     <div class="kv">
       <div><b>${rot_24h:-0}</b><span>rotations 24h</span></div>
+      <div><b>${backoff_1h:-0}</b><span>backoffs 1h</span></div>
       <div><b>${backoff_24h:-0}</b><span>backoffs 24h</span></div>
     </div>
     <pre>$scan_tail</pre>
@@ -341,7 +388,7 @@ cat > "$tmp" <<HTML
   </div>
 
 </div>
-<footer>session-warden · health-dashboard · $(hostname -s 2>/dev/null)</footer>
+<footer>── session-warden ▪ health-dashboard ▪ $(hostname -s 2>/dev/null) ──</footer>
 </body>
 </html>
 HTML
