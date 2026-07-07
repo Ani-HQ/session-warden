@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 # test-mcp-supervisor.sh — tests for bin/mcp-supervisor.sh
 
-echo "  mcp-supervisor: no hardcoded workspace names"
+echo "  mcp-supervisor: no hardcoded personal paths"
 
-# ─── No internal workspace names ─────────────────────────
+# ─── No hardcoded personal paths ──────────────────────────
 
 mcp_content=$(cat "$REAL_WARDEN_HOME/bin/mcp-supervisor.sh")
-assert_not_contains "$mcp_content" "notion-duet" "no hardcoded notion-duet"
-assert_not_contains "$mcp_content" "notion-crossval" "no hardcoded notion-crossval"
-assert_not_contains "$mcp_content" "anirudhmadhavan" "no personal paths"
+assert_not_contains "$mcp_content" "/home/" "no hardcoded home paths"
 
 echo "  mcp-supervisor: has configurable server list"
 

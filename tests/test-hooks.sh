@@ -22,8 +22,7 @@ hook_content=$(cat "$gbrain_hook")
 assert_not_contains "$hook_content" "ntn_" "gbrain hook has no Notion tokens"
 assert_not_contains "$hook_content" "sk-" "gbrain hook has no API keys"
 assert_not_contains "$hook_content" "xoxb-" "gbrain hook has no Slack tokens"
-assert_not_contains "$hook_content" "anirudhmadhavan" "gbrain hook has no personal paths"
-assert_not_contains "$hook_content" "ani-hq" "gbrain hook has no personal project refs"
+assert_not_contains "$hook_content" "/home/" "gbrain hook has no hardcoded home paths"
 
 echo "  hooks: gbrain hook documents env vars"
 
