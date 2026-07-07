@@ -73,6 +73,35 @@ ${details}
     > /dev/null 2>&1 || true
 }
 
+notify_backoff() {
+  # One-shot escalation when a session hits WARDEN_MAX_CONSECUTIVE_FAILURES and
+  # enters BACKOFF (bin/rotate.sh). Sent once per backoff episode — the
+  # .backoff-alerted marker gates repeats. Always sends (a wedged session is a
+  # real failure, not routine rotation noise).
+  local agent="$1" channel="$2" fail_count="$3"
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg="🛑 *session-warden BACKOFF* \`${agent}\`
+
+*Channel:* \`${channel}\`
+*Consecutive failures:* ${fail_count}
+
+Rotation is suspended for this session until the failure counter clears. Inspect it with the CLI:
+\`\`\`
+session-warden status
+session-warden logs
+session-warden rotate ${agent} ${channel}
+\`\`\`"
+
+  curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" \
+    > /dev/null 2>&1 || true
+}
+
 notify_test() {
   notify_rotation "test-agent" "test-channel" "Test alert" "session-warden online"
 }

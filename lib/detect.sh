@@ -4,6 +4,7 @@
 # Agent attribution (agent_from_sessions_path) lives in the shared lib.
 _DETECT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_DETECT_LIB_DIR}/agent-attribution.sh"
+source "${_DETECT_LIB_DIR}/portable.sh"   # stat_mtime
 
 # Check if a CLI process is alive for a given session ID
 is_cli_process_alive() {
@@ -100,7 +101,7 @@ detect_sessions_problems() {
       local is_stale=0
       if [ -f "$jsonl_file" ]; then
         local mtime
-        mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+        mtime=$(stat_mtime "$jsonl_file")
         [ $((now_epoch - mtime)) -gt "$stale_threshold" ] && is_stale=1
       else
         is_stale=1

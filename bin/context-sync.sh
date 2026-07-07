@@ -8,6 +8,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/extract.sh"
 source "${WARDEN_HOME}/lib/memory.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
@@ -46,14 +47,14 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     state_file="${WARDEN_HOME}/state/context-sync/${agent}-$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g').mtime"
     mkdir -p "${WARDEN_HOME}/state/context-sync"
 
-    jsonl_mtime=$(stat -c%Y "$jsonl_file" 2>/dev/null || echo 0)
+    jsonl_mtime=$(stat_mtime "$jsonl_file")
     last_sync_mtime=$(cat "$state_file" 2>/dev/null || echo 0)
 
     if [ "$jsonl_mtime" -le "$last_sync_mtime" ]; then
       continue
     fi
 
-    jsonl_bytes=$(stat -c%s "$jsonl_file" 2>/dev/null || echo 0)
+    jsonl_bytes=$(stat_size "$jsonl_file")
     if [ "$jsonl_bytes" -lt 100 ]; then
       continue
     fi
@@ -63,7 +64,7 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     transcript_file="${WARDEN_HOME}/state/${agent}-context-sync.transcript"
     extract_session_transcript "$jsonl_file" > "$transcript_file"
 
-    transcript_bytes=$(stat -c%s "$transcript_file" 2>/dev/null || echo 0)
+    transcript_bytes=$(stat_size "$transcript_file")
     if [ "$transcript_bytes" -lt 20 ]; then
       rm -f "$transcript_file"
       continue

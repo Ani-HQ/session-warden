@@ -10,6 +10,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
@@ -130,7 +131,7 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         # recovery into noise that wakes agents for no reason.
 
         # Freshness: drop items older than the TTL instead of delivering.
-        rfile_mtime=$(stat -c %Y "$rfile" 2>/dev/null || echo 0)
+        rfile_mtime=$(stat_mtime "$rfile")
         now_recovery=$(date +%s)
         if [ $((now_recovery - rfile_mtime)) -gt "${WARDEN_RECOVERY_TTL_SECONDS:-1800}" ]; then
           echo "[$(date -Iseconds)] RECOVERY: dropped stale request for $ragent/$rchannel ($((now_recovery - rfile_mtime))s old, TTL ${WARDEN_RECOVERY_TTL_SECONDS:-1800}s)" >> "$LOG_FILE"
@@ -218,17 +219,35 @@ ${gbrain_brief}"
 NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that you're back and do NOT message the user about this restart. Silently re-orient and resume any pending work; only contact the user if something genuinely needs them."
         fi
 
+        # Channel-less sessions (explicit agent-to-agent sub-sessions, or
+        # entries with no channel/provider binding in sessions.json) can't
+        # take --deliver — there is no user-facing channel to post to. Send
+        # without it; the message still reaches the agent session.
+        sjson_path="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/sessions/sessions.json"
+        if [ -n "$deliver_flag" ]; then
+          rchannel_binding=$(jq -r --arg key "$rchannel" '.[$key] | (.lastChannel // .channel // empty)' "$sjson_path" 2>/dev/null)
+          case "$rchannel" in
+            agent:*:explicit:*) rchannel_binding="" ;;
+          esac
+          if [ -z "$rchannel_binding" ]; then
+            deliver_flag=""
+            echo "[$(date -Iseconds)] RECOVERY: $ragent/$rchannel — no delivery channel, sent without --deliver" >> "$LOG_FILE"
+          fi
+        fi
+
         # -k 30: openclaw ignores SIGTERM, so without a KILL escalation a hung
         # delivery blocks the serial drain forever (observed: one delivery
         # stuck 90+ min holding 16 queued recoveries; another since Apr 30).
-        timeout -k 30 180 openclaw agent \
+        # Keep stderr: silent delivery failures hid the #16 regression for
+        # three weeks. On failure the tail of it goes in the log line.
+        if delivery_err=$(timeout -k 30 180 openclaw agent \
           --agent "$ragent" \
           --channel last \
           --session-key "$rchannel" \
           --message "$recovery_msg" \
           --timeout 120 \
           ${deliver_flag} \
-          >/dev/null 2>&1 && {
+          2>&1 >/dev/null); then
           echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE"
           # Clear crash buffer after successful recovery delivery
           if type clear_crash_buffer &>/dev/null; then
@@ -237,11 +256,10 @@ NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that
           # Mark as recovered so zombie detection skips this session for 2 hours
           recovered_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
           date +%s > "$recovered_file"
-          # Reset failure counter on successful recovery
+          # Clear failure counter + backoff-alert marker on successful recovery
           fail_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
-          echo 0 > "$fail_file"
+          rm -f "$fail_file" "${fail_file%.failures}.backoff-alerted"
           # Clear status=failed in sessions.json so the gateway treats it as healthy
-          sjson_path="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/sessions/sessions.json"
           if [ -f "$sjson_path" ]; then
             jq --arg key "$rchannel" '
               if has($key) and .[$key].status == "failed" then
@@ -252,8 +270,11 @@ NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that
               else . end
             ' "$sjson_path" > "${sjson_path}.tmp" && mv "${sjson_path}.tmp" "$sjson_path"
           fi
-        } || \
-          echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (non-fatal)" >> "$LOG_FILE"
+        else
+          delivery_rc=$?
+          delivery_err=$(echo "$delivery_err" | tr '\n' ' ' | head -c 200)
+          echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (exit ${delivery_rc}${delivery_err:+: ${delivery_err}}) — non-fatal" >> "$LOG_FILE"
+        fi
         rm -f "$rfile"
       done
       flock -u 198
