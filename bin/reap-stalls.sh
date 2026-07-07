@@ -72,21 +72,23 @@ deliver_recovery() {
     log "[dry-run] would deliver recovery to ${agent}/${channel_key}"
     return 0
   fi
+  # ALL recoveries re-orient silently (owner preference, 2026-07-07): no
+  # "I'm back" posts. Set WARDEN_ANNOUNCE_RECOVERIES=1 to restore announcing.
   # Channel-less sessions (explicit agent-to-agent sub-sessions, or entries
-  # with no channel/provider binding) can't take --deliver — send without it;
-  # the message still reaches the agent session.
-  local deliver_flag="--deliver" binding=""
+  # with no channel/provider binding) can't take --deliver regardless — send
+  # without it; the message still reaches the agent session.
+  local deliver_flag="" binding=""
+  [ "${WARDEN_ANNOUNCE_RECOVERIES:-0}" = "1" ] && deliver_flag="--deliver"
   case "$channel_key" in
     agent:*:explicit:*) deliver_flag="" ;;
     *)
-      if [ -n "$sjson" ] && [ -f "$sjson" ]; then
+      if [ -n "$sjson" ] && [ -f "$sjson" ] && [ -n "$deliver_flag" ]; then
         binding=$(jq -r --arg key "$channel_key" '.[$key] | (.lastChannel // .channel // empty)' "$sjson" 2>/dev/null)
         [ -z "$binding" ] && deliver_flag=""
       fi
       ;;
   esac
-  [ -z "$deliver_flag" ] && log "RECOVERY: ${agent}/${channel_key} — no delivery channel, sent without --deliver"
-  local msg="You were just restarted: a stalled turn of yours was terminated by the watchdog. Check this channel's most recent messages to find what you were doing, send one short message confirming you're back, then resume that work."
+  local msg="You were just restarted: a stalled turn of yours was terminated by the watchdog. Check this channel's most recent messages to find what you were doing and resume that work. Do NOT announce that you're back and do NOT mention this restart; if a user message is waiting for a reply, answer it directly as you normally would."
   (
     exec 197>&-
     # Keep stderr: silent delivery failures hid the #16 regression for weeks.

@@ -206,17 +206,27 @@ This is graph-wide context for you (${ragent}) across recent sessions. Use it to
 ${gbrain_brief}"
         fi
 
-        # Routine threshold rotations with no crashed-out user messages get a
-        # SILENT recovery — no "I'm back" post in the channel, since routine
-        # rotation chatter is noise to the user. Crash/stall recoveries with
-        # unprocessed messages still announce and deliver so the user knows
-        # work resumed.
-        deliver_flag="--deliver"
-        if [ -z "$crash_buf" ] && [[ "$rreason" =~ ^(TOKENS|TURNS|SIZE|COMPACTIONS)$ ]]; then
-          deliver_flag=""
-          recovery_msg="${recovery_msg}
+        # ALL recoveries re-orient silently (owner preference, 2026-07-07):
+        # no "I'm back" posts in channels. Restarts are visible on the health
+        # dashboard and via Telegram alerts instead. If real user messages
+        # arrived while the session was down (crash buffer), the agent should
+        # answer THOSE through its normal channel tools — it just must not
+        # announce the restart itself. Set WARDEN_ANNOUNCE_RECOVERIES=1 to
+        # restore the old announce-on-crash behavior.
+        deliver_flag=""
+        if [ "${WARDEN_ANNOUNCE_RECOVERIES:-0}" = "1" ] && { [ -n "$crash_buf" ] || ! [[ "$rreason" =~ ^(TOKENS|TURNS|SIZE|COMPACTIONS)$ ]]; }; then
+          deliver_flag="--deliver"
+        fi
+        if [ -z "$deliver_flag" ]; then
+          if [ -n "$crash_buf" ]; then
+            recovery_msg="${recovery_msg}
 
-NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that you're back and do NOT message the user about this restart. Silently re-orient and resume any pending work; only contact the user if something genuinely needs them."
+NOTE: do NOT announce that you're back and do NOT mention this restart. Messages arrived while you were down (see above) — respond to those directly in the channel as you normally would, then resume pending work."
+          else
+            recovery_msg="${recovery_msg}
+
+NOTE: this restart is routine. Do NOT announce that you're back and do NOT message the user about it. Silently re-orient and resume any pending work; only contact the user if something genuinely needs them."
+          fi
         fi
 
         # Channel-less sessions (explicit agent-to-agent sub-sessions, or
