@@ -223,7 +223,8 @@ NOTE: this was a routine maintenance rotation, not a crash. Do NOT announce that
         # stuck 90+ min holding 16 queued recoveries; another since Apr 30).
         timeout -k 30 180 openclaw agent \
           --agent "$ragent" \
-          --session-id "$rchannel" \
+          --channel last \
+          --session-key "$rchannel" \
           --message "$recovery_msg" \
           --timeout 120 \
           ${deliver_flag} \
