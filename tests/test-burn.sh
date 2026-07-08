@@ -117,3 +117,59 @@ burn_prune 8
 assert_exit_code "0" "$?" "prune without ledger dir exits 0"
 
 teardown_sandbox
+
+echo "  burn: report"
+
+# ─── window consumption with growth and a rotation reset ──
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+# main: 100 -> 500 -> 900 (consumed 800), then rotation reset -> 50 (consumed +50) = 850
+# side: single in-window record, no anchor -> consumed 0
+# old:  only records before the window -> excluded entirely
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 7000 )),"channel":"agent:test-agent:old","sid":"s0","tokens":7777,"turns":70}
+{"ts":$(( now - 3000 )),"channel":"agent:test-agent:main","sid":"s1","tokens":100,"turns":1}
+{"ts":$(( now - 2000 )),"channel":"agent:test-agent:main","sid":"s1","tokens":500,"turns":3}
+{"ts":$(( now - 1000 )),"channel":"agent:test-agent:main","sid":"s1","tokens":900,"turns":5}
+{"ts":$(( now - 500  )),"channel":"agent:test-agent:main","sid":"s2","tokens":50,"turns":1}
+{"ts":$(( now - 100  )),"channel":"agent:test-agent:side","sid":"s3","tokens":4000,"turns":9}
+LEDGER
+
+out=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600 --json)
+assert_eq "850" "$(echo "$out" | jq -r '.channels[] | select(.channel == "agent:test-agent:main") | .consumed')" "growth + rotation reset consumption"
+assert_eq "0" "$(echo "$out" | jq -r '.channels[] | select(.channel == "agent:test-agent:side") | .consumed')" "single record without anchor consumes 0"
+assert_empty "$(echo "$out" | jq -r '.channels[] | select(.channel == "agent:test-agent:old") | .channel')" "channels with no in-window records excluded"
+assert_eq "850" "$(echo "$out" | jq -r '.total_consumed')" "total consumption sums channels"
+
+# ─── anchor before window is used as the delta baseline ───
+out=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 1500 --json)
+# window covers only ts=now-1000 (900) and ts=now-500 (50); anchor = 500 at now-2000
+# consumed = (900-500) + 50 = 450
+assert_eq "450" "$(echo "$out" | jq -r '.channels[] | select(.channel == "agent:test-agent:main") | .consumed')" "anchor record anchors the window delta"
+
+# ─── table output + budget ────────────────────────────────
+out=$(WARDEN_BURN_WINDOW_BUDGET=10000 bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600)
+assert_contains "$out" "TOTAL" "table has totals row"
+assert_contains "$out" "850" "table shows consumption"
+assert_contains "$out" "8%" "budget percentage shown when budget set"
+
+# ─── agent filter ─────────────────────────────────────────
+cat > "$dir/other-agent.jsonl" <<LEDGER
+{"ts":$(( now - 2000 )),"channel":"agent:other-agent:main","sid":"o1","tokens":10,"turns":1}
+{"ts":$(( now - 1000 )),"channel":"agent:other-agent:main","sid":"o1","tokens":20,"turns":2}
+LEDGER
+out=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600 --agent other-agent --json)
+assert_eq "10" "$(echo "$out" | jq -r '.total_consumed')" "agent filter limits report"
+
+# ─── empty state is friendly ──────────────────────────────
+rm -rf "$dir"
+out=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" 2>&1)
+rc=$?
+assert_exit_code "0" "$rc" "no ledger exits 0"
+assert_contains "$out" "No burn ledger yet" "no-ledger message shown"
+out=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --json)
+assert_eq "[]" "$out" "no ledger --json emits empty array"
+
+teardown_sandbox

@@ -82,6 +82,10 @@ cmd_doctor() {
   exec "$WARDEN_HOME/bin/doctor.sh" "$@"
 }
 
+cmd_burn() {
+  exec "$WARDEN_HOME/bin/burn-report.sh" "$@"
+}
+
 cmd_install() {
   exec "$WARDEN_HOME/install.sh"
 }
@@ -151,6 +155,10 @@ Commands:
       loop heartbeats, gateway, dependencies, state hygiene. Exit 0 healthy.
       --alert sends a Telegram alert on failure (throttled, used by cron).
 
+  burn [--window SECONDS] [--agent NAME] [--json]
+      What ate my usage: tokens consumed per agent/channel inside the
+      current subscription window (default 5h). Reads the burn ledger.
+
   install
       Install cron entries and create config file.
 
@@ -173,6 +181,7 @@ case "${1:-help}" in
   status)    shift; cmd_status "$@" ;;
   rotate)    shift; cmd_rotate "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
+  burn)      shift; cmd_burn "$@" ;;
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;
