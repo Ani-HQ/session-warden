@@ -179,7 +179,7 @@ echo "  burn: detection"
 # ─── loop signature detection ─────────────────────────────
 setup_sandbox
 loop_jsonl=""
-for i in 1 2 3 4 5 6; do
+for _ in 1 2 3 4 5 6; do
   loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"npm test\"}}]}}
 "
 done
@@ -260,7 +260,7 @@ assert_gt "$count_final" "$count_after" "cleared throttle emits again"
 # ─── loop detection end-to-end via burn_check_agent ───────
 rm -f "$events" "$dir"/.alert-*
 loop_jsonl=""
-for i in 1 2 3 4 5 6 7 8; do
+for _ in 1 2 3 4 5 6 7 8; do
   loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"retry me\"}}]}}
 "
 done
@@ -349,7 +349,7 @@ printf 'OPENCLAW_MCP_SESSION_KEY=agent:test-agent:main\0OPENCLAW_MCP_AGENT_ID=te
 export WARDEN_PROC="$SANDBOX/proc"
 
 loop_jsonl=""
-for i in 1 2 3 4 5 6 7 8; do
+for _ in 1 2 3 4 5 6 7 8; do
   loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"retry me\"}}]}}
 "
 done
@@ -493,7 +493,7 @@ printf 'OPENCLAW_MCP_SESSION_KEY=agent:test-agent:main\0OPENCLAW_MCP_AGENT_ID=te
 export WARDEN_PROC="$SANDBOX/proc"
 
 loop_jsonl=""
-for i in 1 2 3 4 5 6 7 8; do
+for _ in 1 2 3 4 5 6 7 8; do
   loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"retry me\"}}]}}
 "
 done

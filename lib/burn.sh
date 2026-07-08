@@ -327,7 +327,7 @@ burn_check_agent() {
   local spike="${WARDEN_BURN_SPIKE_TOKENS_5M:-150000}"
   local jsonl_base
   jsonl_base=$(agent_jsonl_dir "$agent")
-  while IFS='|' read -r channel consumed turns tokens_now last_ts; do
+  while IFS='|' read -r channel consumed turns _ _; do
     [ -z "$channel" ] && continue
 
     if [ "$consumed" -gt "$spike" ] 2>/dev/null; then
