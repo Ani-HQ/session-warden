@@ -47,9 +47,11 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     echo " ${WARDEN_SCAN_AGENTS} " | grep -q " ${agent} " || continue
   fi
 
-  # Burn firewall: sample this agent's token counters into the usage ledger.
-  # Non-fatal — a ledger hiccup must never block rotation.
+  # Burn firewall: sample this agent's token counters into the usage ledger,
+  # then run the BURN/BUDGET/LOOP checks against it (alert-only; enforcement
+  # is opt-in). Non-fatal — a firewall hiccup must never block rotation.
   burn_sample_agent "$sjson" || true
+  burn_check_agent "$sjson" || true
 
   while IFS='|' read -r reason channel_key cli_session_id detail; do
     [ -z "$reason" ] && continue

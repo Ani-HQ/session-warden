@@ -173,3 +173,108 @@ out=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --json)
 assert_eq "[]" "$out" "no ledger --json emits empty array"
 
 teardown_sandbox
+
+echo "  burn: detection"
+
+# ─── loop signature detection ─────────────────────────────
+setup_sandbox
+loop_jsonl=""
+for i in 1 2 3 4 5 6; do
+  loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"npm test\"}}]}}
+"
+done
+f=$(create_mock_jsonl "test-agent" "sess-loop" "$loop_jsonl")
+assert_eq "LOOP" "$(burn_detect_loop "$f" 6)" "six identical tool calls detected as loop"
+
+varied_jsonl='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/a"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}'
+f=$(create_mock_jsonl "test-agent" "sess-varied" "$varied_jsonl")
+burn_detect_loop "$f" 6 >/dev/null
+assert_exit_code "1" "$?" "varied tool calls not a loop"
+
+short_jsonl='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}'
+f=$(create_mock_jsonl "test-agent" "sess-short" "$short_jsonl")
+burn_detect_loop "$f" 6 >/dev/null
+assert_exit_code "1" "$?" "fewer than N calls not a loop"
+
+burn_detect_loop "/nonexistent/x.jsonl" 6 >/dev/null
+assert_exit_code "1" "$?" "missing jsonl not a loop"
+
+# ─── budget + warn detection ──────────────────────────────
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 3000 )),"channel":"agent:test-agent:main","sid":"sess-budget","tokens":100,"turns":1}
+{"ts":$(( now - 1000 )),"channel":"agent:test-agent:main","sid":"sess-budget","tokens":900,"turns":5}
+LEDGER
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"idle","totalTokens":900,"numTurns":5,"updatedAt":'"$(now_ms)"',"cliSessionIds":{"claude-cli":"sess-budget"}}}'
+sjson="$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json"
+
+# consumed 800 of budget 1000 = 80% >= 70% -> WARN
+WARDEN_BURN_WINDOW_BUDGET=1000 burn_check_agent "$sjson"
+events="$dir/events.jsonl"
+assert_file_exists "$events" "warn event written"
+assert_eq "WARN" "$(jq -r '.kind' "$events" | tail -1)" "80% of budget emits WARN"
+
+# consumed 800 of budget 700 -> 114% -> BUDGET
+rm -f "$events" "$dir"/.alert-*
+WARDEN_BURN_WINDOW_BUDGET=700 burn_check_agent "$sjson"
+assert_eq "BUDGET" "$(jq -r '.kind' "$events" | tail -1)" "over budget emits BUDGET"
+
+# budget 0 (default): no budget events
+rm -f "$events" "$dir"/.alert-*
+burn_check_agent "$sjson"
+if [ -f "$events" ]; then
+  assert_empty "$(jq -r 'select(.kind == "WARN" or .kind == "BUDGET") | .kind' "$events")" "no budget events when budget unset"
+else
+  assert_file_not_exists "$events" "no budget events when budget unset"
+fi
+
+# ─── spike detection (recent 5-min consumption) ───────────
+rm -f "$events" "$dir"/.alert-*
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 200 )),"channel":"agent:test-agent:main","sid":"sess-budget","tokens":1000,"turns":1}
+{"ts":$(( now - 100 )),"channel":"agent:test-agent:main","sid":"sess-budget","tokens":9000,"turns":2}
+LEDGER
+WARDEN_BURN_SPIKE_TOKENS_5M=5000 burn_check_agent "$sjson"
+assert_eq "BURN" "$(jq -r 'select(.kind == "BURN") | .kind' "$events" | tail -1)" "5-minute spike emits BURN"
+
+# ─── alert throttling ─────────────────────────────────────
+count_before=$(jq -r 'select(.kind == "BURN")' "$events" | grep -c kind)
+WARDEN_BURN_SPIKE_TOKENS_5M=5000 burn_check_agent "$sjson"
+count_after=$(jq -r 'select(.kind == "BURN")' "$events" | grep -c kind)
+assert_eq "$count_before" "$count_after" "second check within cooldown emits nothing"
+
+rm -f "$dir"/.alert-*
+WARDEN_BURN_SPIKE_TOKENS_5M=5000 WARDEN_BURN_ALERT_COOLDOWN_SECONDS=0 burn_check_agent "$sjson"
+count_final=$(jq -r 'select(.kind == "BURN")' "$events" | grep -c kind)
+assert_gt "$count_final" "$count_after" "cleared throttle emits again"
+
+# ─── loop detection end-to-end via burn_check_agent ───────
+rm -f "$events" "$dir"/.alert-*
+loop_jsonl=""
+for i in 1 2 3 4 5 6 7 8; do
+  loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"retry me\"}}]}}
+"
+done
+create_mock_jsonl "test-agent" "sess-budget" "$loop_jsonl" >/dev/null
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 100 )),"channel":"agent:test-agent:main","sid":"sess-budget","tokens":500,"turns":3}
+{"ts":$(( now - 50 )),"channel":"agent:test-agent:main","sid":"sess-budget","tokens":600,"turns":4}
+LEDGER
+burn_check_agent "$sjson"
+assert_eq "LOOP" "$(jq -r 'select(.kind == "LOOP") | .kind' "$events" | tail -1)" "retry loop emits LOOP via check"
+
+# ─── disabled flag skips checks ───────────────────────────
+rm -f "$events" "$dir"/.alert-*
+WARDEN_BURN_ENABLED=0 WARDEN_BURN_WINDOW_BUDGET=100 burn_check_agent "$sjson"
+assert_file_not_exists "$events" "disabled firewall emits no events"
+
+teardown_sandbox

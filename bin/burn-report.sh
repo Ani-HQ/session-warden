@@ -16,6 +16,7 @@ WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
 [ -f "${WARDEN_HOME}/config/thresholds.env" ] && source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/burn.sh"
 
 window="${WARDEN_BURN_WINDOW_SECONDS:-18000}"
 budget="${WARDEN_BURN_WINDOW_BUDGET:-0}"
@@ -45,38 +46,17 @@ if [ ! -d "$dir" ] || ! ls "$dir"/*.jsonl >/dev/null 2>&1; then
   exit 0
 fi
 
-# Per-channel window consumption from one ledger.
-# Output: channel|consumed|turns|tokens_now|last_ts
-report_ledger() {
-  jq -rs --argjson since "$since" '
-    group_by(.channel)[] |
-    sort_by(.ts) as $r |
-    ([$r[] | select(.ts < $since)] | last) as $anchor |
-    [$r[] | select(.ts >= $since)] as $win |
-    select(($win | length) > 0) |
-    ((if $anchor == null then [] else [$anchor] end) + $win) as $s |
-    (reduce range(1; $s | length) as $i (0;
-      . + (if $s[$i].tokens >= $s[$i-1].tokens
-           then $s[$i].tokens - $s[$i-1].tokens
-           else $s[$i].tokens end))) as $consumed |
-    (reduce range(1; $s | length) as $i (0;
-      . + (if $s[$i].turns >= $s[$i-1].turns
-           then $s[$i].turns - $s[$i-1].turns
-           else $s[$i].turns end))) as $turns |
-    "\($r[0].channel)|\($consumed)|\($turns)|\($win | last | .tokens)|\($win | last | .ts)"
-  ' "$1" 2>/dev/null
-}
-
 rows=""   # agent|channel|consumed|turns|tokens_now|last_ts
 for ledger in "$dir"/*.jsonl; do
   [ -f "$ledger" ] || continue
   agent=$(basename "$ledger" .jsonl)
+  [ "$agent" = "events" ] && continue
   [ -n "$agent_filter" ] && [ "$agent" != "$agent_filter" ] && continue
   while IFS='|' read -r channel consumed turns tokens_now last_ts; do
     [ -z "$channel" ] && continue
     rows="${rows}${agent}|${channel}|${consumed}|${turns}|${tokens_now}|${last_ts}
 "
-  done < <(report_ledger "$ledger")
+  done < <(burn_channel_report "$ledger" "$since")
 done
 
 if [ -z "$rows" ]; then
