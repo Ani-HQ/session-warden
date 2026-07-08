@@ -5,6 +5,18 @@ stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/
 
 ## [Unreleased] — 1.0.0
 
+### Added — burn firewall (`feat/burn-firewall`)
+
+- Subscription-window protection for always-on agents: per-channel usage
+  ledger sampled every scan (`state/burn/<agent>.jsonl`, deduped cumulative
+  snapshots), `session-warden burn` report ("what ate my usage", rotation
+  resets handled), BURN/BUDGET/LOOP detection with throttled Telegram alerts,
+  opt-in enforcement (`WARDEN_BURN_ENFORCE=1`: pause on budget breach — idle
+  CLIs only; env-matched kill of confirmed retry loops with recovery via the
+  normal rotate pipeline), daily digest, and ledger retention in
+  `cleanup-archives.sh`. All knobs under `WARDEN_BURN_*` / `WARDEN_LOOP_*`;
+  sampling on by default, enforcement off by default.
+
 ### Fixed — recovery delivery (#16)
 
 - Pass `--channel last` to every `openclaw agent` call site (scan.sh recovery,

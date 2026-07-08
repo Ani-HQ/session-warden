@@ -75,3 +75,10 @@ agent_from_sessions_path() {
 
 # Export so subshells (and `bash -c` invocations) inherit them.
 export -f agent_from_cwd agent_from_sessions_path _agent_from_path_map _warden_attr_home 2>/dev/null || true
+
+# agent_jsonl_dir <agent>
+# The Claude-projects transcript directory for an OpenClaw agent. Centralizes
+# the path formula that several modules previously hand-built.
+agent_jsonl_dir() {
+  echo "${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-$1"
+}

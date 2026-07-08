@@ -13,6 +13,7 @@ source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"
+source "${WARDEN_HOME}/lib/burn.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
 
@@ -46,6 +47,12 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     echo " ${WARDEN_SCAN_AGENTS} " | grep -q " ${agent} " || continue
   fi
 
+  # Burn firewall: sample this agent's token counters into the usage ledger,
+  # then run the BURN/BUDGET/LOOP checks against it (alert-only; enforcement
+  # is opt-in). Non-fatal — a firewall hiccup must never block rotation.
+  burn_sample_agent "$sjson" || true
+  burn_check_agent "$sjson" || true
+
   while IFS='|' read -r reason channel_key cli_session_id detail; do
     [ -z "$reason" ] && continue
 
@@ -67,6 +74,9 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
     fi
   done < <(detect_sessions_problems "$sjson")
 done
+
+# Burn firewall: one digest per day after the configured hour (cheap gate)
+burn_daily_digest || true
 
 # Summarize SYNCHRONOUSLY before gateway restart — agents must boot with memory
 # Timeout at 90s to prevent a hung API call from blocking all scans
