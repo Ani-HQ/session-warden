@@ -13,6 +13,7 @@ source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"
+source "${WARDEN_HOME}/lib/burn.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
 
@@ -45,6 +46,10 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
   if [ -n "${WARDEN_SCAN_AGENTS:-}" ]; then
     echo " ${WARDEN_SCAN_AGENTS} " | grep -q " ${agent} " || continue
   fi
+
+  # Burn firewall: sample this agent's token counters into the usage ledger.
+  # Non-fatal — a ledger hiccup must never block rotation.
+  burn_sample_agent "$sjson" || true
 
   while IFS='|' read -r reason channel_key cli_session_id detail; do
     [ -z "$reason" ] && continue
