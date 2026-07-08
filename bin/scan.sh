@@ -75,6 +75,9 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
   done < <(detect_sessions_problems "$sjson")
 done
 
+# Burn firewall: one digest per day after the configured hour (cheap gate)
+burn_daily_digest || true
+
 # Summarize SYNCHRONOUSLY before gateway restart — agents must boot with memory
 # Timeout at 90s to prevent a hung API call from blocking all scans
 if ls "${WARDEN_HOME}/state/pending-summaries/"*.json 1>/dev/null 2>&1; then

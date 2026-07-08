@@ -401,3 +401,44 @@ fi
 unset WARDEN_PROC
 
 teardown_sandbox
+
+echo "  burn: daily digest"
+
+# ─── digest fires once per day, stores summary in marker ──
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 4000 )),"channel":"agent:test-agent:main","sid":"sd","tokens":100,"turns":1}
+{"ts":$(( now - 2000 )),"channel":"agent:test-agent:main","sid":"sd","tokens":600,"turns":4}
+LEDGER
+cat > "$dir/events.jsonl" <<LEDGER
+{"ts":$(( now - 3000 )),"agent":"test-agent","channel":"agent:test-agent:main","kind":"BURN","detail":"x"}
+LEDGER
+
+WARDEN_BURN_DIGEST_HOUR=0 burn_daily_digest
+marker="$dir/.digest-$(date +%Y-%m-%d)"
+assert_file_exists "$marker" "digest marker written"
+assert_contains "$(cat "$marker")" "test-agent: 500 tokens" "digest summary has per-agent consumption"
+assert_contains "$(cat "$marker")" "BURN: 1" "digest summary has event counts"
+
+mtime_before=$(stat_mtime "$marker")
+sleep 1
+WARDEN_BURN_DIGEST_HOUR=0 burn_daily_digest
+assert_eq "$mtime_before" "$(stat_mtime "$marker")" "second call same day is a no-op"
+
+# ─── blank hour disables; future hour defers ──────────────
+rm -f "$marker"
+WARDEN_BURN_DIGEST_HOUR="" burn_daily_digest
+assert_file_not_exists "$marker" "blank digest hour disables digest"
+
+hour_now=$(( 10#$(date +%H) ))
+if [ "$hour_now" -lt 23 ]; then
+  WARDEN_BURN_DIGEST_HOUR=23 burn_daily_digest
+  assert_file_not_exists "$marker" "digest defers until configured hour"
+else
+  skip_test "digest defer case (host clock at 23:00)"
+fi
+
+teardown_sandbox

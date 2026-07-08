@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
+source "${WARDEN_HOME}/lib/burn.sh"       # burn_prune
 
 RETENTION_DAYS="${WARDEN_ARCHIVE_RETENTION_DAYS:-7}"
 QUEUE_RETENTION_DAYS="${WARDEN_QUEUE_RETENTION_DAYS:-7}"
@@ -79,6 +80,9 @@ if [ -d "${WARDEN_HOME}/state/cooldowns" ]; then
   done < <(find "${WARDEN_HOME}/state/cooldowns" \( -name "*.failures" -o -name "*.backoff-alerted" \) -mtime +"$COOLDOWN_RETENTION_DAYS" -print0 2>/dev/null)
 fi
 [ "$cooldown_purged" -gt 0 ] && log "CLEANUP: removed $cooldown_purged expired cooldown markers"
+
+# ─── Burn ledger retention ────────────────────────────────
+burn_prune && log "CLEANUP: pruned burn ledgers older than ${WARDEN_BURN_RETENTION_DAYS:-8}d"
 
 # ─── scan.log rotation ────────────────────────────────────
 # Size-based, self-contained (no logrotate dependency). scan.log -> .1 -> .2 ...

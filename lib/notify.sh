@@ -129,6 +129,29 @@ ${summary}"
   echo "$resp" | grep -q "\"ok\":true"
 }
 
+notify_burn_digest() {
+  # Daily burn-firewall digest (lib/burn.sh burn_daily_digest). Informational,
+  # one per day. Returns non-zero if the send fails so the caller can log it.
+  local summary="$1"
+
+  [ "${WARDEN_BURN_DIGEST_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg
+  msg="🔥 *session-warden burn report* — $(date +%Y-%m-%d)
+
+${summary}"
+
+  local resp
+  resp=$(curl -s -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    -d "parse_mode=Markdown" \
+    --data-urlencode "text=${msg}" 2>/dev/null)
+  echo "$resp" | grep -q "\"ok\":true"
+}
+
 notify_harvester() {
   # Weekly skill-harvester digest (bin/harvest-skills.sh). Informational, one per run.
   # Returns non-zero if the send fails so the harvester can log it.

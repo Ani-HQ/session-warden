@@ -255,6 +255,45 @@ It's wired at three layers so a gap can't slip through any single one:
 
 Missing prerequisites (no `jq`, no config) bail soft, never breaking gateway startup. Config: `OPENCLAW_CONFIG`, `OPENCLAW_BIN`, `CHANNEL_PARITY_COOLDOWN_SECONDS`, `CHANNEL_PARITY_STATE_DIR`.
 
+## Burn firewall (subscription-window protection)
+
+Always-on agents run on the Claude subscription you already pay for — and one
+agent in a retry loop can quietly drain a 5-hour usage window before you
+notice. The burn firewall is the warden's answer: it meters what every agent
+consumes, tells you what ate your window, and (opt-in) steps in before a
+runaway loop costs you your whole plan.
+
+**Ledger** — every scan samples per-channel token counters into an append-only
+ledger (`state/burn/<agent>.jsonl`). Records are cumulative snapshots deduped
+on change, so idle fleets stay ledger-quiet and a missed sample never corrupts
+history. Retention via `cleanup-archives.sh` (`WARDEN_BURN_RETENTION_DAYS`).
+
+**Report** — `session-warden burn` answers "what ate my usage": tokens per
+agent/channel inside the current window (default 5h), rotation resets handled,
+`--json` for scripts, `--agent` to filter, budget percentage when a budget is
+set.
+
+**Detection** (alert-only by default, throttled Telegram alerts):
+- `BURN` — a channel consumed more than `WARDEN_BURN_SPIKE_TOKENS_5M` within
+  5 minutes.
+- `BUDGET` — an agent crossed `WARDEN_BURN_WARN_PCT` (warn) or 100% (breach)
+  of `WARDEN_BURN_WINDOW_BUDGET` tokens per window.
+- `LOOP` — the retry-loop signature: the last `WARDEN_LOOP_REPEATS` tool calls
+  in the transcript are identical. This is the silent 5-10x budget killer.
+
+**Enforcement** (`WARDEN_BURN_ENFORCE=1`, default off):
+- Budget breach → the agent is **paused** until the window resets. Only idle
+  CLI processes are stopped — a turn actively writing its transcript always
+  finishes.
+- Confirmed retry loop → the looping turn is **killed** (env-matched pid,
+  never a human's `claude`; one kill per channel per cooldown) and recovery
+  rides the normal rotate-and-summarize pipeline, so the agent reboots with
+  context and a note about why.
+
+**Digest** — one Telegram summary per day (`WARDEN_BURN_DIGEST_HOUR`, default
+21:00): fleet consumption for the last 24h plus firewall event counts. Events
+live in `state/burn/events.jsonl`.
+
 ## Quick start
 
 ```bash

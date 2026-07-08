@@ -337,6 +337,58 @@ burn_check_agent() {
   return 0
 }
 
+# ─── M5: daily digest ─────────────────────────────────────
+
+# burn_daily_digest
+# One Telegram digest per day after WARDEN_BURN_DIGEST_HOUR (local time):
+# last-24h consumption per agent plus firewall event counts. The dated marker
+# file (which also stores the summary for inspection) gates repeats; it is
+# written before sending so a failed send degrades to a quiet no-op, never a
+# repeat storm. Blank WARDEN_BURN_DIGEST_HOUR disables the digest.
+burn_daily_digest() {
+  [ "${WARDEN_BURN_ENABLED:-1}" = "1" ] || return 0
+
+  local hour="${WARDEN_BURN_DIGEST_HOUR-21}"
+  [ -n "$hour" ] || return 0
+  local hour_now
+  hour_now=$(( 10#$(date +%H) ))
+  [ "$hour_now" -ge "$hour" ] || return 0
+
+  local dir marker
+  dir=$(burn_ledger_dir)
+  marker="${dir}/.digest-$(date +%Y-%m-%d)"
+  [ -f "$marker" ] && return 0
+  mkdir -p "$dir"
+
+  local since total=0 summary="" ledger agent t
+  since=$(( $(date +%s) - 86400 ))
+  for ledger in "$dir"/*.jsonl; do
+    [ -f "$ledger" ] || continue
+    agent=$(basename "$ledger" .jsonl)
+    [ "$agent" = "events" ] && continue
+    t=$(burn_channel_report "$ledger" "$since" | awk -F'|' '{s+=$2} END {print s+0}')
+    [ "${t:-0}" -gt 0 ] || continue
+    summary="${summary}• ${agent}: ${t} tokens
+"
+    total=$(( total + t ))
+  done
+
+  local events=""
+  if [ -f "${dir}/events.jsonl" ]; then
+    events=$(jq -r --argjson since "$since" 'select(.ts >= $since) | .kind' \
+      "${dir}/events.jsonl" 2>/dev/null | sort | uniq -c | awk '{print "• " $2 ": " $1}')
+  fi
+
+  local body="Last 24h: ${total} tokens across the fleet
+${summary}${events:+
+Firewall events:
+${events}}"
+
+  printf '%s\n' "$body" > "$marker"
+  notify_burn_digest "$body" || true
+  return 0
+}
+
 # burn_prune [days]
 # Drops ledger records older than N days (default WARDEN_BURN_RETENTION_DAYS,
 # default 8 — a full week of windows plus slack). Called from cleanup.
