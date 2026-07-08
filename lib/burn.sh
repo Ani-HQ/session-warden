@@ -14,6 +14,8 @@
 _BURN_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_BURN_LIB_DIR}/agent-attribution.sh"
 source "${_BURN_LIB_DIR}/notify.sh"
+source "${_BURN_LIB_DIR}/portable.sh"
+source "${_BURN_LIB_DIR}/reap.sh"
 
 burn_ledger_dir() {
   echo "${WARDEN_HOME:-$HOME/session-warden}/state/burn"
@@ -150,10 +152,118 @@ burn_detect_loop() {
   return 1
 }
 
+# ─── M4: enforcement ─────────────────────────────────────
+# Everything here is inert unless WARDEN_BURN_ENFORCE=1 (default 0, warn-only).
+# The escalation contract:
+#   BUDGET breach  -> PAUSE: marker until the window resets; while paused, only
+#                     IDLE CLI processes are killed (JSONL stale — never a turn
+#                     that is actively writing its transcript).
+#   LOOP signature -> KILL: the one deliberate mid-turn exception. A retry loop
+#                     keeps its transcript fresh (every retry appends), which is
+#                     exactly why it burns silently. The kill is precisely
+#                     scoped: env-matched pid (never a human's claude), status
+#                     "running", one kill per channel per cooldown. Recovery
+#                     rides the existing pipeline (FAILED -> rotate + summary).
+
+burn_pause_file() {
+  echo "$(burn_ledger_dir)/paused/$(echo "$1" | sed 's/[^a-zA-Z0-9_-]/_/g')"
+}
+
+# burn_pause_agent <agent> <until-epoch>
+burn_pause_agent() {
+  local f
+  f=$(burn_pause_file "$1")
+  mkdir -p "$(dirname "$f")"
+  echo "$2" > "$f"
+}
+
+# burn_is_paused <agent> — 0 when paused; clears expired markers.
+burn_is_paused() {
+  local f until
+  f=$(burn_pause_file "$1")
+  [ -f "$f" ] || return 1
+  until=$(cat "$f" 2>/dev/null || echo 0)
+  if [ "$(date +%s)" -ge "${until:-0}" ]; then
+    rm -f "$f"
+    return 1
+  fi
+  return 0
+}
+
+# burn_enforce_verdict <enforce-flag> <kind> <status>
+# Pure decision: "" (do nothing) | PAUSE | KILL.
+burn_enforce_verdict() {
+  local enforce="$1" kind="$2" status="$3"
+  [ "$enforce" = "1" ] || { echo ""; return 0; }
+  case "$kind" in
+    BUDGET) echo "PAUSE" ;;
+    LOOP)   if [ "$status" = "running" ]; then echo "KILL"; else echo ""; fi ;;
+    *)      echo "" ;;
+  esac
+}
+
+# burn_kill_channel <agent> <channel> <why>
+# Env-matched TERM->KILL of the channel's CLI child, with a per-channel kill
+# cooldown so a respawning loop is not killed in a loop. Honors WARDEN_DRY_RUN.
+burn_kill_channel() {
+  local agent="$1" channel="$2" why="$3"
+  local dir marker now last cooldown pid
+  dir=$(burn_ledger_dir)
+  marker="${dir}/.killed-$(echo "${agent}-${channel}" | sed 's/[^a-zA-Z0-9_-]/_/g')"
+  now=$(date +%s)
+  cooldown="${WARDEN_BURN_KILL_COOLDOWN_SECONDS:-3600}"
+  if [ -f "$marker" ]; then
+    last=$(cat "$marker" 2>/dev/null || echo 0)
+    [ $(( now - last )) -lt "$cooldown" ] && return 1
+  fi
+
+  pid=$(reap_find_agent_pid "$channel" "$agent")
+  [ -n "$pid" ] || return 1
+
+  echo "$now" > "$marker"
+  if reap_kill_pid "$pid" "${WARDEN_STALL_KILL_GRACE_SECONDS:-10}"; then
+    burn_event "$agent" "$channel" "LOOPKILL" "$why (pid ${pid})"
+    notify_alert "burn firewall: killed looping turn for ${agent}" "${channel}: ${why}"
+    return 0
+  fi
+  burn_event "$agent" "$channel" "KILLFAIL" "$why (pid ${pid} survived TERM+KILL)"
+  return 1
+}
+
+# burn_enforce_pause <sessions.json> <agent>
+# While paused (enforce on): kill only IDLE CLI children — JSONL untouched for
+# WARDEN_ACTIVE_THRESHOLD_SECS — so an in-flight turn always finishes.
+burn_enforce_pause() {
+  local sjson="$1" agent="$2"
+  local jsonl_base="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
+  local now threshold
+  now=$(date +%s)
+  threshold="${WARDEN_ACTIVE_THRESHOLD_SECS:-60}"
+
+  while IFS='|' read -r channel sid; do
+    [ -z "$channel" ] && continue
+    local jsonl="${jsonl_base}/${sid}.jsonl" mtime=0
+    [ -f "$jsonl" ] && mtime=$(stat_mtime "$jsonl")
+    # Active transcript -> mid-turn -> never touch it.
+    [ $(( now - mtime )) -lt "$threshold" ] && continue
+    local pid
+    pid=$(reap_find_agent_pid "$channel" "$agent")
+    [ -n "$pid" ] || continue
+    if reap_kill_pid "$pid" "${WARDEN_STALL_KILL_GRACE_SECONDS:-10}"; then
+      burn_event "$agent" "$channel" "PAUSEKILL" "idle CLI stopped while window budget is exhausted (pid ${pid})"
+    fi
+  done < <(jq -r '
+    to_entries[] |
+    select(.value.cliSessionIds["claude-cli"] // "" | length > 0) |
+    "\(.key)|\(.value.cliSessionIds["claude-cli"])"
+  ' "$sjson" 2>/dev/null)
+}
+
 # burn_check_agent <sessions.json path>
 # Runs BURN (spike) / BUDGET (window ceiling) / LOOP (retry signature) checks
-# against the agent's ledger and recent transcripts. Alert-only in M3:
-# enforcement hooks onto the emitted events in M4. Never fails the caller.
+# against the agent's ledger and recent transcripts. Alerts always; the
+# enforcement ladder above engages only when WARDEN_BURN_ENFORCE=1.
+# Never fails the caller.
 burn_check_agent() {
   [ "${WARDEN_BURN_ENABLED:-1}" = "1" ] || return 0
 
@@ -166,6 +276,12 @@ burn_check_agent() {
   [ -f "$ledger" ] || return 0
   now=$(date +%s)
   window="${WARDEN_BURN_WINDOW_SECONDS:-18000}"
+  local enforce="${WARDEN_BURN_ENFORCE:-0}"
+
+  # Paused agent (enforce on): keep idle CLIs down until the marker expires.
+  if [ "$enforce" = "1" ] && burn_is_paused "$agent"; then
+    burn_enforce_pause "$sjson" "$agent"
+  fi
 
   # BUDGET: agent's total window consumption vs the per-window budget
   local budget="${WARDEN_BURN_WINDOW_BUDGET:-0}"
@@ -178,6 +294,11 @@ burn_check_agent() {
       burn_alert "budget-${agent}" "$agent" "-" "BUDGET" \
         "burn firewall: ${agent} EXCEEDED window budget" \
         "consumed ${total} of ${budget} tokens (${pct}%) in the current $(( window / 3600 ))h window" || true
+      if [ "$(burn_enforce_verdict "$enforce" "BUDGET" "-")" = "PAUSE" ] && ! burn_is_paused "$agent"; then
+        burn_pause_agent "$agent" $(( now + window ))
+        burn_event "$agent" "-" "PAUSE" "window budget exhausted; paused until $(( now + window ))"
+        burn_enforce_pause "$sjson" "$agent"
+      fi
     elif [ "$pct" -ge "$warn_pct" ]; then
       burn_alert "warn-${agent}" "$agent" "-" "WARN" \
         "burn firewall: ${agent} at ${pct}% of window budget" \
@@ -204,6 +325,12 @@ burn_check_agent() {
       burn_alert "loop-${agent}-${channel}" "$agent" "$channel" "LOOP" \
         "burn firewall: ${agent} looks stuck in a retry loop" \
         "${channel}: last ${WARDEN_LOOP_REPEATS:-6} tool calls are identical (session ${sid:0:12})" || true
+      local status
+      status=$(jq -r --arg ch "$channel" '.[$ch].status // ""' "$sjson" 2>/dev/null)
+      if [ "$(burn_enforce_verdict "$enforce" "LOOP" "$status")" = "KILL" ]; then
+        burn_kill_channel "$agent" "$channel" \
+          "retry loop: last ${WARDEN_LOOP_REPEATS:-6} tool calls identical" || true
+      fi
     fi
   done < <(burn_channel_report "$ledger" $(( now - 300 )))
 

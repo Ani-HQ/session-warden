@@ -278,3 +278,126 @@ WARDEN_BURN_ENABLED=0 WARDEN_BURN_WINDOW_BUDGET=100 burn_check_agent "$sjson"
 assert_file_not_exists "$events" "disabled firewall emits no events"
 
 teardown_sandbox
+
+echo "  burn: enforcement"
+
+# ─── pure verdict ─────────────────────────────────────────
+setup_sandbox
+assert_eq ""      "$(burn_enforce_verdict 0 BUDGET running)" "enforce off: budget -> nothing"
+assert_eq ""      "$(burn_enforce_verdict 0 LOOP running)"   "enforce off: loop -> nothing"
+assert_eq "PAUSE" "$(burn_enforce_verdict 1 BUDGET -)"       "enforce on: budget -> pause"
+assert_eq "KILL"  "$(burn_enforce_verdict 1 LOOP running)"   "enforce on: running loop -> kill"
+assert_eq ""      "$(burn_enforce_verdict 1 LOOP idle)"      "enforce on: idle loop -> nothing"
+assert_eq ""      "$(burn_enforce_verdict 1 BURN running)"   "spike alone never enforces"
+
+# ─── pause marker lifecycle ───────────────────────────────
+now=$(date +%s)
+burn_pause_agent "test-agent" $(( now + 60 ))
+burn_is_paused "test-agent"
+assert_exit_code "0" "$?" "fresh pause marker reports paused"
+burn_pause_agent "test-agent" $(( now - 5 ))
+burn_is_paused "test-agent"
+assert_exit_code "1" "$?" "expired pause marker reports not paused"
+assert_file_not_exists "$(burn_pause_file test-agent)" "expired marker is cleared"
+
+# ─── budget breach with enforce=1 pauses the agent ────────
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 3000 )),"channel":"agent:test-agent:main","sid":"sess-enf","tokens":100,"turns":1}
+{"ts":$(( now - 1000 )),"channel":"agent:test-agent:main","sid":"sess-enf","tokens":900,"turns":5}
+LEDGER
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"idle","totalTokens":900,"numTurns":5,"updatedAt":'"$(now_ms)"',"cliSessionIds":{"claude-cli":"sess-enf"}}}'
+sjson="$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json"
+
+WARDEN_BURN_ENFORCE=1 WARDEN_BURN_WINDOW_BUDGET=700 WARDEN_DRY_RUN=1 burn_check_agent "$sjson"
+burn_is_paused "test-agent"
+assert_exit_code "0" "$?" "budget breach with enforce pauses agent"
+assert_eq "PAUSE" "$(jq -r 'select(.kind == "PAUSE") | .kind' "$dir/events.jsonl" | tail -1)" "PAUSE event recorded"
+
+# enforce=0: same breach, no pause
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 3000 )),"channel":"agent:test-agent:main","sid":"sess-enf","tokens":100,"turns":1}
+{"ts":$(( now - 1000 )),"channel":"agent:test-agent:main","sid":"sess-enf","tokens":900,"turns":5}
+LEDGER
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"idle","totalTokens":900,"numTurns":5,"updatedAt":'"$(now_ms)"',"cliSessionIds":{"claude-cli":"sess-enf"}}}'
+sjson="$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json"
+WARDEN_BURN_WINDOW_BUDGET=700 burn_check_agent "$sjson"
+burn_is_paused "test-agent"
+assert_exit_code "1" "$?" "default warn-only never pauses"
+
+# ─── loop-kill: env-matched pid, dry-run, kill cooldown ───
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+
+# mock pgrep so reap_find_agent_pid sees one claude pid; mock procfs environ
+mkdir -p "$SANDBOX/bin" "$SANDBOX/proc/4242"
+cat > "$SANDBOX/bin/pgrep" <<'MOCK'
+#!/usr/bin/env bash
+echo 4242
+MOCK
+chmod +x "$SANDBOX/bin/pgrep"
+export PATH="$SANDBOX/bin:$PATH"
+printf 'OPENCLAW_MCP_SESSION_KEY=agent:test-agent:main\0OPENCLAW_MCP_AGENT_ID=test-agent\0' > "$SANDBOX/proc/4242/environ"
+export WARDEN_PROC="$SANDBOX/proc"
+
+loop_jsonl=""
+for i in 1 2 3 4 5 6 7 8; do
+  loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"retry me\"}}]}}
+"
+done
+create_mock_jsonl "test-agent" "sess-kill" "$loop_jsonl" >/dev/null
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 100 )),"channel":"agent:test-agent:main","sid":"sess-kill","tokens":500,"turns":3}
+{"ts":$(( now - 50 )),"channel":"agent:test-agent:main","sid":"sess-kill","tokens":700,"turns":4}
+LEDGER
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"running","totalTokens":700,"numTurns":4,"updatedAt":'"$(now_ms)"',"cliSessionIds":{"claude-cli":"sess-kill"}}}'
+sjson="$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json"
+
+WARDEN_BURN_ENFORCE=1 WARDEN_DRY_RUN=1 burn_check_agent "$sjson"
+assert_eq "LOOPKILL" "$(jq -r 'select(.kind == "LOOPKILL") | .kind' "$dir/events.jsonl" | tail -1)" "running loop with enforce kills (dry-run)"
+
+# second check inside kill cooldown: no second LOOPKILL
+kills_before=$(jq -r 'select(.kind == "LOOPKILL")' "$dir/events.jsonl" | grep -c kind)
+rm -f "$dir"/.alert-*   # clear alert throttle; kill cooldown must gate on its own
+WARDEN_BURN_ENFORCE=1 WARDEN_DRY_RUN=1 burn_check_agent "$sjson"
+kills_after=$(jq -r 'select(.kind == "LOOPKILL")' "$dir/events.jsonl" | grep -c kind)
+assert_eq "$kills_before" "$kills_after" "kill cooldown prevents repeat kills"
+
+# idle status: loop signature alerts but never kills
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+mkdir -p "$SANDBOX/bin" "$SANDBOX/proc/4242"
+cat > "$SANDBOX/bin/pgrep" <<'MOCK'
+#!/usr/bin/env bash
+echo 4242
+MOCK
+chmod +x "$SANDBOX/bin/pgrep"
+export PATH="$SANDBOX/bin:$PATH"
+printf 'OPENCLAW_MCP_SESSION_KEY=agent:test-agent:main\0OPENCLAW_MCP_AGENT_ID=test-agent\0' > "$SANDBOX/proc/4242/environ"
+export WARDEN_PROC="$SANDBOX/proc"
+create_mock_jsonl "test-agent" "sess-kill" "$loop_jsonl" >/dev/null
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 100 )),"channel":"agent:test-agent:main","sid":"sess-kill","tokens":500,"turns":3}
+{"ts":$(( now - 50 )),"channel":"agent:test-agent:main","sid":"sess-kill","tokens":700,"turns":4}
+LEDGER
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"idle","totalTokens":700,"numTurns":4,"updatedAt":'"$(now_ms)"',"cliSessionIds":{"claude-cli":"sess-kill"}}}'
+sjson="$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json"
+WARDEN_BURN_ENFORCE=1 WARDEN_DRY_RUN=1 burn_check_agent "$sjson"
+if [ -f "$dir/events.jsonl" ]; then
+  assert_empty "$(jq -r 'select(.kind == "LOOPKILL") | .kind' "$dir/events.jsonl")" "idle loop signature never kills"
+else
+  assert_file_not_exists "$dir/events.jsonl.never" "idle loop signature never kills"
+fi
+
+unset WARDEN_PROC
+
+teardown_sandbox
