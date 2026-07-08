@@ -442,3 +442,118 @@ else
 fi
 
 teardown_sandbox
+
+echo "  burn: review fixes"
+
+# ─── corrupt ledger line is tolerated, not fatal ──────────
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 2000 )),"channel":"agent:test-agent:main","sid":"s1","tokens":100,"turns":1}
+{"ts":$(( now - 1500 )),"channel":"agent:test-agent:main","sid":"s1","tokens":300,"tur
+{"ts":$(( now - 1000 )),"channel":"agent:test-agent:main","sid":"s1","tokens":600,"turns":3}
+LEDGER
+out=$(burn_channel_report "$dir/test-agent.jsonl" $(( now - 3600 )))
+assert_not_empty "$out" "corrupt line does not blank the report"
+assert_eq "500" "$(echo "$out" | awk -F'|' '{print $2}')" "consumption computed from surviving records"
+
+# ─── sid change counts as rotation even when tokens rise ──
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 3000 )),"channel":"agent:test-agent:main","sid":"s1","tokens":100,"turns":1}
+{"ts":$(( now - 2000 )),"channel":"agent:test-agent:main","sid":"s1","tokens":400,"turns":3}
+{"ts":$(( now - 1000 )),"channel":"agent:test-agent:main","sid":"s2","tokens":550,"turns":2}
+LEDGER
+out=$(burn_channel_report "$dir/test-agent.jsonl" $(( now - 3600 )))
+# s1: 100->400 = 300, rotation to s2 with higher count: +550 = 850 (not 150)
+assert_eq "850" "$(echo "$out" | awk -F'|' '{print $2}')" "sid change with rising tokens counts new session total"
+
+# ─── prune self-heals corrupt lines ───────────────────────
+cat > "$dir/test-agent.jsonl" <<LEDGER
+not json
+{"ts":$now,"channel":"agent:test-agent:main","sid":"s1","tokens":20,"turns":2}
+LEDGER
+burn_prune 8
+assert_eq "1" "$(wc -l < "$dir/test-agent.jsonl" | tr -d ' ')" "prune drops corrupt lines"
+
+# ─── stale loop signature never alerts or kills ───────────
+setup_sandbox
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+mkdir -p "$SANDBOX/bin" "$SANDBOX/proc/4242"
+cat > "$SANDBOX/bin/pgrep" <<'MOCK'
+#!/usr/bin/env bash
+echo 4242
+MOCK
+chmod +x "$SANDBOX/bin/pgrep"
+export PATH="$SANDBOX/bin:$PATH"
+printf 'OPENCLAW_MCP_SESSION_KEY=agent:test-agent:main\0OPENCLAW_MCP_AGENT_ID=test-agent\0' > "$SANDBOX/proc/4242/environ"
+export WARDEN_PROC="$SANDBOX/proc"
+
+loop_jsonl=""
+for i in 1 2 3 4 5 6 7 8; do
+  loop_jsonl="${loop_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"retry me\"}}]}}
+"
+done
+f=$(create_mock_jsonl "test-agent" "sess-stale" "$loop_jsonl")
+touch -t 202601010000 "$f"   # signature is old news: transcript not being written
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 100 )),"channel":"agent:test-agent:main","sid":"sess-stale","tokens":500,"turns":3}
+{"ts":$(( now - 50 )),"channel":"agent:test-agent:main","sid":"sess-stale","tokens":600,"turns":4}
+LEDGER
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"running","totalTokens":600,"numTurns":4,"updatedAt":'"$(now_ms)"',"cliSessionIds":{"claude-cli":"sess-stale"}}}'
+sjson="$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json"
+WARDEN_BURN_ENFORCE=1 WARDEN_DRY_RUN=1 burn_check_agent "$sjson"
+if [ -f "$dir/events.jsonl" ]; then
+  assert_empty "$(jq -r 'select(.kind == "LOOP" or .kind == "LOOPKILL") | .kind' "$dir/events.jsonl")" "stale transcript never fires LOOP"
+else
+  assert_file_not_exists "$dir/events.jsonl.never" "stale transcript never fires LOOP"
+fi
+
+# ─── sid mismatch (rotation lag) never kills ──────────────
+rm -f "$dir"/events.jsonl "$dir"/.alert-* "$dir"/.killed-*
+create_mock_jsonl "test-agent" "sess-old" "$loop_jsonl" >/dev/null   # fresh mtime, loop signature
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 100 )),"channel":"agent:test-agent:main","sid":"sess-old","tokens":500,"turns":3}
+{"ts":$(( now - 50 )),"channel":"agent:test-agent:main","sid":"sess-old","tokens":600,"turns":4}
+LEDGER
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"running","totalTokens":50,"numTurns":1,"updatedAt":'"$(now_ms)"',"cliSessionIds":{"claude-cli":"sess-new"}}}'
+WARDEN_BURN_ENFORCE=1 WARDEN_DRY_RUN=1 burn_check_agent "$sjson"
+if [ -f "$dir/events.jsonl" ]; then
+  assert_empty "$(jq -r 'select(.kind == "LOOPKILL") | .kind' "$dir/events.jsonl")" "evidence from a rotated-away sid never kills the new session"
+else
+  assert_file_not_exists "$dir/events.jsonl.never" "evidence from a rotated-away sid never kills the new session"
+fi
+
+# ─── pause never touches a running or unknown session ─────
+rm -f "$dir"/events.jsonl "$dir"/.alert-* "$dir"/.killed-*
+# running status, stale-looking jsonl: must be skipped
+f=$(create_mock_jsonl "test-agent" "sess-run" "")
+touch -t 202601010000 "$f"
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"running","totalTokens":10,"numTurns":1,"updatedAt":0,"cliSessionIds":{"claude-cli":"sess-run"}}}'
+WARDEN_DRY_RUN=1 burn_enforce_pause "$sjson" "test-agent"
+if [ -f "$dir/events.jsonl" ]; then
+  assert_empty "$(jq -r 'select(.kind == "PAUSEKILL") | .kind' "$dir/events.jsonl")" "pause never kills a running session"
+else
+  assert_file_not_exists "$dir/events.jsonl.never" "pause never kills a running session"
+fi
+# missing jsonl: must be skipped
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"idle","totalTokens":10,"numTurns":1,"updatedAt":0,"cliSessionIds":{"claude-cli":"sess-ghost"}}}'
+WARDEN_DRY_RUN=1 burn_enforce_pause "$sjson" "test-agent"
+if [ -f "$dir/events.jsonl" ]; then
+  assert_empty "$(jq -r 'select(.kind == "PAUSEKILL") | .kind' "$dir/events.jsonl")" "pause never kills a session with no transcript"
+else
+  assert_file_not_exists "$dir/events.jsonl.never" "pause never kills a session with no transcript"
+fi
+# idle + stale on both signals: killed (dry-run)
+f=$(create_mock_jsonl "test-agent" "sess-idle" "")
+touch -t 202601010000 "$f"
+create_sessions_json "test-agent" '{"agent:test-agent:main":{"status":"idle","totalTokens":10,"numTurns":1,"updatedAt":1000,"cliSessionIds":{"claude-cli":"sess-idle"}}}'
+printf 'OPENCLAW_MCP_SESSION_KEY=agent:test-agent:main\0OPENCLAW_MCP_AGENT_ID=test-agent\0' > "$SANDBOX/proc/4242/environ"
+WARDEN_DRY_RUN=1 burn_enforce_pause "$sjson" "test-agent"
+assert_eq "PAUSEKILL" "$(jq -r 'select(.kind == "PAUSEKILL") | .kind' "$dir/events.jsonl" | tail -1)" "pause stops a truly idle session"
+
+unset WARDEN_PROC
+teardown_sandbox

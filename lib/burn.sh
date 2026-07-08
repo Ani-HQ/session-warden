@@ -24,14 +24,17 @@ burn_ledger_dir() {
 # burn_channel_report <ledger> <since-epoch>
 # Per-channel consumption since <since>, one line per active channel:
 #   channel|consumed|turns|tokens_now|last_ts
-# Counters are cumulative per CLI session; a drop between consecutive records
-# means the session rotated, so that pair contributes the new session's
-# running total instead of a negative delta. A channel whose first in-window
-# record has no earlier anchor consumes 0 (undercount, never overcount).
+# Counters are cumulative per CLI session. A rotation is detected by EITHER a
+# sid change or a counter drop between consecutive records; a rotated pair
+# contributes the new session's running total instead of a same-session delta.
+# A channel whose first in-window record has no earlier anchor consumes 0
+# (undercount, never overcount). Lines are parsed tolerantly (fromjson?), so
+# one torn append never silently disables the whole report for an agent.
 burn_channel_report() {
   local ledger="$1" since="$2"
   [ -f "$ledger" ] || return 0
-  jq -rs --argjson since "$since" '
+  jq -rRn --argjson since "$since" '
+    [inputs | fromjson? // empty] |
     group_by(.channel)[] |
     sort_by(.ts) as $r |
     ([$r[] | select(.ts < $since)] | last) as $anchor |
@@ -39,11 +42,15 @@ burn_channel_report() {
     select(($win | length) > 0) |
     ((if $anchor == null then [] else [$anchor] end) + $win) as $s |
     (reduce range(1; $s | length) as $i (0;
-      . + (if $s[$i].tokens >= $s[$i-1].tokens
+      . + (if ($s[$i].sid // "") != ($s[$i-1].sid // "")
+           then $s[$i].tokens
+           elif $s[$i].tokens >= $s[$i-1].tokens
            then $s[$i].tokens - $s[$i-1].tokens
            else $s[$i].tokens end))) as $consumed |
     (reduce range(1; $s | length) as $i (0;
-      . + (if $s[$i].turns >= $s[$i-1].turns
+      . + (if ($s[$i].sid // "") != ($s[$i-1].sid // "")
+           then $s[$i].turns
+           elif $s[$i].turns >= $s[$i-1].turns
            then $s[$i].turns - $s[$i-1].turns
            else $s[$i].turns end))) as $turns |
     "\($r[0].channel)|\($consumed)|\($turns)|\($win | last | .tokens)|\($win | last | .ts)"
@@ -231,21 +238,31 @@ burn_kill_channel() {
 }
 
 # burn_enforce_pause <sessions.json> <agent>
-# While paused (enforce on): kill only IDLE CLI children — JSONL untouched for
-# WARDEN_ACTIVE_THRESHOLD_SECS — so an in-flight turn always finishes.
+# While paused (enforce on): stop only IDLE CLI children. A session is idle
+# only when ALL of these hold — the gateway does not think a turn is running
+# (status != "running"), its transcript exists (a missing JSONL means a
+# just-rotated session we know nothing about — leave it alone), and neither
+# the transcript nor updatedAt has advanced within WARDEN_ACTIVE_THRESHOLD_SECS.
+# An in-flight turn always finishes; pause only prevents idle sessions from
+# picking up new work while the window budget is exhausted.
 burn_enforce_pause() {
   local sjson="$1" agent="$2"
-  local jsonl_base="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
-  local now threshold
+  local jsonl_base now threshold
+  jsonl_base=$(agent_jsonl_dir "$agent")
   now=$(date +%s)
   threshold="${WARDEN_ACTIVE_THRESHOLD_SECS:-60}"
 
-  while IFS='|' read -r channel sid; do
+  while IFS='|' read -r channel sid status updated_at_ms; do
     [ -z "$channel" ] && continue
-    local jsonl="${jsonl_base}/${sid}.jsonl" mtime=0
-    [ -f "$jsonl" ] && mtime=$(stat_mtime "$jsonl")
-    # Active transcript -> mid-turn -> never touch it.
-    [ $(( now - mtime )) -lt "$threshold" ] && continue
+    # The gateway says a turn is in flight -> never touch it.
+    [ "$status" = "running" ] && continue
+    local jsonl="${jsonl_base}/${sid}.jsonl"
+    # Unknown/new session (no transcript yet) -> leave it alone.
+    [ -f "$jsonl" ] || continue
+    local progress
+    progress=$(reap_last_progress_epoch "$updated_at_ms" "$(stat_mtime "$jsonl")")
+    # Recent progress on either signal -> not idle.
+    [ $(( now - progress )) -lt "$threshold" ] && continue
     local pid
     pid=$(reap_find_agent_pid "$channel" "$agent")
     [ -n "$pid" ] || continue
@@ -255,7 +272,7 @@ burn_enforce_pause() {
   done < <(jq -r '
     to_entries[] |
     select(.value.cliSessionIds["claude-cli"] // "" | length > 0) |
-    "\(.key)|\(.value.cliSessionIds["claude-cli"])"
+    "\(.key)|\(.value.cliSessionIds["claude-cli"])|\(.value.status // "")|\(.value.updatedAt // 0)"
   ' "$sjson" 2>/dev/null)
 }
 
@@ -308,7 +325,8 @@ burn_check_agent() {
 
   # BURN (spike) + LOOP: only channels active in the last 5 minutes
   local spike="${WARDEN_BURN_SPIKE_TOKENS_5M:-150000}"
-  local jsonl_base="${WARDEN_CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
+  local jsonl_base
+  jsonl_base=$(agent_jsonl_dir "$agent")
   while IFS='|' read -r channel consumed turns tokens_now last_ts; do
     [ -z "$channel" ] && continue
 
@@ -318,18 +336,31 @@ burn_check_agent() {
         "${channel}: ${consumed} tokens in 5 minutes (threshold ${spike})" || true
     fi
 
-    local sid jsonl
-    sid=$(jq -r --arg ch "$channel" 'select(.channel == $ch) | .sid' "$ledger" 2>/dev/null | tail -1)
+    # LOOP evidence gates (both alert and kill):
+    # 1. The ledger's evidence sid must be the channel's CURRENT session —
+    #    after rotation the ledger lags, and a dead session's transcript must
+    #    never condemn its healthy replacement.
+    # 2. The transcript must be actively being written (mtime within the
+    #    active threshold). A live retry loop appends on every retry; a stale
+    #    signature left behind by a finished turn must never fire.
+    local sid cur_sid jsonl
+    sid=$(jq -Rr --arg ch "$channel" 'fromjson? // empty | select(.channel == $ch) | .sid' "$ledger" 2>/dev/null | tail -1)
+    cur_sid=$(jq -r --arg ch "$channel" '.[$ch].cliSessionIds["claude-cli"] // ""' "$sjson" 2>/dev/null)
     jsonl="${jsonl_base}/${sid}.jsonl"
-    if [ -n "$sid" ] && burn_detect_loop "$jsonl" >/dev/null; then
-      burn_alert "loop-${agent}-${channel}" "$agent" "$channel" "LOOP" \
-        "burn firewall: ${agent} looks stuck in a retry loop" \
-        "${channel}: last ${WARDEN_LOOP_REPEATS:-6} tool calls are identical (session ${sid:0:12})" || true
-      local status
-      status=$(jq -r --arg ch "$channel" '.[$ch].status // ""' "$sjson" 2>/dev/null)
-      if [ "$(burn_enforce_verdict "$enforce" "LOOP" "$status")" = "KILL" ]; then
-        burn_kill_channel "$agent" "$channel" \
-          "retry loop: last ${WARDEN_LOOP_REPEATS:-6} tool calls identical" || true
+    if [ -n "$sid" ] && [ "$sid" = "$cur_sid" ] && [ -f "$jsonl" ]; then
+      local jsonl_mtime
+      jsonl_mtime=$(stat_mtime "$jsonl")
+      if [ $(( now - jsonl_mtime )) -le "${WARDEN_ACTIVE_THRESHOLD_SECS:-60}" ] \
+         && burn_detect_loop "$jsonl" >/dev/null; then
+        burn_alert "loop-${agent}-${channel}" "$agent" "$channel" "LOOP" \
+          "burn firewall: ${agent} looks stuck in a retry loop" \
+          "${channel}: last ${WARDEN_LOOP_REPEATS:-6} tool calls are identical (session ${sid:0:12})" || true
+        local status
+        status=$(jq -r --arg ch "$channel" '.[$ch].status // ""' "$sjson" 2>/dev/null)
+        if [ "$(burn_enforce_verdict "$enforce" "LOOP" "$status")" = "KILL" ]; then
+          burn_kill_channel "$agent" "$channel" \
+            "retry loop: last ${WARDEN_LOOP_REPEATS:-6} tool calls identical" || true
+        fi
       fi
     fi
   done < <(burn_channel_report "$ledger" $(( now - 300 )))
@@ -392,6 +423,9 @@ ${events}}"
 # burn_prune [days]
 # Drops ledger records older than N days (default WARDEN_BURN_RETENTION_DAYS,
 # default 8 — a full week of windows plus slack). Called from cleanup.
+# Rewrites serialize against the scan loop via the scan lock (an append that
+# landed between read and rename would otherwise be silently destroyed);
+# tolerant per-line parsing means pruning also self-heals a torn append.
 burn_prune() {
   local days="${1:-${WARDEN_BURN_RETENTION_DAYS:-8}}"
   local dir cutoff f tmp
@@ -399,14 +433,27 @@ burn_prune() {
   [ -d "$dir" ] || return 0
   cutoff=$(( $(date +%s) - days * 86400 ))
 
+  local locked=0
+  if command -v flock >/dev/null 2>&1; then
+    exec 198>"${WARDEN_HOME:-$HOME/session-warden}/state/scan.lock"
+    if flock -w 30 198; then
+      locked=1
+    else
+      exec 198>&-
+      return 0   # scan loop busy past the wait — prune next run instead of racing
+    fi
+  fi
+
   for f in "$dir"/*.jsonl; do
     [ -f "$f" ] || continue
     tmp="${f}.tmp.$$"
-    if jq -c --argjson cutoff "$cutoff" 'select(.ts >= $cutoff)' "$f" > "$tmp" 2>/dev/null; then
+    if jq -cR --argjson cutoff "$cutoff" 'fromjson? // empty | select(.ts >= $cutoff)' "$f" > "$tmp" 2>/dev/null; then
       mv "$tmp" "$f"
     else
       rm -f "$tmp"
     fi
   done
+
+  [ "$locked" -eq 1 ] && exec 198>&-
   return 0
 }
