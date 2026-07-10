@@ -81,6 +81,51 @@ report=$(burn_channel_report "$ledger" $(( now - 3600 )))
 assert_eq "7" "$(printf '%s\n' "$report" | awk -F'|' '$1 == "standalone-project:solo-session-1" {print $2}')" "burn report consumes solo cumulative delta"
 assert_eq "1" "$(printf '%s\n' "$report" | awk -F'|' '$1 == "standalone-project:solo-session-1" {print $3}')" "burn report consumes solo turn delta"
 
+echo "  burn-solo: report integration"
+
+# --- burn-report includes solo + plan budget ----------------
+setup_sandbox
+
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/test-agent.jsonl" <<LEDGER
+{"ts":$(( now - 2000 )),"channel":"agent:test-agent:main","sid":"agent-sid","tokens":100,"turns":1}
+{"ts":$(( now - 1000 )),"channel":"agent:test-agent:main","sid":"agent-sid","tokens":250,"turns":3}
+LEDGER
+cat > "$dir/solo.jsonl" <<LEDGER
+{"ts":$(( now - 2000 )),"channel":"solo-project:solo-sid","sid":"solo-sid","tokens":20,"turns":1}
+{"ts":$(( now - 1000 )),"channel":"solo-project:solo-sid","sid":"solo-sid","tokens":70,"turns":2}
+LEDGER
+
+table=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600)
+assert_contains "$table" "test-agent" "default report includes agent rows"
+assert_contains "$table" "solo" "default report includes solo rows"
+assert_contains "$table" "solo-project:solo-sid" "default report includes solo channel"
+assert_not_contains "$table" "PLAN WINDOW USED" "plan budget 0 shows no plan line"
+
+json_out=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600 --json)
+assert_eq "200" "$(echo "$json_out" | jq -r '.total_consumed')" "default JSON total includes agent and solo consumption"
+assert_eq "50" "$(echo "$json_out" | jq -r '.channels[] | select(.agent == "solo") | .consumed')" "default JSON includes solo consumption"
+assert_eq "150" "$(echo "$json_out" | jq -r '.channels[] | select(.agent == "test-agent") | .consumed')" "default JSON includes agent consumption"
+
+solo_json=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600 --solo --json)
+assert_eq "50" "$(echo "$solo_json" | jq -r '.total_consumed')" "--solo filters to solo total"
+assert_eq "1" "$(echo "$solo_json" | jq -r '.channels | length')" "--solo returns only solo channel rows"
+assert_eq "solo" "$(echo "$solo_json" | jq -r '.channels[0].agent')" "--solo rows use agent solo"
+
+agent_solo_json=$(bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600 --agent solo --json)
+assert_eq "50" "$(echo "$agent_solo_json" | jq -r '.total_consumed')" "--agent solo aliases solo ledger rows"
+
+plan_table=$(WARDEN_BURN_PLAN_BUDGET=400 bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600)
+assert_contains "$plan_table" "PLAN WINDOW USED (400 tokens)" "plan budget table line is shown"
+assert_contains "$plan_table" "50%" "plan budget table percentage is computed over total"
+
+plan_json=$(WARDEN_BURN_PLAN_BUDGET=400 bash "$REAL_WARDEN_HOME/bin/burn-report.sh" --window 3600 --json)
+assert_eq "400" "$(echo "$plan_json" | jq -r '.plan_budget')" "JSON includes plan budget"
+assert_eq "50" "$(echo "$plan_json" | jq -r '.plan_pct')" "JSON includes plan percentage"
+assert_eq "200" "$(echo "$plan_json" | jq -r '.total_consumed')" "plan JSON total remains mixed agent plus solo"
+
 # --- malformed JSONL lines are tolerated -------------------
 setup_sandbox
 

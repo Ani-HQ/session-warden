@@ -7,7 +7,7 @@
 # a drop between consecutive records means the session rotated, so that pair
 # contributes the new session's running total instead of a negative delta.
 #
-# Usage: session-warden burn [--window SECONDS] [--agent NAME] [--json]
+# Usage: session-warden burn [--window SECONDS] [--agent NAME] [--solo] [--json]
 
 set -uo pipefail
 
@@ -15,11 +15,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 export WARDEN_HOME
 
+# shellcheck source=/dev/null  # Optional deployment-local configuration.
 [ -f "${WARDEN_HOME}/config/thresholds.env" ] && source "${WARDEN_HOME}/config/thresholds.env"
+# shellcheck source=/dev/null  # Resolved from WARDEN_HOME at runtime.
 source "${WARDEN_HOME}/lib/burn.sh"
 
 window="${WARDEN_BURN_WINDOW_SECONDS:-18000}"
 budget="${WARDEN_BURN_WINDOW_BUDGET:-0}"
+plan_budget="${WARDEN_BURN_PLAN_BUDGET:-0}"
+case "$plan_budget" in
+  ''|*[!0-9]*) plan_budget=0 ;;
+esac
 json=0
 agent_filter=""
 
@@ -28,8 +34,9 @@ while [ $# -gt 0 ]; do
     --json)   json=1; shift ;;
     --window) window="$2"; shift 2 ;;
     --agent)  agent_filter="$2"; shift 2 ;;
+    --solo)   agent_filter="solo"; shift ;;
     -h|--help)
-      echo "Usage: session-warden burn [--window SECONDS] [--agent NAME] [--json]"
+      echo "Usage: session-warden burn [--window SECONDS] [--agent NAME] [--solo] [--json]"
       exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -50,7 +57,10 @@ rows=""   # agent|channel|consumed|turns|tokens_now|last_ts
 for ledger in "$dir"/*.jsonl; do
   [ -f "$ledger" ] || continue
   agent=$(basename "$ledger" .jsonl)
-  [ "$agent" = "events" ] && continue
+  case "$agent" in
+    events) continue ;;
+    solo) : ;;
+  esac
   [ -n "$agent_filter" ] && [ "$agent" != "$agent_filter" ] && continue
   while IFS='|' read -r channel consumed turns tokens_now last_ts; do
     [ -z "$channel" ] && continue
@@ -67,13 +77,18 @@ if [ -z "$rows" ]; then
 fi
 
 if [ "$json" -eq 1 ]; then
-  printf '%s' "$rows" | jq -Rn --argjson window "$window" --argjson budget "$budget" '
+  printf '%s' "$rows" | jq -Rn \
+    --argjson window "$window" \
+    --argjson budget "$budget" \
+    --argjson plan_budget "$plan_budget" '
     [inputs | select(length > 0) | split("|") |
      {agent: .[0], channel: .[1], consumed: (.[2] | tonumber),
       turns: (.[3] | tonumber), tokens_now: (.[4] | tonumber),
-      last_ts: (.[5] | tonumber)}] |
-    {window_seconds: $window, budget: $budget, channels: sort_by(-.consumed),
-     total_consumed: (map(.consumed) | add)}'
+      last_ts: (.[5] | tonumber)}] as $channels |
+    ($channels | map(.consumed) | add // 0) as $total |
+    {window_seconds: $window, budget: $budget, plan_budget: $plan_budget,
+     plan_pct: (if $plan_budget > 0 then (($total * 100 / $plan_budget) | floor) else 0 end),
+     channels: ($channels | sort_by(-.consumed)), total_consumed: $total}'
   exit 0
 fi
 
@@ -95,5 +110,9 @@ printf '%-49s %12s\n' "TOTAL" "$total"
 if [ "$budget" -gt 0 ] 2>/dev/null; then
   pct=$(( total * 100 / budget ))
   printf '%-49s %11s%%\n' "WINDOW BUDGET USED (${budget} tokens)" "$pct"
+fi
+if [ "$plan_budget" -gt 0 ] 2>/dev/null; then
+  plan_pct=$(( total * 100 / plan_budget ))
+  printf '%-49s %11s%%\n' "PLAN WINDOW USED (${plan_budget} tokens)" "$plan_pct"
 fi
 echo ""
