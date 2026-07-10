@@ -8,9 +8,14 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
+# shellcheck source=/dev/null  # Deployment-local configuration.
 source "${WARDEN_HOME}/config/thresholds.env"
+# shellcheck source=/dev/null  # Resolved from WARDEN_HOME at runtime.
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
+# shellcheck source=/dev/null  # Resolved from WARDEN_HOME at runtime.
 source "${WARDEN_HOME}/lib/burn.sh"       # burn_prune
+# shellcheck source=/dev/null  # Resolved from WARDEN_HOME at runtime.
+source "${WARDEN_HOME}/lib/burn-solo.sh"  # burn_solo_prune_state
 
 RETENTION_DAYS="${WARDEN_ARCHIVE_RETENTION_DAYS:-7}"
 QUEUE_RETENTION_DAYS="${WARDEN_QUEUE_RETENTION_DAYS:-7}"
@@ -83,6 +88,7 @@ fi
 
 # ─── Burn ledger retention ────────────────────────────────
 burn_prune && log "CLEANUP: pruned burn ledgers older than ${WARDEN_BURN_RETENTION_DAYS:-8}d"
+burn_solo_prune_state && log "CLEANUP: pruned stale solo burn state older than ${WARDEN_BURN_RETENTION_DAYS:-8}d"
 
 # ─── scan.log rotation ────────────────────────────────────
 # Size-based, self-contained (no logrotate dependency). scan.log -> .1 -> .2 ...

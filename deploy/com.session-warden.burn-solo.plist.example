@@ -29,6 +29,8 @@ where you want standalone Claude Code sessions metered into the burn ledger.
   <dict>
     <key>WARDEN_HOME</key>
     <string>__WARDEN_HOME__</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
 
   <key>StartInterval</key>
