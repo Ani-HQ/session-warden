@@ -294,6 +294,49 @@ set.
 21:00): fleet consumption for the last 24h plus firewall event counts. Events
 live in `state/burn/events.jsonl`.
 
+### Solo mode (standalone Claude Code)
+
+Session Warden Solo covers the usage that never passes through the OpenClaw
+gateway: plain Claude Code sessions under `~/.claude/projects`. It writes the
+same cumulative burn-ledger shape to `state/burn/solo.jsonl`, with each
+standalone session reported as its own channel (`project:sid`). OpenClaw agent
+transcripts are excluded because the normal burn firewall already meters them.
+
+This is subscription-window protection for the Claude plan you already pay for;
+it is not API cost accounting. The point is to answer "what is eating my
+Claude window?" across both always-on agents and manual Claude Code work.
+
+On macOS, schedule solo sampling with the launchd template:
+
+```bash
+mkdir -p ~/Library/LaunchAgents && \
+sed "s#__WARDEN_HOME__#$HOME/session-warden#g" \
+  ~/session-warden/deploy/com.session-warden.burn-solo.plist.example \
+  > ~/Library/LaunchAgents/com.session-warden.burn-solo.plist && \
+launchctl load ~/Library/LaunchAgents/com.session-warden.burn-solo.plist
+```
+
+Then inspect standalone usage:
+
+```bash
+session-warden burn --solo
+```
+
+Set `WARDEN_BURN_PLAN_BUDGET` to the token budget for your whole subscription
+window when you want `session-warden burn` to answer "how much of my plan
+window is left?" across agents plus solo sessions. The plan line is separate
+from `WARDEN_BURN_WINDOW_BUDGET`, which remains the per-agent budget signal.
+
+Solo mode follows a hard safety rule: it never pauses, kills, or signals a
+human-owned Claude Code process. It only samples, reports, and sends throttled
+spike alerts (`WARDEN_BURN_SPIKE_TOKENS_5M`) via Telegram and, on macOS,
+desktop notifications (`WARDEN_BURN_DESKTOP_NOTIFY=1`, default).
+
+Historical transcripts are not backfilled. The first time the solo sampler sees
+an existing session file, it records the current byte offset as the baseline and
+starts metering from the next append. That keeps setup fast even if
+`~/.claude/projects` already contains months of history.
+
 ## Quick start
 
 ```bash

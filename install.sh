@@ -139,3 +139,10 @@ echo ""
 echo "Verify:    crontab -l | grep session-warden"
 echo "Dry run:   WARDEN_DRY_RUN=1 bash ${WARDEN_HOME}/bin/scan.sh"
 echo "Monitor:   tail -f ${WARDEN_HOME}/state/scan.log"
+
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+  echo ""
+  echo "Solo mode (optional, macOS launchd):"
+  echo "  Template: ${WARDEN_HOME}/deploy/com.session-warden.burn-solo.plist.example"
+  echo "  Install manually after substituting __WARDEN_HOME__; install.sh does not load launchd jobs."
+fi
