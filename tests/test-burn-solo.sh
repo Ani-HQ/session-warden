@@ -126,6 +126,121 @@ assert_eq "400" "$(echo "$plan_json" | jq -r '.plan_budget')" "JSON includes pla
 assert_eq "50" "$(echo "$plan_json" | jq -r '.plan_pct')" "JSON includes plan percentage"
 assert_eq "200" "$(echo "$plan_json" | jq -r '.total_consumed')" "plan JSON total remains mixed agent plus solo"
 
+echo "  burn-solo: alerts"
+
+# --- solo spike alerts are event-only and throttled ---------
+setup_sandbox
+
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/solo.jsonl" <<LEDGER
+{"ts":$(( now - 400 )),"channel":"spike-project:spike-sid","sid":"spike-sid","tokens":100,"turns":1}
+{"ts":$(( now - 100 )),"channel":"spike-project:spike-sid","sid":"spike-sid","tokens":9000,"turns":2}
+LEDGER
+
+WARDEN_BURN_SPIKE_TOKENS_5M=5000 WARDEN_BURN_DESKTOP_NOTIFY=0 burn_solo_check
+events="$dir/events.jsonl"
+
+assert_file_exists "$events" "solo spike writes burn event"
+assert_eq "BURN" "$(jq -r '.kind' "$events" | tail -1)" "solo spike event kind is BURN"
+assert_eq "solo" "$(jq -r '.agent' "$events" | tail -1)" "solo spike event agent is solo"
+assert_eq "spike-project:spike-sid" "$(jq -r '.channel' "$events" | tail -1)" "solo spike event channel is project sid"
+
+count_before=$(jq -r 'select(.kind == "BURN")' "$events" | grep -c kind)
+WARDEN_BURN_SPIKE_TOKENS_5M=5000 WARDEN_BURN_DESKTOP_NOTIFY=0 burn_solo_check
+count_after=$(jq -r 'select(.kind == "BURN")' "$events" | grep -c kind)
+assert_eq "$count_before" "$count_after" "solo spike alert is throttled"
+
+# --- under-threshold solo activity is quiet -----------------
+setup_sandbox
+
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/solo.jsonl" <<LEDGER
+{"ts":$(( now - 400 )),"channel":"quiet-project:quiet-sid","sid":"quiet-sid","tokens":100,"turns":1}
+{"ts":$(( now - 100 )),"channel":"quiet-project:quiet-sid","sid":"quiet-sid","tokens":200,"turns":2}
+LEDGER
+
+WARDEN_BURN_SPIKE_TOKENS_5M=5000 burn_solo_check
+events="$dir/events.jsonl"
+if [ -f "$events" ]; then
+  assert_empty "$(jq -r 'select(.kind == "BURN") | .kind' "$events")" "under-threshold solo activity writes no BURN event"
+else
+  assert_file_not_exists "$events" "under-threshold solo activity writes no events"
+fi
+
+# --- desktop notifier no-ops when osascript is absent -------
+setup_sandbox
+
+mock_bin="$SANDBOX/no-osascript-bin"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/uname" <<'SH'
+#!/bin/sh
+echo Darwin
+SH
+chmod +x "$mock_bin/uname"
+
+( PATH="$mock_bin"; notify_desktop "desktop title" "desktop detail" )
+rc=$?
+assert_exit_code "0" "$rc" "notify_desktop exits 0 without osascript"
+
+# --- desktop notifier is called for solo spikes -------------
+setup_sandbox
+
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/solo.jsonl" <<LEDGER
+{"ts":$(( now - 400 )),"channel":"desktop-project:desktop-sid","sid":"desktop-sid","tokens":100,"turns":1}
+{"ts":$(( now - 100 )),"channel":"desktop-project:desktop-sid","sid":"desktop-sid","tokens":9000,"turns":2}
+LEDGER
+mock_bin="$SANDBOX/desktop-bin"
+osascript_log="$SANDBOX/osascript.log"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/uname" <<'SH'
+#!/bin/sh
+echo Darwin
+SH
+cat > "$mock_bin/osascript" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$osascript_log"
+SH
+chmod +x "$mock_bin/uname" "$mock_bin/osascript"
+
+( PATH="$mock_bin:$PATH" WARDEN_BURN_SPIKE_TOKENS_5M=5000 WARDEN_BURN_DESKTOP_NOTIFY=1 burn_solo_check )
+assert_file_exists "$osascript_log" "desktop notify calls osascript for solo spike"
+assert_contains "$(cat "$osascript_log")" "display notification" "desktop notify sends display notification script"
+
+# --- desktop notifier can be disabled -----------------------
+setup_sandbox
+
+dir="$WARDEN_HOME/state/burn"
+mkdir -p "$dir"
+now=$(date +%s)
+cat > "$dir/solo.jsonl" <<LEDGER
+{"ts":$(( now - 400 )),"channel":"disabled-desktop-project:disabled-sid","sid":"disabled-sid","tokens":100,"turns":1}
+{"ts":$(( now - 100 )),"channel":"disabled-desktop-project:disabled-sid","sid":"disabled-sid","tokens":9000,"turns":2}
+LEDGER
+mock_bin="$SANDBOX/desktop-disabled-bin"
+osascript_log="$SANDBOX/osascript-disabled.log"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/uname" <<'SH'
+#!/bin/sh
+echo Darwin
+SH
+cat > "$mock_bin/osascript" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$osascript_log"
+SH
+chmod +x "$mock_bin/uname" "$mock_bin/osascript"
+
+( PATH="$mock_bin:$PATH" WARDEN_BURN_SPIKE_TOKENS_5M=5000 WARDEN_BURN_DESKTOP_NOTIFY=0 burn_solo_check )
+events="$dir/events.jsonl"
+assert_file_exists "$events" "desktop-disabled solo spike still writes burn event"
+assert_file_not_exists "$osascript_log" "desktop-disabled solo spike skips osascript"
+
 # --- malformed JSONL lines are tolerated -------------------
 setup_sandbox
 

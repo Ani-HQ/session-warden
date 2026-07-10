@@ -15,4 +15,5 @@ source "${WARDEN_HOME}/lib/burn-solo.sh"
 mkdir -p "${WARDEN_HOME}/state" 2>/dev/null || true
 touch "${WARDEN_HOME}/state/.last-solo-sample-ts" 2>/dev/null || true
 burn_solo_sample || true
+burn_solo_check || true
 exit 0

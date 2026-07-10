@@ -264,3 +264,33 @@ burn_solo_sample() {
 
   return 0
 }
+
+# burn_solo_check
+# Alert-only spike detection for standalone human-owned Claude Code sessions.
+# HARD RULE: this path must never pause, kill, or signal a process; humans run
+# these sessions, so solo burn firewall behavior is reporting and notification only.
+burn_solo_check() {
+  [ "${WARDEN_BURN_ENABLED:-1}" = "1" ] || return 0
+
+  local ledger
+  ledger=$(burn_solo_ledger)
+  [ -f "$ledger" ] || return 0
+
+  local now spike
+  now=$(date +%s)
+  spike="${WARDEN_BURN_SPIKE_TOKENS_5M:-150000}"
+
+  while IFS='|' read -r channel consumed _turns _tokens_now _last_ts; do
+    [ -z "$channel" ] && continue
+    if [ "$consumed" -gt "$spike" ] 2>/dev/null; then
+      local title detail
+      title="burn firewall: standalone Claude Code burning fast"
+      detail="${channel}: ${consumed} tokens in 5 minutes (threshold ${spike})"
+      if burn_alert "solo-${channel}" "solo" "$channel" "BURN" "$title" "$detail"; then
+        [ "${WARDEN_BURN_DESKTOP_NOTIFY:-1}" = "1" ] && notify_desktop "$title" "$detail"
+      fi
+    fi
+  done < <(burn_channel_report "$ledger" $(( now - 300 )))
+
+  return 0
+}
