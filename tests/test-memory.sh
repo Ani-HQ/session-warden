@@ -6,7 +6,7 @@ create_mock_claude
 
 # Define log function (normally provided by the calling script)
 log() {
-  echo "[$(date -Iseconds)] $*" >> "${WARDEN_LOG_FILE:-/dev/null}"
+  echo "[$(date_iso_seconds)] $*" >> "${WARDEN_LOG_FILE:-/dev/null}"
 }
 
 source "$WARDEN_HOME/lib/extract.sh"
@@ -29,7 +29,7 @@ write_workspace_context() {
   local context_file="${workspace}/CONTEXT.md"
   local memory_file="${workspace}/MEMORY.md"
   local ts
-  ts=$(date -Iseconds)
+  ts=$(date_iso_seconds)
 
   cat > "$context_file" << CTXEOF
 _Last updated: ${ts} | Session: ${cli_session_id} | Channel: ${channel_key}_

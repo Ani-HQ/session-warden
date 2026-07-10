@@ -55,7 +55,7 @@ echo "  doctor: stale heartbeat"
 # ─── Heartbeat older than threshold ──────────────────────
 
 export WARDEN_CRONTAB_CMD="$mock_crontab"
-touch -d "10 minutes ago" "$WARDEN_HOME/state/.last-scan-ts"
+touch_relative "10 minutes ago" "$WARDEN_HOME/state/.last-scan-ts"
 touch "$WARDEN_HOME/state/.last-reap-ts"
 
 output=$("$WARDEN_HOME/bin/doctor.sh" 2>&1)
