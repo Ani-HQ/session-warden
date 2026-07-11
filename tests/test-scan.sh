@@ -43,7 +43,7 @@ create_sessions_json "test-agent" '{
   }
 }'
 create_mock_jsonl "test-agent" "sess-scan-filtered" >/dev/null
-touch -d "5 minutes ago" "$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-test-agent/sess-scan-filtered.jsonl"
+touch_relative "5 minutes ago" "$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-test-agent/sess-scan-filtered.jsonl"
 
 create_sessions_json "second-agent" '{
   "telegram-dm": {
@@ -56,7 +56,7 @@ create_sessions_json "second-agent" '{
   }
 }'
 create_mock_jsonl "second-agent" "sess-scan-second" >/dev/null
-touch -d "5 minutes ago" "$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-second-agent/sess-scan-second.jsonl"
+touch_relative "5 minutes ago" "$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-second-agent/sess-scan-second.jsonl"
 
 : > "$WARDEN_LOG_FILE"
 export WARDEN_SCAN_AGENTS="second-agent"
@@ -86,7 +86,7 @@ create_sessions_json "test-agent" '{
 }'
 
 jsonl_file=$(create_mock_jsonl "test-agent" "sess-scan-bloated")
-touch -d "10 minutes ago" "$jsonl_file"
+touch_relative "10 minutes ago" "$jsonl_file"
 
 export WARDEN_DRY_RUN=1
 "$WARDEN_HOME/bin/scan.sh" 2>/dev/null
@@ -161,7 +161,7 @@ mkdir -p "$rec_dir" "$WARDEN_HOME/state/cooldowns"
 
 stale_item="$rec_dir/test-agent-stale.json"
 printf '{"agent":"test-agent","channel_key":"agent:test-agent:main","reason":"ZOMBIE"}' > "$stale_item"
-touch -d "2 hours ago" "$stale_item"
+touch_relative "2 hours ago" "$stale_item"
 
 "$WARDEN_HOME/bin/scan.sh" 2>/dev/null
 sleep 2

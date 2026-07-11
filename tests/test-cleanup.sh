@@ -11,19 +11,19 @@ mkdir -p "$archive_dir"
 # Create old archived file (>7 days)
 old_archive="$archive_dir/sess-old.jsonl.archived-20260101-000000"
 echo '{"old":"data"}' > "$old_archive"
-touch -d "10 days ago" "$old_archive"
+touch_relative "10 days ago" "$old_archive"
 
 # Create recent archived file (<7 days)
 recent_archive="$archive_dir/sess-recent.jsonl.archived-20260520-000000"
 echo '{"recent":"data"}' > "$recent_archive"
-touch -d "2 days ago" "$recent_archive"
+touch_relative "2 days ago" "$recent_archive"
 
 # Create old sessions.json backup
 backup_dir="$SANDBOX/openclaw/agents/test-agent/sessions"
 mkdir -p "$backup_dir"
 old_backup="$backup_dir/sessions.json.pre-rotate-20260101-000000"
 echo '{}' > "$old_backup"
-touch -d "10 days ago" "$old_backup"
+touch_relative "10 days ago" "$old_backup"
 
 # Run cleanup
 "$WARDEN_HOME/bin/cleanup-archives.sh" 2>/dev/null
@@ -52,7 +52,7 @@ echo "  cleanup: retention days config"
 # Create file that's 3 days old
 three_day="$archive_dir/sess-three.jsonl.archived-20260519-000000"
 echo '{"data":"three"}' > "$three_day"
-touch -d "3 days ago" "$three_day"
+touch_relative "3 days ago" "$three_day"
 
 # Set retention to 2 days
 export WARDEN_ARCHIVE_RETENTION_DAYS=2
@@ -72,13 +72,13 @@ sum_dir="$WARDEN_HOME/state/pending-summaries"
 mkdir -p "$rec_dir/.sending" "$sum_dir"
 
 old_rec="$rec_dir/old-recovery.json"
-echo '{}' > "$old_rec"; touch -d "10 days ago" "$old_rec"
+echo '{}' > "$old_rec"; touch_relative "10 days ago" "$old_rec"
 old_sending="$rec_dir/.sending/old-sending.json"
-echo '{}' > "$old_sending"; touch -d "10 days ago" "$old_sending"
+echo '{}' > "$old_sending"; touch_relative "10 days ago" "$old_sending"
 fresh_rec="$rec_dir/fresh-recovery.json"
 echo '{}' > "$fresh_rec"
 old_sum="$sum_dir/old-summary.json"
-echo '{}' > "$old_sum"; touch -d "10 days ago" "$old_sum"
+echo '{}' > "$old_sum"; touch_relative "10 days ago" "$old_sum"
 
 "$WARDEN_HOME/bin/cleanup-archives.sh" 2>/dev/null
 
@@ -96,11 +96,11 @@ cd_dir="$WARDEN_HOME/state/cooldowns"
 mkdir -p "$cd_dir"
 
 old_recovered="$cd_dir/agent-chan.recovered"
-date +%s > "$old_recovered"; touch -d "2 days ago" "$old_recovered"
+date +%s > "$old_recovered"; touch_relative "2 days ago" "$old_recovered"
 fresh_recovered="$cd_dir/agent-chan2.recovered"
 date +%s > "$fresh_recovered"
 old_failures="$cd_dir/agent-chan.failures"
-echo 3 > "$old_failures"; touch -d "10 days ago" "$old_failures"
+echo 3 > "$old_failures"; touch_relative "10 days ago" "$old_failures"
 fresh_failures="$cd_dir/agent-chan2.failures"
 echo 1 > "$fresh_failures"
 
@@ -123,7 +123,7 @@ echo "preexisting-gen1" > "${WARDEN_LOG_FILE}.1"
 
 assert_file_exists "${WARDEN_LOG_FILE}.1" "oversized scan.log rotated to .1"
 assert_file_exists "${WARDEN_LOG_FILE}.2" "previous .1 shifted to .2"
-rotated_size=$(stat -c%s "${WARDEN_LOG_FILE}.1" 2>/dev/null || echo 0)
+rotated_size=$(stat_size "${WARDEN_LOG_FILE}.1")
 assert_gt "$rotated_size" "2000" "rotated .1 contains the oversized log"
 log_contents=$(cat "${WARDEN_LOG_FILE}" 2>/dev/null)
 assert_contains "$log_contents" "rotated scan.log" "rotation logged to fresh scan.log"
