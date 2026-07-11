@@ -1,7 +1,7 @@
 # Changelog
 
 Notable changes to session-warden. The sections below cover the current PR
-stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/scorecard-evals`.
+stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/scorecard-evals` ← `feat/burn-solo`.
 
 ## [Unreleased] — 1.0.0
 
@@ -16,6 +16,25 @@ stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/
   normal rotate pipeline), daily digest, and ledger retention in
   `cleanup-archives.sh`. All knobs under `WARDEN_BURN_*` / `WARDEN_LOOP_*`;
   sampling on by default, enforcement off by default.
+
+### Added — Session Warden Solo (`feat/burn-solo`)
+
+- Standalone Claude Code metering for sessions that do not pass through the
+  OpenClaw gateway: `bin/burn-solo-sample.sh` samples recent
+  `~/.claude/projects/*/*.jsonl` transcripts into `state/burn/solo.jsonl`,
+  excludes OpenClaw agent transcripts, tolerates malformed JSONL lines, and
+  starts metering from first sight instead of back-parsing old history.
+- `session-warden burn` now includes solo usage as agent `solo`, supports
+  `--solo`, and can show a whole-plan window percentage with
+  `WARDEN_BURN_PLAN_BUDGET` across agents plus standalone sessions.
+- Solo spike alerts reuse the burn event/throttle ledger and add a macOS
+  desktop notification fallback (`WARDEN_BURN_DESKTOP_NOTIFY=1`) for users
+  without Telegram configured. Solo mode is alert-only: it never pauses, kills,
+  or signals human-owned Claude Code processes.
+- `deploy/com.session-warden.burn-solo.plist.example` provides a launchd user
+  agent template for sampling standalone Claude Code usage every 120 seconds on
+  macOS; `install.sh` points Darwin users at the template but does not install
+  or load launchd jobs automatically.
 
 ### Fixed — recovery delivery (#16)
 
@@ -110,4 +129,3 @@ Release note: 1.0.0 is cut by the repo owner after the PR stack
   `state/evals/<date>/REPORT.md`, GBrain mirror `evals/YYYY-MM-DD`
   (scope: shared, source: eval-memory, trust: verified), Telegram digest.
 - `deploy/eval-memory.{service,timer}`: monthly, 1st 07:00 UTC.
-

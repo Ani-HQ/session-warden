@@ -76,6 +76,28 @@ ${details}
     > /dev/null 2>&1 || true
 }
 
+_notify_applescript_string() {
+  local text="$1"
+  text=${text//\\/\\\\}
+  text=${text//\"/\\\"}
+  printf '%s' "$text"
+}
+
+notify_desktop() {
+  local title="$1" detail="${2:-}"
+  local osascript_cmd title_escaped detail_escaped
+
+  [ "$(uname -s 2>/dev/null)" = "Darwin" ] || return 0
+  osascript_cmd=$(command -v osascript 2>/dev/null) || return 0
+  [ -n "$osascript_cmd" ] || return 0
+
+  title_escaped=$(_notify_applescript_string "$title")
+  detail_escaped=$(_notify_applescript_string "$detail")
+  "$osascript_cmd" -e "display notification \"${detail_escaped}\" with title \"${title_escaped}\"" \
+    > /dev/null 2>&1 || true
+  return 0
+}
+
 notify_backoff() {
   # One-shot escalation when a session hits WARDEN_MAX_CONSECUTIVE_FAILURES and
   # enters BACKOFF (bin/rotate.sh). Sent once per backoff episode — the

@@ -21,6 +21,23 @@ burn_ledger_dir() {
   echo "${WARDEN_HOME:-$HOME/session-warden}/state/burn"
 }
 
+burn_solo_lock_dir() {
+  echo "$(burn_ledger_dir)/solo.lock.d"
+}
+
+burn_solo_acquire_lock() {
+  local dir lock
+  dir=$(burn_ledger_dir)
+  lock=$(burn_solo_lock_dir)
+  mkdir -p "$dir" 2>/dev/null || return 1
+  mkdir "$lock" 2>/dev/null
+}
+
+burn_solo_release_lock() {
+  rmdir "$(burn_solo_lock_dir)" 2>/dev/null || true
+  return 0
+}
+
 # burn_channel_report <ledger> <since-epoch>
 # Per-channel consumption since <since>, one line per active channel:
 #   channel|consumed|turns|tokens_now|last_ts
@@ -446,12 +463,22 @@ burn_prune() {
 
   for f in "$dir"/*.jsonl; do
     [ -f "$f" ] || continue
+    local solo_locked=0 solo_wait=0
+    if [ "$(basename "$f")" = "solo.jsonl" ]; then
+      while ! burn_solo_acquire_lock; do
+        [ "$solo_wait" -ge 30 ] && continue 2
+        sleep 1
+        solo_wait=$((solo_wait + 1))
+      done
+      solo_locked=1
+    fi
     tmp="${f}.tmp.$$"
     if jq -cR --argjson cutoff "$cutoff" 'fromjson? // empty | select(.ts >= $cutoff)' "$f" > "$tmp" 2>/dev/null; then
       mv "$tmp" "$f"
     else
       rm -f "$tmp"
     fi
+    [ "$solo_locked" -eq 1 ] && burn_solo_release_lock
   done
 
   [ "$locked" -eq 1 ] && exec 198>&-
