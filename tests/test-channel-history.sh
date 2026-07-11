@@ -8,7 +8,7 @@ mkdir -p "$CRASH_BUFFER_DIR"
 source "$WARDEN_HOME/lib/channel-history.sh"
 
 log() {
-  echo "[$(date -Iseconds)] $*" >> "$WARDEN_LOG_FILE"
+  echo "[$(date_iso_seconds)] $*" >> "$WARDEN_LOG_FILE"
 }
 
 echo "  channel-history: crash buffer write and read"

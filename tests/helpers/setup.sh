@@ -4,6 +4,43 @@
 SANDBOX=""
 TEST_RESULTS_FILE=""
 
+: "${WARDEN_HOME:?WARDEN_HOME must be set before sourcing tests/helpers/setup.sh}"
+# shellcheck source=../../lib/portable.sh
+source "$WARDEN_HOME/lib/portable.sh"
+
+install_test_flock_shim() {
+  if (PATH="$REAL_TEST_PATH"; command -v flock >/dev/null 2>&1); then
+    return 0
+  fi
+
+  cat > "$SANDBOX/bin/flock" <<'MOCK'
+#!/usr/bin/env bash
+# Test-only flock shim for platforms without flock(1). The suite exercises the
+# work behind locks in a single process; it does not assert lock contention.
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -u)
+      exit 0
+      ;;
+    -n|-x|-s)
+      shift
+      ;;
+    -w)
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+exit 0
+MOCK
+  chmod +x "$SANDBOX/bin/flock"
+}
+
 setup_sandbox() {
   # Keep results file persistent across sandbox resets
   if [ -z "${TEST_RESULTS_FILE:-}" ]; then
@@ -23,6 +60,10 @@ setup_sandbox() {
     REAL_WARDEN_HOME="$WARDEN_HOME"
   fi
   export REAL_WARDEN_HOME
+  if [ -z "${REAL_TEST_PATH:-}" ]; then
+    REAL_TEST_PATH="$PATH"
+  fi
+  export REAL_TEST_PATH
 
   # Create a sandbox warden home that symlinks to real code but has its own state
   WARDEN_SANDBOX="$SANDBOX/warden-home"
@@ -37,10 +78,10 @@ setup_sandbox() {
     # Strip lines that would override test-controlled values:
     # PATH (would wipe mock binaries), WARDEN_* (setup.sh exports all test values),
     # credentials, DBUS/XDG (cron-only)
-    sed -i '/^export PATH=/d; /^export XDG_RUNTIME_DIR=/d; /^export DBUS_SESSION_BUS_ADDRESS=/d; /^WARDEN_/d' "$WARDEN_SANDBOX/config/thresholds.env"
+    sed_inplace '/^export PATH=/d; /^export XDG_RUNTIME_DIR=/d; /^export DBUS_SESSION_BUS_ADDRESS=/d; /^WARDEN_/d' "$WARDEN_SANDBOX/config/thresholds.env"
   elif [ -f "$REAL_WARDEN_HOME/config/thresholds.env.example" ]; then
     cp "$REAL_WARDEN_HOME/config/thresholds.env.example" "$WARDEN_SANDBOX/config/thresholds.env"
-    sed -i '/^export PATH=/d; /^export XDG_RUNTIME_DIR=/d; /^export DBUS_SESSION_BUS_ADDRESS=/d; /^WARDEN_/d' "$WARDEN_SANDBOX/config/thresholds.env"
+    sed_inplace '/^export PATH=/d; /^export XDG_RUNTIME_DIR=/d; /^export DBUS_SESSION_BUS_ADDRESS=/d; /^WARDEN_/d' "$WARDEN_SANDBOX/config/thresholds.env"
   fi
   # Copy any other config files
   for cfg in "$REAL_WARDEN_HOME/config/"*; do
@@ -64,11 +105,14 @@ setup_sandbox() {
 
   # Mock OpenClaw + Claude directory structure
   mkdir -p \
+    "$SANDBOX/bin" \
     "$SANDBOX/openclaw/agents/test-agent/sessions" \
     "$SANDBOX/openclaw/agents/second-agent/sessions" \
     "$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-test-agent" \
     "$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-second-agent" \
     "$SANDBOX/memory"
+  export PATH="$SANDBOX/bin:$REAL_TEST_PATH"
+  install_test_flock_shim
 
   # Override all paths for tests — WARDEN_HOME points to sandbox
   export WARDEN_HOME="$WARDEN_SANDBOX"

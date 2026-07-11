@@ -232,7 +232,7 @@ create_sessions_json "test-agent" '{
 jsonl_dir="$SANDBOX/claude-projects/-home-$(whoami)--openclaw-agents-test-agent"
 mkdir -p "$jsonl_dir"
 echo '{"type":"test"}' > "$jsonl_dir/sess-zombie-001.jsonl"
-touch -d "2 hours ago" "$jsonl_dir/sess-zombie-001.jsonl"
+touch_relative "2 hours ago" "$jsonl_dir/sess-zombie-001.jsonl"
 
 problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
 assert_contains "$problems" "ZOMBIE" "detect zombie session (dead process + stale JSONL)"
@@ -268,7 +268,7 @@ create_sessions_json "test-agent" '{
 }'
 
 echo '{"type":"test"}' > "$jsonl_dir/sess-idle-001.jsonl"
-touch -d "3 hours ago" "$jsonl_dir/sess-idle-001.jsonl"
+touch_relative "3 hours ago" "$jsonl_dir/sess-idle-001.jsonl"
 
 problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
 assert_not_contains "$problems" "ZOMBIE" "idle session (old updatedAt) not flagged as zombie"
@@ -288,7 +288,7 @@ create_sessions_json "test-agent" '{
 }'
 
 echo '{"type":"test"}' > "$jsonl_dir/sess-unknown-001.jsonl"
-touch -d "3 hours ago" "$jsonl_dir/sess-unknown-001.jsonl"
+touch_relative "3 hours ago" "$jsonl_dir/sess-unknown-001.jsonl"
 
 problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
 assert_not_contains "$problems" "ZOMBIE" "session without updatedAt not flagged as zombie"

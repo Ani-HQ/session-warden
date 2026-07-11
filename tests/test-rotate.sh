@@ -19,7 +19,7 @@ create_sessions_json "test-agent" '{
 }'
 
 jsonl_file=$(create_mock_jsonl "test-agent" "sess-rotate-dry")
-touch -d "5 minutes ago" "$jsonl_file"
+touch_relative "5 minutes ago" "$jsonl_file"
 
 export WARDEN_DRY_RUN=1
 "$WARDEN_HOME/bin/rotate.sh" "test-agent" "discord-general" "sess-rotate-dry" "TOKENS" "tokens=3000000" 2>/dev/null
@@ -51,7 +51,7 @@ create_sessions_json "test-agent" '{
 }'
 
 jsonl_file=$(create_mock_jsonl "test-agent" "sess-rotate-001")
-touch -d "5 minutes ago" "$jsonl_file"
+touch_relative "5 minutes ago" "$jsonl_file"
 
 "$WARDEN_HOME/bin/rotate.sh" "test-agent" "discord-general" "sess-rotate-001" "TOKENS" "tokens=3000000" 2>/dev/null
 exit_code=$?
