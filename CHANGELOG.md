@@ -3,7 +3,33 @@
 Notable changes to session-warden. The sections below cover the current PR
 stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/scorecard-evals` ← `feat/burn-solo`.
 
-## [Unreleased] — 1.0.0
+## [Unreleased] — fleet performance + dashboard redesign
+
+### Added — real-work fleet review
+
+- `bin/fleet-review.sh`: weekly quality review of the **production** fleet's
+  REAL work (not synthetic tasks). For each agent in `config/fleet-roster.tsv`
+  it harvests the past week's session output via `lib/harvest-work.py`, then a
+  judge scores role-fit 0-100 with a plain-English insight + one action. Writes
+  `state/fleet-review/<date>/review.json` (+ REPORT.md), mirrors to GBrain, and
+  sends a Telegram digest. Dormant agents are recorded as idle, not penalised;
+  runs of routine no-op turns (e.g. NO_REPLY triage) are collapsed so the judge
+  sees substantive work. Closes the gap where the Discord work team
+  (ping/bloop/dash/isaac) had no performance signal — only the experimental
+  Hermes agents were benchmarked by the model scorecard. Weekly via
+  `deploy/fleet-review.{service,timer}` (Sat 06:30 UTC).
+- `lib/notify.sh`: `notify_fleet` Telegram digest helper.
+
+### Changed — health dashboard information architecture
+
+- `contrib/health-dashboard/generate.sh` rewritten around a founder-first
+  layout: a plain-English verdict (written each run by a cheap model, with a
+  deterministic fallback so the page never blanks), a ranked "needs attention"
+  list computed from live signals, a unified fleet-performance panel (work /
+  personal / experimental, each agent with model + role + score + insight +
+  active/idle), a condensed system-health strip in plain terms, and the old
+  operator tables demoted to a collapsed "raw signals" drawer. Keeps the CRT
+  phosphor styling; adds real per-agent model labels.
 
 ### Added — burn firewall (`feat/burn-firewall`)
 

@@ -1,0 +1,13 @@
+# fleet-roster.tsv — production OpenClaw agents reviewed by bin/fleet-review.sh
+# Model is resolved at runtime from ~/.openclaw/openclaw.json (single source of
+# truth); only role/team/channel are editorial and live here.
+# Columns (tab-separated): agent  team  channel  role
+ping	work	discord	SEO & content strategist — drafts and fact-checks blog posts, keyword/title strategy
+bloop	work	discord	design & creative ops — visual assets, brand consistency, design requests
+dash	work	discord	ops & engineering — client/outreach comms, ad ops, operational execution
+isaac	work	discord	chief of staff (work team) — coordination, triage, daily standup
+zara	personal	telegram	chief of staff (personal) — inbox & calendar triage, morning rundown, drafting on Ani's behalf
+kai	personal	telegram	builder — iOS/OSS tasks, coding, technical fiddles
+nova	personal	telegram	research — deep research and synthesis
+remy	personal	telegram	unassigned — no current mandate
+aria	personal	telegram	support — customer support handling
