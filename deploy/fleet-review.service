@@ -1,0 +1,9 @@
+[Unit]
+Description=session-warden fleet review (weekly real-work quality review)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/session-warden/bin/fleet-review.sh
+# Inherit the same user environment the warden cron uses (PATH, DBUS, etc.)
+Environment=HOME=%h

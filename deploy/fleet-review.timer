@@ -1,0 +1,12 @@
+[Unit]
+Description=Run session-warden fleet review weekly (Saturday morning)
+
+[Timer]
+# Sat 06:30 UTC weekly — after the model scorecard (06:00, ~15 min) has cleared,
+# same morning as the other weekly rollups; catch up if the machine was asleep.
+OnCalendar=Sat *-*-* 06:30:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
