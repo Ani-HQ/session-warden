@@ -223,9 +223,11 @@ else
         have_burn=1
       done
       burn_rows="$(printf '%s' "$burn_rows" | sort -t'|' -k2,2nr)"
+      # shellcheck disable=SC2034  # burn_events_24h is rendered in the token-burn heredoc below
       [ -f "$STATE/burn/events.jsonl" ] && \
         burn_events_24h=$(jq -rR --argjson since "$_since" 'fromjson? // empty | select(.ts >= $since) | .kind' "$STATE/burn/events.jsonl" 2>/dev/null | wc -l | tr -d ' ')
       if [ "$plan_budget" -gt 0 ] 2>/dev/null && [ "$burn_total" -gt 0 ]; then
+        # shellcheck disable=SC2034  # plan_pct is rendered in the token-burn heredoc below
         plan_pct=$(( burn_total * 100 / plan_budget ))
       fi
     fi
