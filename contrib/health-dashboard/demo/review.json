@@ -1,0 +1,24 @@
+{
+  "date": "2026-07-11",
+  "window_days": 7,
+  "agents": [
+    {"agent": "atlas", "team": "work", "role": "Inbound lead triage — replies, qualifies, routes", "model": "sonnet-4-6", "score": 88, "sessions": 41, "active": true,
+     "insight": "Qualified 32 inbound leads and routed 9 to the calendar with clean context notes. Response tone is on-brand; two follow-ups landed meetings.",
+     "action": "Nothing — keep the current mandate."},
+    {"agent": "quill", "team": "work", "role": "Content drafts — newsletter, proposals, socials", "model": "sonnet-4-6", "score": 74, "sessions": 23, "active": true,
+     "insight": "Solid newsletter and proposal drafts, but three drafts needed the same brand-voice correction on pricing language.",
+     "action": "Add the pricing-language rule to quill's memory so it stops recurring."},
+    {"agent": "ledger", "team": "work", "role": "Invoices & bookkeeping — drafts, reconciliation, chasing", "model": "haiku-4-5", "score": 58, "sessions": 12, "active": true,
+     "insight": "Reconciliation is accurate but invoice chasing stalled twice waiting on approval it should have escalated.",
+     "action": "Give ledger an explicit escalate-after-48h rule for unpaid invoices."},
+    {"agent": "scout", "team": "work", "role": "Competitor & market watch — weekly brief", "model": "haiku-4-5", "score": 81, "sessions": 7, "active": true,
+     "insight": "Weekly brief flagged a competitor pricing change two days before it hit their newsletter. Good sourcing discipline.",
+     "action": "Nothing — consider widening the watchlist."},
+    {"agent": "concierge", "team": "personal", "role": "Email & calendar — drafts, scheduling, filtering", "model": "sonnet-4-6", "score": 85, "sessions": 34, "active": true,
+     "insight": "Inbox zero maintained all week; 14 replies drafted in your voice, 11 sent unedited. Calendar conflicts caught early.",
+     "action": "Nothing — keep the current mandate."},
+    {"agent": "archivist", "team": "personal", "role": "Docs & filing — meeting notes, contracts, receipts", "model": "haiku-4-5", "score": null, "sessions": 0, "active": false,
+     "insight": "No sessions this week.",
+     "action": "Give a mandate or retire so the fleet reflects reality."}
+  ]
+}

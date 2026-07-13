@@ -16,17 +16,32 @@ set -u
 
 # ---------------------------------------------------------------- environment
 export HOME="${HOME:-/home/$(id -un)}"
-export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 # cron has no user dbus session; point systemctl --user at the running one
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 
-WARDEN="$HOME/session-warden"
+WARDEN="${WARDEN_HOME:-$HOME/session-warden}"
 STATE="$WARDEN/state"
-OUTPUT_FILE="${OUTPUT_FILE:-/var/www/health/index.html}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NOW_UTC="$(date -u '+%Y-%m-%d %H:%M UTC')"
 CUTOFF_24H="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || echo '')"
 VERDICT_MODEL="${HEALTH_VERDICT_MODEL:-claude-haiku-4-5-20251001}"
+
+# DEMO_MODE=1 renders the identical layout from bundled fictional fixtures and
+# performs ZERO live reads (no systemctl, no doctor, no model call, no state/).
+# Purpose: a shareable client-facing sample of the setup — clearly stamped as
+# illustrative data, never mixed with real fleet output.
+DEMO="${DEMO_MODE:-0}"
+if [ "$DEMO" = 1 ]; then
+  OUTPUT_FILE="${OUTPUT_FILE:-$SCRIPT_DIR/demo/demo.html}"
+  FLEET_NAME="demo fleet"
+  STAMP_NOTE="illustrative data — layout identical to a production install"
+else
+  OUTPUT_FILE="${OUTPUT_FILE:-/var/www/health/index.html}"
+  FLEET_NAME="ai-holdingco"
+  STAMP_NOTE="refreshes every 10 min"
+fi
 
 SERVICES=(openclaw-gateway hermes-carolyn-gateway hermes-midi-gateway hermes-baymax-gateway knockknock)
 TIMERS=(reflect harvest scorecard eval-memory fleet-review dream-cycle snapshot)
@@ -67,52 +82,73 @@ overall_amber=0
 attn=()   # each entry: "sev|what|do"
 
 # ------------------------------------------------------------- warden doctor
-doctor_out="$(timeout 90 "$WARDEN/bin/doctor.sh" 2>&1 || true)"
-doctor_ok=$(printf '%s\n' "$doctor_out" | grep -c '\[ok\]' || true)
-doctor_warn=$(printf '%s\n' "$doctor_out" | grep -c '\[warn\]' || true)
-doctor_fail=$(printf '%s\n' "$doctor_out" | grep -ci '\[fail\]' || true)
+if [ "$DEMO" = 1 ]; then
+  doctor_ok=24; doctor_warn=0; doctor_fail=0
+else
+  doctor_out="$(timeout 90 "$WARDEN/bin/doctor.sh" 2>&1 || true)"
+  doctor_ok=$(printf '%s\n' "$doctor_out" | grep -c '\[ok\]' || true)
+  doctor_warn=$(printf '%s\n' "$doctor_out" | grep -c '\[warn\]' || true)
+  doctor_fail=$(printf '%s\n' "$doctor_out" | grep -ci '\[fail\]' || true)
+fi
 [ "${doctor_fail:-0}" -gt 0 ] && { overall_red=1; attn+=("high|${doctor_fail} internal health check(s) are failing.|Run \`session-warden doctor\` to see which."); }
 [ "${doctor_warn:-0}" -gt 0 ] && overall_amber=1
 
 # ------------------------------------------------------------------ services
 services_rows=""
 gw_down=0
-for s in "${SERVICES[@]}"; do
-  st="$(systemctl --user is-active "$s" 2>/dev/null || true)"; [ -z "$st" ] && st="unknown"
-  case "$st" in
-    active)  p=$(pill green "active") ;;
-    unknown) p=$(pill gray "unknown"); overall_amber=1 ;;
-    *)       p=$(pill red "$st"); overall_red=1; gw_down=$((gw_down+1))
-             attn+=("high|${s%-gateway} is offline — agents on it can't respond right now.|Restart it: \`systemctl --user restart ${s}\`") ;;
-  esac
-  services_rows+="<tr><td class=\"name\">$s</td><td>$p</td></tr>"
-done
-gw_up=$(( ${#SERVICES[@]} - gw_down ))
+if [ "$DEMO" = 1 ]; then
+  for s in agent-gateway backup-gateway watchdog; do
+    services_rows+="<tr><td class=\"name\">$s</td><td>$(pill green "active")</td></tr>"
+  done
+  gw_up=3; SERVICES=(a b c)
+else
+  for s in "${SERVICES[@]}"; do
+    st="$(systemctl --user is-active "$s" 2>/dev/null || true)"; [ -z "$st" ] && st="unknown"
+    case "$st" in
+      active)  p=$(pill green "active") ;;
+      unknown) p=$(pill gray "unknown"); overall_amber=1 ;;
+      *)       p=$(pill red "$st"); overall_red=1; gw_down=$((gw_down+1))
+               attn+=("high|${s%-gateway} is offline — agents on it can't respond right now.|Restart it: \`systemctl --user restart ${s}\`") ;;
+    esac
+    services_rows+="<tr><td class=\"name\">$s</td><td>$p</td></tr>"
+  done
+  gw_up=$(( ${#SERVICES[@]} - gw_down ))
+fi
 
 # -------------------------------------------------------------------- timers
-timers_raw="$(systemctl --user list-timers --all --no-legend --no-pager 2>/dev/null || true)"
 timers_rows=""; timers_missing=0
-for t in "${TIMERS[@]}"; do
-  line="$(printf '%s\n' "$timers_raw" | grep -E "\\b${t}\\.timer" | head -1)"
-  if [ -n "$line" ]; then
-    next_fire="$(printf '%s' "$line" | grep -oE '[A-Z][a-z]{2} [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [A-Z]+' | head -1)"
-    [ -z "$next_fire" ] && next_fire="—"
-    timers_rows+="<tr><td class=\"name\">${t}</td><td class=\"mono\">${next_fire}</td><td>$(pill green scheduled)</td></tr>"
-  else
-    timers_missing=$((timers_missing+1)); overall_amber=1
-    attn+=("med|The scheduled job '${t}' isn't scheduled — it won't run on its own.|Reinstall its systemd timer from \`deploy/${t}.timer\`.")
-    timers_rows+="<tr><td class=\"name\">${t}</td><td class=\"mono\">—</td><td>$(pill amber missing)</td></tr>"
-  fi
-done
+if [ "$DEMO" = 1 ]; then
+  for t in "${TIMERS[@]}"; do
+    timers_rows+="<tr><td class=\"name\">${t}</td><td class=\"mono\">scheduled</td><td>$(pill green scheduled)</td></tr>"
+  done
+else
+  timers_raw="$(systemctl --user list-timers --all --no-legend --no-pager 2>/dev/null || true)"
+  for t in "${TIMERS[@]}"; do
+    line="$(printf '%s\n' "$timers_raw" | grep -E "\\b${t}\\.timer" | head -1)"
+    if [ -n "$line" ]; then
+      next_fire="$(printf '%s' "$line" | grep -oE '[A-Z][a-z]{2} [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [A-Z]+' | head -1)"
+      [ -z "$next_fire" ] && next_fire="—"
+      timers_rows+="<tr><td class=\"name\">${t}</td><td class=\"mono\">${next_fire}</td><td>$(pill green scheduled)</td></tr>"
+    else
+      timers_missing=$((timers_missing+1)); overall_amber=1
+      attn+=("med|The scheduled job '${t}' isn't scheduled — it won't run on its own.|Reinstall its systemd timer from \`deploy/${t}.timer\`.")
+      timers_rows+="<tr><td class=\"name\">${t}</td><td class=\"mono\">—</td><td>$(pill amber missing)</td></tr>"
+    fi
+  done
+fi
 
 # --------------------------------------------------------------- scan health
-scan_log="$STATE/scan.log"
-CUTOFF_1H="$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -u -v-1H '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)"
 rot_24h=0; backoff_24h=0; backoff_1h=0
-if [ -r "$scan_log" ] && [ -n "$CUTOFF_24H" ]; then
-  rot_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /ROTATE/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
-  backoff_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
-  [ -n "$CUTOFF_1H" ] && backoff_1h=$(awk -v c="$CUTOFF_1H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
+if [ "$DEMO" = 1 ]; then
+  rot_24h=6
+else
+  scan_log="$STATE/scan.log"
+  CUTOFF_1H="$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -u -v-1H '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)"
+  if [ -r "$scan_log" ] && [ -n "$CUTOFF_24H" ]; then
+    rot_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /ROTATE/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
+    backoff_24h=$(awk -v c="$CUTOFF_24H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
+    [ -n "$CUTOFF_1H" ] && backoff_1h=$(awk -v c="$CUTOFF_1H" -F'[][]' '$2 >= c && /BACKOFF/ {n++} END {print n+0}' "$scan_log" 2>/dev/null || echo 0)
+  fi
 fi
 if [ "${backoff_1h:-0}" -gt 0 ]; then
   overall_amber=1
@@ -123,7 +159,11 @@ elif [ "$overall_amber" = 1 ]; then infra_state="warn"
 else infra_state="ok"; fi
 
 # ------------------------------------------------------- FLEET REVIEW (real work)
-REVIEW_JSON="$(ls -1 "$STATE"/fleet-review/*/review.json 2>/dev/null | sort | tail -1)"
+if [ "$DEMO" = 1 ]; then
+  REVIEW_JSON="$SCRIPT_DIR/demo/review.json"
+else
+  REVIEW_JSON="$(ls -1 "$STATE"/fleet-review/*/review.json 2>/dev/null | sort | tail -1)"
+fi
 fleet_date=""; sessions_week=0; active_prod=0; total_prod=0; idle_agents=""
 have_fleet=0
 if [ -n "$REVIEW_JSON" ] && [ -s "$REVIEW_JSON" ]; then
@@ -149,10 +189,75 @@ if [ -n "$REVIEW_JSON" ] && [ -s "$REVIEW_JSON" ]; then
   fi
 fi
 
+# ------------------------------------------------ TOKEN BURN (burn firewall)
+# Founder question: what did the fleet consume in the last 24h, and how much
+# of the plan window is in use right now? Reads the burn ledgers read-only via
+# burn_channel_report; renders nothing if the firewall hasn't sampled yet.
+burn_rows=""; burn_total=0; burn_events_24h=0; have_burn=0
+plan_pct=""; plan_budget="${WARDEN_BURN_PLAN_BUDGET:-0}"
+if [ "$DEMO" = 1 ]; then
+  have_burn=1; burn_total=2841000; burn_events_24h=1; plan_pct=57
+  burn_rows="$(printf '%s|%s\n' \
+    "atlas"        "1120000" \
+    "concierge"    "690000" \
+    "quill"        "540000" \
+    "solo — your own Claude Code" "310000" \
+    "ledger"       "121000" \
+    "scout"        "60000")"
+else
+  if [ -f "$WARDEN/lib/burn.sh" ] && [ -d "$STATE/burn" ]; then
+    # shellcheck source=/dev/null
+    source "$WARDEN/lib/burn.sh" 2>/dev/null || true
+    if command -v burn_channel_report >/dev/null 2>&1 || type burn_channel_report >/dev/null 2>&1; then
+      _since=$(( $(date +%s) - 86400 ))
+      for _ledger in "$STATE"/burn/*.jsonl; do
+        [ -f "$_ledger" ] || continue
+        _src="$(basename "$_ledger" .jsonl)"
+        [ "$_src" = "events" ] && continue
+        _t=$(burn_channel_report "$_ledger" "$_since" | awk -F'|' '{s+=$2} END {print s+0}')
+        [ "${_t:-0}" -gt 0 ] || continue
+        [ "$_src" = "solo" ] && _src="solo — your own Claude Code"
+        burn_rows+="${_src}|${_t}
+"
+        burn_total=$(( burn_total + _t ))
+        have_burn=1
+      done
+      burn_rows="$(printf '%s' "$burn_rows" | sort -t'|' -k2,2nr)"
+      [ -f "$STATE/burn/events.jsonl" ] && \
+        burn_events_24h=$(jq -rR --argjson since "$_since" 'fromjson? // empty | select(.ts >= $since) | .kind' "$STATE/burn/events.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+      if [ "$plan_budget" -gt 0 ] 2>/dev/null && [ "$burn_total" -gt 0 ]; then
+        plan_pct=$(( burn_total * 100 / plan_budget ))
+      fi
+    fi
+  fi
+fi
+burn_cards=""
+if [ "$have_burn" = 1 ]; then
+  _max=$(printf '%s\n' "$burn_rows" | head -1 | awk -F'|' '{print $2+0}')
+  [ "${_max:-0}" -gt 0 ] || _max=1
+  while IFS='|' read -r _name _tok; do
+    [ -z "$_name" ] && continue
+    _w=$(( _tok * 100 / _max )); [ "$_w" -lt 2 ] && _w=2
+    _pretty=$(awk -v t="$_tok" 'BEGIN{ if (t>=1000000) printf "%.1fM", t/1000000; else if (t>=1000) printf "%.0fk", t/1000; else print t }')
+    burn_cards+="<div class=\"agent\">
+      <div class=\"arow\"><span class=\"aname\">$(hesc "$_name")</span><span class=\"ascore s-hi\">${_pretty}<small> tokens</small></span></div>
+      <div class=\"bar\"><i class=\"s-hi\" style=\"width:${_w}%\"></i></div>
+    </div>"
+  done <<< "$burn_rows"
+fi
+
 # --------------------------------------------- EXPERIMENTAL bench (scorecard)
-sc_scores="$(ls -1 "$STATE"/scorecard/*/scores.tsv 2>/dev/null | sort | tail -1)"
 sc_date=""; have_bench=0
 declare -A BENCH_TOTAL BENCH_N
+if [ "$DEMO" = 1 ]; then
+  have_bench=1; sc_date="2026-07-11"
+  BENCH_TOTAL[carolyn]=82; BENCH_N[carolyn]=10
+  BENCH_TOTAL[midi]=64;    BENCH_N[midi]=10
+  BENCH_TOTAL[baymax]=77;  BENCH_N[baymax]=10
+  sc_scores=""
+else
+  sc_scores="$(ls -1 "$STATE"/scorecard/*/scores.tsv 2>/dev/null | sort | tail -1)"
+fi
 if [ -n "$sc_scores" ] && [ -s "$sc_scores" ]; then
   have_bench=1
   sc_date="$(basename "$(dirname "$sc_scores")")"
@@ -244,12 +349,17 @@ verdict_ctx="Fleet: ${active_prod}/${total_prod} production agents active this w
 Attention items (${n_high} critical, ${n_med} medium, ${n_low} low):
 ${attn_lines:-none}"
 
+if [ "$DEMO" = 1 ]; then
+  ai_out="STATE: ONE THING NEEDS YOU
+SUMMARY: Your fleet is healthy: five of six agents did real work this week across 117 sessions, and every scheduled job ran on time. One agent (ledger) is underperforming on invoice chasing and needs a small rule change, and archivist has been idle — worth deciding if it still earns its seat. Nothing is broken."
+else
 ai_out="$(printf '%s' "$verdict_ctx" | timeout 55 claude -p --model "$VERDICT_MODEL" "You write the one-glance status line for a founder's AI-agent fleet dashboard. Input is a digest of live signals. Output EXACTLY two lines and nothing else:
 STATE: <2 to 5 words, ALL CAPS, the headline status — e.g. ALL SYSTEMS NOMINAL / ONE THING NEEDS YOU / AGENT OFFLINE>
 SUMMARY: <2-3 sentences in plain English a non-technical founder understands. Say what's healthy, what (if anything) needs attention and why it does/doesn't matter, and reassure if nothing is broken. No jargon, no systemd/gateway/CLI terms.>
 
 DIGEST:
 ${verdict_ctx}" 2>/dev/null)"
+fi
 v_state="$(printf '%s\n' "$ai_out" | grep -iE '^STATE:'   | head -1 | sed -E 's/^STATE:[[:space:]]*//I')"
 v_sum="$(printf '%s\n'  "$ai_out" | grep -iE '^SUMMARY:' | head -1 | sed -E 's/^SUMMARY:[[:space:]]*//I')"
 # deterministic fallback if the model is unavailable
@@ -268,13 +378,18 @@ fi
 verdict_cls="warn"; [ "$overall_red" = 1 ] && verdict_cls="warn"; [ "$n_attn" = 0 ] && verdict_cls="ok"
 
 # -------------------------------------------------- raw drawer (old signals)
-scorecard_html=""
-sc_report="$(ls -1 "$STATE"/scorecard/*/REPORT.md 2>/dev/null | sort | tail -1)"
-[ -n "$sc_report" ] && [ -r "$sc_report" ] && scorecard_html="$(md2html < "$sc_report")"
-eval_report="$(ls -1 "$STATE"/evals/*/REPORT.md 2>/dev/null | sort | tail -1)"
-evals_html=""; [ -n "$eval_report" ] && [ -r "$eval_report" ] && evals_html="$(md2html < "$eval_report")"
-gbrain_out="$(timeout 30 gbrain stats 2>/dev/null | esc || true)"; [ -z "$gbrain_out" ] && gbrain_out="(gbrain unavailable)"
-standup="$(tail -n 10 /tmp/daily-standup.log 2>/dev/null | esc)"; [ -z "$standup" ] && standup="(no standup yet)"
+scorecard_html=""; evals_html=""
+if [ "$DEMO" = 1 ]; then
+  gbrain_out="pages: 4,812 · edges: 19,240 · last backup: tonight 03:00 (demo)"
+  standup="(demo fleet — standup omitted)"
+else
+  sc_report="$(ls -1 "$STATE"/scorecard/*/REPORT.md 2>/dev/null | sort | tail -1)"
+  [ -n "$sc_report" ] && [ -r "$sc_report" ] && scorecard_html="$(md2html < "$sc_report")"
+  eval_report="$(ls -1 "$STATE"/evals/*/REPORT.md 2>/dev/null | sort | tail -1)"
+  [ -n "$eval_report" ] && [ -r "$eval_report" ] && evals_html="$(md2html < "$eval_report")"
+  gbrain_out="$(timeout 30 gbrain stats 2>/dev/null | esc || true)"; [ -z "$gbrain_out" ] && gbrain_out="(gbrain unavailable)"
+  standup="$(tail -n 10 /tmp/daily-standup.log 2>/dev/null | esc)"; [ -z "$standup" ] && standup="(no standup yet)"
+fi
 
 # ------------------------------------------------------------- health cells
 hc() { # state title sub
@@ -297,7 +412,7 @@ cat > "$tmp" <<HTML
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="300">
 <meta name="robots" content="noindex,nofollow">
-<title>Fleet Status — ai-holdingco</title>
+<title>Fleet Status — ${FLEET_NAME}</title>
 <style>
   :root{
     --bg:#050805; --panel:#080e08; --ink:#0a120a; --sunk:#060a06;
@@ -408,7 +523,7 @@ cat > "$tmp" <<HTML
 <body>
 <header>
   <div class="logo"><b>FLEET&nbsp;STATUS</b></div>
-  <div class="stamp">ai-holdingco · ${NOW_UTC} · refreshes every 10 min <span class="cursor"></span></div>
+  <div class="stamp">${FLEET_NAME} · ${NOW_UTC} · ${STAMP_NOTE} <span class="cursor"></span></div>
 </header>
 
 <div class="verdict ${verdict_cls}">
@@ -447,6 +562,15 @@ cat > "$tmp" <<HTML
   </div>
 </section>
 
+$( [ "$have_burn" = 1 ] && cat <<BURN
+<section>
+  <div class="shead"><h2>Token burn — last 24h</h2><div class="rule"></div><div class="note">what each agent consumed of your Claude plan${plan_pct:+ · plan window ${plan_pct}% used}</div></div>
+  <div class="agents">${burn_cards}</div>
+  <div class="teamlabel" style="margin-top:8px">total $(awk -v t="$burn_total" 'BEGIN{ if (t>=1000000) printf "%.1fM", t/1000000; else if (t>=1000) printf "%.0fk", t/1000; else print t }') tokens · ${burn_events_24h} firewall event(s) in 24h · runaway loops are caught and stopped automatically</div>
+</section>
+BURN
+)
+
 <section>
   <div class="shead"><h2>System health</h2><div class="rule"></div><div class="note">the plumbing, in plain terms</div></div>
   <div class="health">
@@ -474,7 +598,11 @@ cat > "$tmp" <<HTML
   </div>
 </details>
 
-<footer>session-warden · fleet-review + health-dashboard · $(hostname -s 2>/dev/null)</footer>
+<footer>$( if [ "$DEMO" = 1 ]; then
+  echo "demo fleet with illustrative data · every panel is generated from live signals on a real install · session-warden"
+else
+  echo "session-warden · fleet-review + health-dashboard · $(hostname -s 2>/dev/null)"
+fi )</footer>
 </body>
 </html>
 HTML
