@@ -436,9 +436,9 @@ render_client() {
   </div>
   <div class="stats">
     <div class="stat hl rise" style="animation-delay:.2s"><div class="ico"><span class="pulse"></span>Time saved</div><div class="num" data-count="14">0<span class="u">hrs</span></div><div class="lab">This week</div><div class="sub">≈ 2 working days back</div></div>
-    <div class="stat rise" style="animation-delay:.26s"><div class="ico">✦ Work done</div><div class="num" data-count="512">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
+    <div class="stat rise" style="animation-delay:.26s"><div class="ico"><span class="pulse"></span>Work done</div><div class="num" data-count="512">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
     <div class="stat rise" style="animation-delay:.32s"><div class="ico"><span class="pulse"></span>Always on</div><div class="num">24<span class="u">/7</span></div><div class="lab">Never off the clock</div><div class="sub">avg reply in 20 sec</div></div>
-    <div class="stat rise" style="animation-delay:.38s"><div class="ico">✦ With you</div><div class="num" data-count="127">0<span class="u">days</span></div><div class="lab">Since March 8</div><div class="sub">0 days off, ever</div></div>
+    <div class="stat rise" style="animation-delay:.38s"><div class="ico"><span class="pulse"></span>With you</div><div class="num" data-count="127">0<span class="u">days</span></div><div class="lab">Since March 8</div><div class="sub">0 days off, ever</div></div>
   </div>
   <div class="sectitle">Meet your team <span class="n">5 assistants</span></div>
   <div class="secsub">Each one has a job, a track record, and a rating based on the quality of their work.</div>
@@ -485,9 +485,9 @@ CVEOF
   [ -z "$cards" ] && cards='<p class="secsub">No active assistants this week.</p>'
   local fourth
   if [ -n "$days" ]; then
-    fourth="<div class=\"stat\"><div class=\"ico\">✦ With you</div><div class=\"num\" data-count=\"${days}\">0<span class=\"u\">days</span></div><div class=\"lab\">Working for you</div><div class=\"sub\">and counting</div></div>"
+    fourth="<div class=\"stat\"><div class=\"ico\"><span class=\"pulse\"></span>With you</div><div class=\"num\" data-count=\"${days}\">0<span class=\"u\">days</span></div><div class=\"lab\">Working for you</div><div class=\"sub\">and counting</div></div>"
   else
-    fourth="<div class=\"stat\"><div class=\"ico\">✦ Reliable</div><div class=\"num\">${active_prod}<span class=\"u\">/${total_prod}</span></div><div class=\"lab\">Assistants working</div><div class=\"sub\">for you</div></div>"
+    fourth="<div class=\"stat\"><div class=\"ico\"><span class=\"pulse\"></span>Reliable</div><div class=\"num\">${active_prod}<span class=\"u\">/${total_prod}</span></div><div class=\"lab\">Assistants working</div><div class=\"sub\">for you</div></div>"
   fi
   cat <<CVEOF
 <div class="cv"><div class="wrap">
@@ -499,7 +499,7 @@ CVEOF
   </div>
   <div class="stats">
     <div class="stat hl"><div class="ico"><span class="pulse"></span>Time saved</div><div class="num" data-count="${hours}">0<span class="u">hrs</span></div><div class="lab">This week</div><div class="sub">roughly</div></div>
-    <div class="stat"><div class="ico">✦ Work done</div><div class="num" data-count="${sessions_week}">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
+    <div class="stat"><div class="ico"><span class="pulse"></span>Work done</div><div class="num" data-count="${sessions_week}">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
     <div class="stat"><div class="ico"><span class="pulse"></span>Always on</div><div class="num">24<span class="u">/7</span></div><div class="lab">Never off the clock</div><div class="sub">instant response</div></div>
     ${fourth}
   </div>
@@ -668,24 +668,25 @@ cat > "$tmp" <<HTML
   .cv h1{font-family:var(--cserif);font-weight:500;font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.01em;text-wrap:balance;margin-bottom:14px;color:var(--cink)}
   .cv .lede{font-size:clamp(16px,2.2vw,18.5px);color:var(--cmut);max-width:60ch;line-height:1.5}
   .cv .lede b{color:var(--cink);font-weight:600}
-  .cv .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:30px 0 12px}
-  .cv .stat{background:var(--cwhite);border:1px solid var(--cline);border-radius:16px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(20,45,30,.05);position:relative;overflow:hidden}
-  .cv .stat .ico{font-size:15px;margin-bottom:12px;color:var(--cacc);display:flex;align-items:center;gap:7px}
-  .cv .stat .ico .pulse{width:8px;height:8px;border-radius:50%;background:var(--cacc);animation:cvbeat 2.4s infinite}
+  .cv .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:30px 0 12px;background:none;border:0}
+  .cv .stat{background:var(--cwhite);border:1px solid var(--cline);border-radius:18px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(20,45,30,.04),0 6px 18px rgba(20,45,30,.05);position:relative;overflow:hidden}
+  .cv .stat .ico{font-size:14px;font-weight:600;margin-bottom:14px;color:var(--cacc);display:flex;align-items:center;gap:8px}
+  .cv .stat .ico .pulse{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
   @keyframes cvbeat{0%,100%{box-shadow:0 0 0 0 rgba(18,115,78,.4)}50%{box-shadow:0 0 0 6px rgba(18,115,78,0)}}
   .cv .num{font-size:clamp(30px,5vw,46px);font-weight:650;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums;color:var(--cink)}
-  .cv .num .u{font-size:.42em;font-weight:600;color:var(--cmut);margin-left:3px;letter-spacing:0}
+  .cv .num .u{font-size:.42em;font-weight:600;color:var(--cmut);margin-left:2px;letter-spacing:0}
   .cv .stat .lab{font-size:12.5px;font-weight:600;color:var(--cink);margin-top:9px}
   .cv .stat .sub{font-size:12px;color:var(--cfaint);margin-top:1px}
   .cv .stat.hl{background:linear-gradient(160deg,#155f42,#0e7a51);border-color:#0e7a51}
   .cv .stat.hl .ico,.cv .stat.hl .lab,.cv .stat.hl .num{color:#fff}
   .cv .stat.hl .ico .pulse{background:#c9ffe0}
+  .cv .stat.hl .num .u{color:#bfe9d1}
   .cv .stat.hl .sub{color:#bfe9d1}
   .cv .sectitle{font-family:var(--cserif);font-size:22px;font-weight:600;letter-spacing:-.01em;margin:40px 0 4px;display:flex;align-items:baseline;gap:10px;color:var(--cink)}
   .cv .sectitle .n{font-family:var(--csans);font-size:12px;color:var(--cfaint);font-weight:600}
   .cv .secsub{font-size:13.5px;color:var(--cmut);margin-bottom:18px}
   .cv .team{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
-  .cv .member{background:var(--cwhite);border:1px solid var(--cline);border-radius:16px;padding:17px;box-shadow:0 1px 2px rgba(20,45,30,.05);transition:transform .18s,box-shadow .18s}
+  .cv .member{background:var(--cwhite);border:1px solid var(--cline);border-radius:18px;padding:18px;box-shadow:0 1px 2px rgba(20,45,30,.04),0 6px 18px rgba(20,45,30,.05);transition:transform .18s,box-shadow .18s;display:flex;flex-direction:column}
   .cv .member:hover{transform:translateY(-2px);box-shadow:0 2px 4px rgba(20,45,30,.04),0 10px 26px rgba(20,45,30,.07)}
   .cv .mtop{display:flex;align-items:center;gap:12px;margin-bottom:12px}
   .cv .av{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-family:var(--cserif);font-size:19px;font-weight:600;color:#fff;flex-shrink:0}
@@ -695,9 +696,9 @@ cat > "$tmp" <<HTML
   .cv .stars .s{color:var(--cgold);font-size:13px;letter-spacing:1px}
   .cv .stars .s .o{color:#dcd8ce}
   .cv .stars .word{font-size:10.5px;color:var(--cfaint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:1px}
-  .cv .mdid{font-size:13.5px;color:var(--cink);line-height:1.5;padding:12px 0;border-top:1px solid var(--cline2);border-bottom:1px solid var(--cline2)}
+  .cv .mdid{font-size:13.5px;color:var(--cink);line-height:1.55;padding:13px 0 2px;border-top:1px solid var(--cline2)}
   .cv .mdid b{color:var(--caccd);font-weight:650}
-  .cv .mfoot{display:flex;justify-content:space-between;align-items:center;margin-top:11px;font-size:12px;color:var(--cmut)}
+  .cv .mfoot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:13px;font-size:12px;color:var(--cmut)}
   .cv .tenure{display:flex;align-items:center;gap:6px}
   .cv .tenure .cal{color:var(--cgold)}
   .cv .onair{display:inline-flex;align-items:center;gap:6px;color:var(--cacc);font-weight:600}
