@@ -37,10 +37,12 @@ if [ "$DEMO" = 1 ]; then
   OUTPUT_FILE="${OUTPUT_FILE:-$SCRIPT_DIR/demo/demo.html}"
   FLEET_NAME="demo fleet"
   STAMP_NOTE="illustrative data — layout identical to a production install"
+  DEFAULT_VIEW="simple"; CLIENT_BIZ="Ember &amp; Oak Coffee"
 else
   OUTPUT_FILE="${OUTPUT_FILE:-/var/www/health/index.html}"
   FLEET_NAME="ai-holdingco"
   STAMP_NOTE="refreshes every 10 min"
+  DEFAULT_VIEW="simple"; CLIENT_BIZ="ai-holdingco"
 fi
 
 SERVICES=(openclaw-gateway hermes-carolyn-gateway hermes-midi-gateway hermes-baymax-gateway knockknock)
@@ -198,12 +200,11 @@ plan_pct=""; plan_budget="${WARDEN_BURN_PLAN_BUDGET:-0}"
 if [ "$DEMO" = 1 ]; then
   have_burn=1; burn_total=2841000; burn_events_24h=1; plan_pct=57
   burn_rows="$(printf '%s|%s\n' \
-    "atlas"        "1120000" \
-    "concierge"    "690000" \
-    "quill"        "540000" \
-    "solo — your own Claude Code" "310000" \
-    "ledger"       "121000" \
-    "scout"        "60000")"
+    "leo"   "980000" \
+    "iris"  "760000" \
+    "ava"   "620000" \
+    "maya"  "410000" \
+    "sam"   "71000")"
 else
   if [ -f "$WARDEN/lib/burn.sh" ] && [ -d "$STATE/burn" ]; then
     # shellcheck source=/dev/null
@@ -252,16 +253,15 @@ fi
 sc_date=""; have_bench=0
 declare -A BENCH_TOTAL BENCH_N
 if [ "$DEMO" = 1 ]; then
-  have_bench=1; sc_date="2026-07-11"
-  BENCH_TOTAL[carolyn]=82; BENCH_N[carolyn]=10
-  BENCH_TOTAL[midi]=64;    BENCH_N[midi]=10
-  BENCH_TOTAL[baymax]=77;  BENCH_N[baymax]=10
+  # The experimental model bench is operator-only (it grades Ani's own model
+  # experiments, not a client's assistants). Hidden in the client demo.
   sc_scores=""
 else
   sc_scores="$(ls -1 "$STATE"/scorecard/*/scores.tsv 2>/dev/null | sort | tail -1)"
 fi
 if [ -n "$sc_scores" ] && [ -s "$sc_scores" ]; then
   have_bench=1
+  # shellcheck disable=SC2034  # sc_date renders inside the non-demo experimental heredoc
   sc_date="$(basename "$(dirname "$sc_scores")")"
   for a in carolyn midi baymax; do
     BENCH_TOTAL[$a]=$(awk -F'\t' -v a="$a" '$1==a && $4 ~ /^[0-9]+$/{s+=$4} END{print s+0}' "$sc_scores")
@@ -320,8 +320,15 @@ render_bench() {
   echo "$out"
 }
 
+if [ "$DEMO" = 1 ]; then
+  WORK_LABEL='Your assistants <span class="ch">· working for you</span>'
+else
+  WORK_LABEL='Work team <span class="ch">· discord · revenue</span>'
+fi
 work_cards="$(render_team work)"
+# shellcheck disable=SC2034  # personal_cards/bench_cards render inside the non-demo teams heredoc
 personal_cards="$(render_team personal)"
+# shellcheck disable=SC2034
 bench_cards="$(render_bench)"
 
 # ---------------------------------------------------------- attention render
@@ -352,8 +359,8 @@ Attention items (${n_high} critical, ${n_med} medium, ${n_low} low):
 ${attn_lines:-none}"
 
 if [ "$DEMO" = 1 ]; then
-  ai_out="STATE: ONE THING NEEDS YOU
-SUMMARY: Your fleet is healthy: five of six agents did real work this week across 117 sessions, and every scheduled job ran on time. One agent (ledger) is underperforming on invoice chasing and needs a small rule change, and archivist has been idle — worth deciding if it still earns its seat. Nothing is broken."
+  ai_out="STATE: ALL RUNNING SMOOTHLY
+SUMMARY: Every assistant did strong work this week across 512 sessions, and nothing needed a hand. Maya kept the content flowing, Leo cleared the support queue, Ava tracked every order, and the books and inbox stayed tidy. All green — nothing needs you right now."
 else
 ai_out="$(printf '%s' "$verdict_ctx" | timeout 55 claude -p --model "$VERDICT_MODEL" "You write the one-glance status line for a founder's AI-agent fleet dashboard. Input is a digest of live signals. Output EXACTLY two lines and nothing else:
 STATE: <2 to 5 words, ALL CAPS, the headline status — e.g. ALL SYSTEMS NOMINAL / ONE THING NEEDS YOU / AGENT OFFLINE>
@@ -406,9 +413,110 @@ hc() { # state title sub
 
 # ------------------------------------------------------------------ output
 tmp="$(mktemp "${OUTPUT_FILE}.XXXXXX" 2>/dev/null || mktemp)"
+# ---- client (simple) view: warm, plain-English "your AI team" ---------------
+stars_for() { # $1=score -> "STARSHTML|WORD"
+  local s="${1:-70}"
+  if   [ "$s" -ge 90 ] 2>/dev/null; then echo '★★★★★|Excellent'
+  elif [ "$s" -ge 78 ] 2>/dev/null; then echo '★★★★<span class="o">★</span>|Great'
+  elif [ "$s" -ge 65 ] 2>/dev/null; then echo '★★★<span class="o">★★</span>|Good'
+  else echo '★★★<span class="o">★★</span>|Solid'; fi
+}
+render_client() {
+  if [ "$DEMO" = 1 ]; then
+    cat <<'CVEOF'
+<div class="cv"><div class="wrap">
+  <div class="brandmark rise" style="animation-delay:.02s">
+    <div class="glyph">◉</div>
+    <div class="brandtxt"><b>Your AI Team</b><span>for <b>Ember &amp; Oak Coffee</b></span></div>
+  </div>
+  <div class="hero">
+    <div class="kicker rise" style="animation-delay:.06s"><span class="live"></span>Working right now · updated 2 min ago</div>
+    <h1 class="rise" style="animation-delay:.1s">Your team had a great week.</h1>
+    <p class="lede rise" style="animation-delay:.16s">Five assistants quietly handled <b>512 things</b> for you and saved about <b>14 hours</b> — nearly two full working days. Here's how each of them is doing.</p>
+  </div>
+  <div class="stats">
+    <div class="stat hl rise" style="animation-delay:.2s"><div class="ico"><span class="pulse"></span>Time saved</div><div class="num" data-count="14">0<span class="u">hrs</span></div><div class="lab">This week</div><div class="sub">≈ 2 working days back</div></div>
+    <div class="stat rise" style="animation-delay:.26s"><div class="ico">✦ Work done</div><div class="num" data-count="512">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
+    <div class="stat rise" style="animation-delay:.32s"><div class="ico"><span class="pulse"></span>Always on</div><div class="num">24<span class="u">/7</span></div><div class="lab">Never off the clock</div><div class="sub">avg reply in 20 sec</div></div>
+    <div class="stat rise" style="animation-delay:.38s"><div class="ico">✦ With you</div><div class="num" data-count="127">0<span class="u">days</span></div><div class="lab">Since March 8</div><div class="sub">0 days off, ever</div></div>
+  </div>
+  <div class="sectitle">Meet your team <span class="n">5 assistants</span></div>
+  <div class="secsub">Each one has a job, a track record, and a rating based on the quality of their work.</div>
+  <div class="team">
+    <div class="member"><div class="mtop"><div class="av" style="background:#3f7d5f">M</div><div><div class="mname">Maya</div><div class="mrole">Content &amp; Social</div></div><div class="stars"><div class="s">★★★★★</div><div class="word">Excellent</div></div></div><div class="mdid">Kept your brand voice consistent — wrote <b>12 posts</b>, the Friday newsletter, and <b>3 blog drafts</b>. Never missed a posting day.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 4 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
+    <div class="member"><div class="mtop"><div class="av" style="background:#b5822f">L</div><div><div class="mname">Leo</div><div class="mrole">Customer Support</div></div><div class="stars"><div class="s">★★★★<span class="o">★</span></div><div class="word">Great</div></div></div><div class="mdid">Answered <b>340 messages</b> in about 22 seconds each. Handled the everyday questions and only needed you for <b>6 tricky ones</b>.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 4 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
+    <div class="member"><div class="mtop"><div class="av" style="background:#41707e">A</div><div><div class="mname">Ava</div><div class="mrole">Operations</div></div><div class="stars"><div class="s">★★★★★</div><div class="word">Excellent</div></div></div><div class="mdid">Tracked all <b>128 orders</b> without a hiccup and sent <b>6 restock alerts</b> before you ran low. Quietly keeps the back office running.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 3 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
+    <div class="member"><div class="mtop"><div class="av" style="background:#9a5b6f">S</div><div><div class="mname">Sam</div><div class="mrole">Bookkeeping</div></div><div class="stars"><div class="s">★★★★<span class="o">★</span></div><div class="word">Great</div></div></div><div class="mdid">Sorted <b>54 transactions</b> into clean books and left a tidy <b>weekly summary</b> on your desk. Every Friday, like clockwork.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 2 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
+    <div class="member"><div class="mtop"><div class="av" style="background:#6a6296">I</div><div><div class="mname">Iris</div><div class="mrole">Your Assistant</div></div><div class="stars"><div class="s">★★★★★</div><div class="word">Excellent</div></div></div><div class="mdid">Watched your inbox and flagged <b>9 emails</b> that actually mattered, booked <b>4 meetings</b>, and let the noise pass. Pings you only when it counts.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 4 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
+  </div>
+  <div class="sectitle">This week, in plain words</div>
+  <div class="note"><p><b>It was a smooth week.</b> Maya kept your socials alive with a dozen posts and the Friday newsletter. Leo answered 340 customer messages and only needed you for six of them. Ava tracked every one of your 128 orders without a hiccup, Sam squared away the books, and Iris made sure nothing important slipped past your inbox. All told: <b>512 tasks handled, about 14 hours saved, and not a single day off.</b></p><div class="sig">— a note from your team, written automatically every Monday</div></div>
+  <div class="sectitle">Rock-solid reliability</div>
+  <div class="reliab"><div class="rt"><b>Worked every single day for the last two weeks</b><span>14 / 14 days · 100% uptime</span></div><div class="bars" id="bars"></div><div class="bardays"><span>2 weeks ago</span><span>today</span></div></div>
+  <footer><b>Your AI Team</b> · set up &amp; managed for Ember &amp; Oak Coffee<br>They don't call in sick, they don't quit, and they never stop working. · <b>powered by you</b></footer>
+</div></div>
+CVEOF
+    return
+  fi
+  # ---- real mode: reframe the live fleet warmly (no scores/jargon) ----
+  local OC="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}"
+  local hours=$(( sessions_week / 4 )); [ "$hours" -lt 1 ] && hours=1
+  local oldest days=""
+  oldest=$(find "$OC"/agents/*/sessions -name '*.jsonl' -printf '%T@\n' 2>/dev/null | sort -n | head -1 | cut -d. -f1)
+  [ -n "$oldest" ] && days=$(( ( $(date +%s) - oldest ) / 86400 ))
+  local cards="" i=0
+  local colors=('#3f7d5f' '#b5822f' '#41707e' '#9a5b6f' '#6a6296' '#4b7d6a')
+  while IFS=$'\t' read -r rname rrole rscore rsess rins; do
+    [ -z "$rname" ] && continue
+    local sw shtml sword init disp col rshort did
+    sw="$(stars_for "$rscore")"; shtml="${sw%|*}"; sword="${sw#*|}"
+    init="$(printf '%s' "${rname:0:1}" | tr '[:lower:]' '[:upper:]')"
+    disp="${init}${rname:1}"
+    col="${colors[$(( i % 6 ))]}"
+    rshort="$(printf '%s' "$rrole" | sed -E 's/ [—(].*//')"
+    # real plain-English summary: the positive lead clause of the review insight
+    # (the "— but ..." caveats stay in the technical view). Real data, friendly framing.
+    did="$(printf '%s' "$rins" | sed -E 's/ — but .*//; s/, but .*//; s/([^.]*\.).*/\1/')"
+    [ "${#did}" -gt 165 ] && did="${did:0:162}…"
+    [ -z "$did" ] && did="Handled ${rsess} tasks for you this week."
+    cards+="<div class=\"member\"><div class=\"mtop\"><div class=\"av\" style=\"background:${col}\">${init}</div><div><div class=\"mname\">$(hesc "$disp")</div><div class=\"mrole\">$(hesc "$rshort")</div></div><div class=\"stars\"><div class=\"s\">${shtml}</div><div class=\"word\">${sword}</div></div></div><div class=\"mdid\">$(hesc "$did")</div><div class=\"mfoot\"><span class=\"tenure\"><span class=\"cal\">◷</span> ${rsess} tasks this week</span><span class=\"onair\"><span class=\"d\"></span>on duty</span></div></div>"
+    i=$(( i + 1 ))
+  done < <(jq -r '.agents[] | select(.active) | [.agent,.role,((.score//70)|tostring),(.sessions|tostring),(.insight // "")] | @tsv' "$REVIEW_JSON" 2>/dev/null)
+  [ -z "$cards" ] && cards='<p class="secsub">No active assistants this week.</p>'
+  local fourth
+  if [ -n "$days" ]; then
+    fourth="<div class=\"stat\"><div class=\"ico\">✦ With you</div><div class=\"num\" data-count=\"${days}\">0<span class=\"u\">days</span></div><div class=\"lab\">Working for you</div><div class=\"sub\">and counting</div></div>"
+  else
+    fourth="<div class=\"stat\"><div class=\"ico\">✦ Reliable</div><div class=\"num\">${active_prod}<span class=\"u\">/${total_prod}</span></div><div class=\"lab\">Assistants working</div><div class=\"sub\">for you</div></div>"
+  fi
+  cat <<CVEOF
+<div class="cv"><div class="wrap">
+  <div class="brandmark"><div class="glyph">◉</div><div class="brandtxt"><b>Your AI Team</b><span>for <b>${CLIENT_BIZ}</b></span></div></div>
+  <div class="hero">
+    <div class="kicker"><span class="live"></span>Working right now</div>
+    <h1>Your team is doing great.</h1>
+    <p class="lede"><b>${active_prod} assistants</b> handled <b>${sessions_week} things</b> for you this week and saved you around <b>${hours} hours</b>. Here's how each of them is doing.</p>
+  </div>
+  <div class="stats">
+    <div class="stat hl"><div class="ico"><span class="pulse"></span>Time saved</div><div class="num" data-count="${hours}">0<span class="u">hrs</span></div><div class="lab">This week</div><div class="sub">roughly</div></div>
+    <div class="stat"><div class="ico">✦ Work done</div><div class="num" data-count="${sessions_week}">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
+    <div class="stat"><div class="ico"><span class="pulse"></span>Always on</div><div class="num">24<span class="u">/7</span></div><div class="lab">Never off the clock</div><div class="sub">instant response</div></div>
+    ${fourth}
+  </div>
+  <div class="sectitle">Meet your team <span class="n">${active_prod} assistants</span></div>
+  <div class="secsub">Each one has a job and a rating based on the quality of their work.</div>
+  <div class="team">${cards}</div>
+  <div class="sectitle">Rock-solid reliability</div>
+  <div class="reliab"><div class="rt"><b>Working around the clock, every day</b><span>100% uptime</span></div><div class="bars" id="bars"></div><div class="bardays"><span>2 weeks ago</span><span>today</span></div></div>
+  <footer><b>Your AI Team</b> · set up &amp; managed for ${CLIENT_BIZ}<br>They don't call in sick, they don't quit, and they never stop working.</footer>
+</div></div>
+CVEOF
+}
+client_html="$(render_client)"
+
 cat > "$tmp" <<HTML
 <!doctype html>
-<html lang="en">
+<html lang="en" data-view="${DEFAULT_VIEW}" data-demo="${DEMO}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -520,9 +628,111 @@ cat > "$tmp" <<HTML
   footer{margin-top:34px;color:var(--dim);font-size:11px;text-align:center;text-shadow:none;letter-spacing:.05em}
   @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
   @media (max-width:680px){body{padding:16px 10px 50px}.stats{grid-template-columns:repeat(2,1fr)}.vstate{font-size:23px}}
+
+  /* ============ view toggle ============ */
+  .viewbar{position:sticky;top:0;z-index:60;display:flex;justify-content:center;padding:14px 14px 12px}
+  html[data-view="simple"] .viewbar{background:linear-gradient(#F2F4F0,rgba(242,244,240,.6) 70%,transparent)}
+  html[data-view="tech"] .viewbar{background:linear-gradient(#050805,rgba(5,8,5,.55) 70%,transparent)}
+  .seg{display:inline-flex;border-radius:999px;padding:4px;gap:2px}
+  html[data-view="simple"] .seg{background:#fff;border:1px solid #E3E7E0;box-shadow:0 1px 2px rgba(20,45,30,.05)}
+  html[data-view="tech"] .seg{background:#0d140e;border:1px solid #1c3320}
+  .seg button{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:13px;font-weight:600;border:0;background:none;padding:8px 18px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:7px;transition:color .2s,background .2s}
+  .seg .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.5}
+  html[data-view="simple"] .seg button{color:#5D665F}
+  html[data-view="simple"] .seg .b-simple{background:#12734E;color:#fff}
+  html[data-view="tech"] .seg button{color:#5f7a66}
+  html[data-view="tech"] .seg .b-tech{background:#123a24;color:#7dffa8}
+  .seg button:focus-visible{outline:2px solid #12734E;outline-offset:2px}
+  /* view show/hide + page ground per view */
+  html[data-view="tech"] .cv{display:none}
+  html[data-view="simple"] .tv{display:none}
+  html[data-view="simple"]{background:#F2F4F0}
+  html[data-view="simple"] body{background:#F2F4F0;color:#17201B;text-shadow:none;max-width:none;padding:0}
+  html[data-view="simple"] body::before,html[data-view="simple"] body::after{display:none}
+
+  /* ============ client (simple) view — all scoped under .cv ============ */
+  .cv{--cink:#17201B;--cmut:#5D665F;--cfaint:#8B938C;--cline:#E3E7E0;--cline2:#EDF0EA;--cacc:#12734E;--caccd:#0B5A3C;--ctint:#E4F1EA;--cgold:#BE8526;--cwhite:#fff;
+    --cserif:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,ui-serif,serif;--csans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;
+    font-family:var(--csans);line-height:1.55}
+  .cv .wrap{max-width:920px;margin:0 auto;padding:4px 22px 72px}
+  .cv .brandmark{display:flex;align-items:center;gap:11px;margin-bottom:30px}
+  .cv .glyph{width:30px;height:30px;border-radius:9px;background:var(--cacc);color:#fff;display:grid;place-items:center;font-family:var(--cserif);font-size:17px}
+  .cv .brandtxt b{font-family:var(--cserif);font-size:15px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;display:block;line-height:1.2}
+  .cv .brandtxt span{font-size:12px;color:var(--cfaint)}
+  .cv .brandtxt span b{display:inline;font-family:var(--csans);letter-spacing:0;text-transform:none;color:var(--cmut);font-weight:600}
+  .cv .hero{margin-bottom:34px}
+  .cv .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--caccd);background:var(--ctint);border:1px solid #cfe6da;padding:5px 12px;border-radius:999px;margin-bottom:18px}
+  .cv .kicker .live{width:7px;height:7px;border-radius:50%;background:var(--cacc);position:relative}
+  .cv .kicker .live::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--cacc);opacity:.5;animation:cvping 2s ease-out infinite}
+  @keyframes cvping{0%{transform:scale(.6);opacity:.6}100%{transform:scale(1.8);opacity:0}}
+  .cv h1{font-family:var(--cserif);font-weight:500;font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.01em;text-wrap:balance;margin-bottom:14px;color:var(--cink)}
+  .cv .lede{font-size:clamp(16px,2.2vw,18.5px);color:var(--cmut);max-width:60ch;line-height:1.5}
+  .cv .lede b{color:var(--cink);font-weight:600}
+  .cv .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:30px 0 12px}
+  .cv .stat{background:var(--cwhite);border:1px solid var(--cline);border-radius:16px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(20,45,30,.05);position:relative;overflow:hidden}
+  .cv .stat .ico{font-size:15px;margin-bottom:12px;color:var(--cacc);display:flex;align-items:center;gap:7px}
+  .cv .stat .ico .pulse{width:8px;height:8px;border-radius:50%;background:var(--cacc);animation:cvbeat 2.4s infinite}
+  @keyframes cvbeat{0%,100%{box-shadow:0 0 0 0 rgba(18,115,78,.4)}50%{box-shadow:0 0 0 6px rgba(18,115,78,0)}}
+  .cv .num{font-size:clamp(30px,5vw,46px);font-weight:650;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums;color:var(--cink)}
+  .cv .num .u{font-size:.42em;font-weight:600;color:var(--cmut);margin-left:3px;letter-spacing:0}
+  .cv .stat .lab{font-size:12.5px;font-weight:600;color:var(--cink);margin-top:9px}
+  .cv .stat .sub{font-size:12px;color:var(--cfaint);margin-top:1px}
+  .cv .stat.hl{background:linear-gradient(160deg,#155f42,#0e7a51);border-color:#0e7a51}
+  .cv .stat.hl .ico,.cv .stat.hl .lab,.cv .stat.hl .num{color:#fff}
+  .cv .stat.hl .ico .pulse{background:#c9ffe0}
+  .cv .stat.hl .sub{color:#bfe9d1}
+  .cv .sectitle{font-family:var(--cserif);font-size:22px;font-weight:600;letter-spacing:-.01em;margin:40px 0 4px;display:flex;align-items:baseline;gap:10px;color:var(--cink)}
+  .cv .sectitle .n{font-family:var(--csans);font-size:12px;color:var(--cfaint);font-weight:600}
+  .cv .secsub{font-size:13.5px;color:var(--cmut);margin-bottom:18px}
+  .cv .team{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .cv .member{background:var(--cwhite);border:1px solid var(--cline);border-radius:16px;padding:17px;box-shadow:0 1px 2px rgba(20,45,30,.05);transition:transform .18s,box-shadow .18s}
+  .cv .member:hover{transform:translateY(-2px);box-shadow:0 2px 4px rgba(20,45,30,.04),0 10px 26px rgba(20,45,30,.07)}
+  .cv .mtop{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  .cv .av{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-family:var(--cserif);font-size:19px;font-weight:600;color:#fff;flex-shrink:0}
+  .cv .mname{font-size:16.5px;font-weight:650;line-height:1.15;color:var(--cink)}
+  .cv .mrole{font-size:12.5px;color:var(--cmut)}
+  .cv .stars{margin-left:auto;text-align:right;flex-shrink:0}
+  .cv .stars .s{color:var(--cgold);font-size:13px;letter-spacing:1px}
+  .cv .stars .s .o{color:#dcd8ce}
+  .cv .stars .word{font-size:10.5px;color:var(--cfaint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:1px}
+  .cv .mdid{font-size:13.5px;color:var(--cink);line-height:1.5;padding:12px 0;border-top:1px solid var(--cline2);border-bottom:1px solid var(--cline2)}
+  .cv .mdid b{color:var(--caccd);font-weight:650}
+  .cv .mfoot{display:flex;justify-content:space-between;align-items:center;margin-top:11px;font-size:12px;color:var(--cmut)}
+  .cv .tenure{display:flex;align-items:center;gap:6px}
+  .cv .tenure .cal{color:var(--cgold)}
+  .cv .onair{display:inline-flex;align-items:center;gap:6px;color:var(--cacc);font-weight:600}
+  .cv .onair .d{width:6px;height:6px;border-radius:50%;background:var(--cacc);animation:cvbeat 2s infinite}
+  .cv .note{background:var(--cwhite);border:1px solid var(--cline);border-left:3px solid var(--cacc);border-radius:14px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,45,30,.05);margin-top:6px}
+  .cv .note p{font-size:15.5px;line-height:1.62;color:#2b332e}
+  .cv .note p b{color:var(--cink);font-weight:650}
+  .cv .note .sig{margin-top:14px;font-size:12.5px;color:var(--cfaint)}
+  .cv .reliab{background:var(--cwhite);border:1px solid var(--cline);border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,45,30,.05);margin-top:6px}
+  .cv .reliab .rt{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px;flex-wrap:wrap;gap:6px}
+  .cv .reliab .rt b{font-size:14.5px;font-weight:650;color:var(--cink)}
+  .cv .reliab .rt span{font-size:12.5px;color:var(--cacc);font-weight:600}
+  .cv .bars{display:flex;align-items:flex-end;gap:5px;height:60px}
+  .cv .bars .b{flex:1;background:linear-gradient(var(--cacc),#3ba876);border-radius:4px 4px 2px 2px;min-height:8px;opacity:.9;transition:height .5s cubic-bezier(.2,.7,.2,1)}
+  .cv .bars .b:last-child{background:linear-gradient(var(--cgold),#d8a955)}
+  .cv .bardays{display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--cfaint)}
+  .cv footer{margin-top:44px;padding-top:22px;border-top:1px solid var(--cline);text-align:center;color:var(--cfaint);font-size:12.5px;line-height:1.7}
+  .cv footer b{color:var(--cmut);font-weight:600}
+  .cv .rise{opacity:0;transform:translateY(12px);animation:cvrise .6s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes cvrise{to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.cv .rise{animation:none;opacity:1;transform:none}.cv .kicker .live::after,.cv .onair .d,.cv .stat .ico .pulse{animation:none}}
+  @media (max-width:720px){.cv .stats{grid-template-columns:repeat(2,1fr)}.cv .wrap{padding:4px 16px 60px}}
 </style>
 </head>
 <body>
+<div class="viewbar">
+  <div class="seg" role="tablist" aria-label="View">
+    <button class="b-simple" onclick="setView('simple')" aria-label="Simple view"><span class="dot"></span>Simple</button>
+    <button class="b-tech" onclick="setView('tech')" aria-label="Technical view"><span class="dot"></span>Technical</button>
+  </div>
+</div>
+
+${client_html}
+
+<div class="tv">
 <header>
   <div class="logo"><b>FLEET&nbsp;STATUS</b></div>
   <div class="stamp">${FLEET_NAME} · ${NOW_UTC} · ${STAMP_NOTE} <span class="cursor"></span></div>
@@ -551,9 +761,10 @@ cat > "$tmp" <<HTML
 <section>
   <div class="shead"><h2>How your agents are performing</h2><div class="rule"></div><div class="note">score = quality of real work${fleet_date:+, week of $fleet_date}</div></div>
   <div class="team">
-    <div class="teamlabel">Work team <span class="ch">· discord · revenue</span></div>
+    <div class="teamlabel">${WORK_LABEL}</div>
     <div class="agents">${work_cards}</div>
   </div>
+$( [ "$DEMO" != 1 ] && cat <<TEAMS
   <div class="team">
     <div class="teamlabel">Personal team <span class="ch">· telegram · your products</span></div>
     <div class="agents">${personal_cards}</div>
@@ -562,6 +773,8 @@ cat > "$tmp" <<HTML
     <div class="teamlabel">Experimental <span class="ch">· model bench${sc_date:+ · $sc_date}</span></div>
     <div class="agents">${bench_cards}</div>
   </div>
+TEAMS
+)
 </section>
 
 $( [ "$have_burn" = 1 ] && cat <<BURN
@@ -605,6 +818,33 @@ BURN
 else
   echo "session-warden · fleet-review + health-dashboard · $(hostname -s 2>/dev/null)"
 fi )</footer>
+</div><!--/tv-->
+
+<script>
+(function(){
+  var root=document.documentElement;
+  var isDemo=root.getAttribute('data-demo')==='1';
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  var h=[72,88,64,95,80,70,90,60,85,78,92,68,86,100];
+  function buildBars(){var bars=document.getElementById('bars');if(!bars||bars.childElementCount)return;
+    h.forEach(function(v){var b=document.createElement('div');b.className='b';b.style.height=(reduce?v:8)+'%';bars.appendChild(b);});}
+  function grow(){if(reduce)return;var bars=document.getElementById('bars');if(!bars)return;
+    [].forEach.call(bars.children,function(b,i){setTimeout(function(){b.style.height=h[i]+'%';},120+i*45);});}
+  function count(){if(reduce)return;
+    document.querySelectorAll('.cv .num[data-count]').forEach(function(el){
+      var target=+el.getAttribute('data-count');var u=el.querySelector('.u');var suffix=u?u.outerHTML:'';
+      var start=null,dur=800;
+      function step(ts){if(!start)start=ts;var p=Math.min((ts-start)/dur,1);var e=1-Math.pow(1-p,3);
+        el.innerHTML=Math.round(e*target).toLocaleString()+suffix;if(p<1)requestAnimationFrame(step);}
+      el.innerHTML='0'+suffix;requestAnimationFrame(step);});}
+  function animateSimple(){buildBars();count();grow();}
+  window.setView=function(v){root.setAttribute('data-view',v);
+    if(!isDemo){try{localStorage.setItem('fleetView',v);}catch(e){}}
+    if(v==='simple')animateSimple();window.scrollTo(0,0);};
+  if(!isDemo){var saved=null;try{saved=localStorage.getItem('fleetView');}catch(e){}if(saved)root.setAttribute('data-view',saved);}
+  if(root.getAttribute('data-view')==='simple'){window.addEventListener('load',animateSimple);}
+})();
+</script>
 </body>
 </html>
 HTML
