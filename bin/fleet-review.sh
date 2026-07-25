@@ -204,6 +204,17 @@ while IFS= read -r d; do
   [ -s "${d}/review.json" ] && { prev_json="${d}/review.json"; prev_date="$(basename "$d")"; }
 done < <(find "${WARDEN_HOME}/state/fleet-review" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 
+# Prompt-cache hit rate over the same window (one line; details live in
+# `session-warden cache`). Non-fatal: an empty line just means no data yet.
+cache_line=""
+if [ -x "${WARDEN_HOME}/bin/cache-report.sh" ]; then
+  cache_line=$("${WARDEN_HOME}/bin/cache-report.sh" --days "$WINDOW_DAYS" --json 2>/dev/null \
+    | jq -r 'select(.fleet.hit_pct != null) |
+        ([.agents[] | select(.hit_pct != null)] | sort_by(.hit_pct) | first) as $low |
+        "Prompt cache: fleet \(.fleet.hit_pct)% hit rate" +
+        (if $low then " · lowest: \($low.agent) (\($low.hit_pct)%)" else "" end)' 2>/dev/null)
+fi
+
 # REPORT.md
 REPORT="${RUN_DIR}/REPORT.md"
 {
@@ -232,6 +243,7 @@ REPORT="${RUN_DIR}/REPORT.md"
   echo ""
   jq -r '.agents[] | select(.action != "none" and .action != "") | "- **\(.agent)**: \(.action)"' "$REVIEW_JSON"
   echo ""
+  [ -n "$cache_line" ] && { echo "${cache_line}."; echo ""; }
   echo "Work samples: \`state/fleet-review/${date_str}/<agent>.sample.txt\`"
 } > "$REPORT"
 log "report written: ${REPORT}"
@@ -259,7 +271,8 @@ if type notify_fleet &>/dev/null; then
   low=$(jq -r '[.agents[]|select(.score!=null)]|sort_by(.score)|.[0]|"\(.agent) (\(.score))"' "$REVIEW_JSON" 2>/dev/null)
   summary="\`\`\`
 ${block}\`\`\`
-Best: ${top} · Weakest: ${low}
+Best: ${top} · Weakest: ${low}${cache_line:+
+${cache_line}}
 Full report: \`state/fleet-review/${date_str}/REPORT.md\` · GBrain: \`fleet-review/${date_str}\`"
   if notify_fleet "$summary"; then
     log "telegram notification sent"

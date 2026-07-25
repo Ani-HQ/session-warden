@@ -249,6 +249,45 @@ if [ "$have_burn" = 1 ]; then
   done <<< "$burn_rows"
 fi
 
+# ----------------------------------------------- PROMPT CACHE (cache-report)
+# Founder question: is the fleet paying full price for prompts it should get
+# from cache at a tenth of the cost? A falling hit rate means a prefix
+# mutation (model swap, MCP tool-list change) is silently defeating the cache.
+cache_rows=""; cache_days=7; fleet_cache_pct=""; have_cache=0
+if [ "$DEMO" = 1 ]; then
+  have_cache=1; fleet_cache_pct="93.4"
+  cache_rows="$(printf '%s|%s\n' \
+    "leo"  "96.2" \
+    "iris" "94.8" \
+    "ava"  "92.1" \
+    "maya" "89.5" \
+    "sam"  "71.3")"
+elif [ -x "$WARDEN/bin/cache-report.sh" ]; then
+  cache_json="$(WARDEN_HOME="$WARDEN" "$WARDEN/bin/cache-report.sh" --json 2>/dev/null)"
+  if [ -n "$cache_json" ] && jq -e '.fleet.hit_pct' <<< "$cache_json" >/dev/null 2>&1; then
+    fleet_cache_pct="$(jq -r '.fleet.hit_pct' <<< "$cache_json")"
+    cache_days="$(jq -r '.window_days' <<< "$cache_json")"
+    cache_rows="$(jq -r '.agents[] | select(.hit_pct != null) | "\(.agent)|\(.hit_pct)"' \
+      <<< "$cache_json" | sort -t'|' -k2,2nr)"
+    [ -n "$cache_rows" ] && have_cache=1
+  fi
+fi
+cache_cards=""
+if [ "$have_cache" = 1 ]; then
+  while IFS='|' read -r _name _pct; do
+    [ -z "$_name" ] && continue
+    _p="${_pct%.*}"
+    _cls=s-lo
+    if   [ "$_p" -ge 90 ] 2>/dev/null; then _cls=s-hi
+    elif [ "$_p" -ge 70 ] 2>/dev/null; then _cls=s-mid; fi
+    _w="$_p"; [ "${_w:-0}" -lt 2 ] 2>/dev/null && _w=2
+    cache_cards+="<div class=\"agent\">
+      <div class=\"arow\"><span class=\"aname\">$(hesc "$_name")</span><span class=\"ascore ${_cls}\">${_pct}<small>%</small></span></div>
+      <div class=\"bar\"><i class=\"${_cls}\" style=\"width:${_w}%\"></i></div>
+    </div>"
+  done <<< "$cache_rows"
+fi
+
 # --------------------------------------------- EXPERIMENTAL bench (scorecard)
 sc_date=""; have_bench=0
 declare -A BENCH_TOTAL BENCH_N
@@ -785,6 +824,15 @@ $( [ "$have_burn" = 1 ] && cat <<BURN
   <div class="teamlabel" style="margin-top:8px">total $(awk -v t="$burn_total" 'BEGIN{ if (t>=1000000) printf "%.1fM", t/1000000; else if (t>=1000) printf "%.0fk", t/1000; else print t }') tokens · ${burn_events_24h} firewall event(s) in 24h · runaway loops are caught and stopped automatically</div>
 </section>
 BURN
+)
+
+$( [ "$have_cache" = 1 ] && cat <<CACHE
+<section>
+  <div class="shead"><h2>Prompt cache — last ${cache_days}d</h2><div class="rule"></div><div class="note">share of each agent's prompt served from cache at ~10% of full price${fleet_cache_pct:+ · fleet ${fleet_cache_pct}%}</div></div>
+  <div class="agents">${cache_cards}</div>
+  <div class="teamlabel" style="margin-top:8px">a falling rate means something is silently mutating the prompt prefix (model swap, tool-list change) and every call is going back to full price</div>
+</section>
+CACHE
 )
 
 <section>

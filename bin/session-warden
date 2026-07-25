@@ -86,6 +86,10 @@ cmd_burn() {
   exec "$WARDEN_HOME/bin/burn-report.sh" "$@"
 }
 
+cmd_cache() {
+  exec "$WARDEN_HOME/bin/cache-report.sh" "$@"
+}
+
 cmd_install() {
   exec "$WARDEN_HOME/install.sh"
 }
@@ -159,6 +163,11 @@ Commands:
       What ate my usage: tokens consumed per agent/channel inside the
       current subscription window (default 5h). Reads the burn ledger.
 
+  cache [--days N] [--agent NAME] [--json] [--check]
+      Prompt-cache hit rate per agent from session transcripts. A falling
+      rate means a prefix mutation is silently defeating the cache.
+      --check evaluates thresholds and sends throttled Telegram alerts.
+
   install
       Install cron entries and create config file.
 
@@ -182,6 +191,7 @@ case "${1:-help}" in
   rotate)    shift; cmd_rotate "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
   burn)      shift; cmd_burn "$@" ;;
+  cache)     shift; cmd_cache "$@" ;;
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;
