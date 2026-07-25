@@ -265,7 +265,9 @@ if [ "$DEMO" = 1 ]; then
 elif [ -x "$WARDEN/bin/cache-report.sh" ]; then
   cache_json="$(WARDEN_HOME="$WARDEN" "$WARDEN/bin/cache-report.sh" --json 2>/dev/null)"
   if [ -n "$cache_json" ] && jq -e '.fleet.hit_pct' <<< "$cache_json" >/dev/null 2>&1; then
+    # shellcheck disable=SC2034  # fleet_cache_pct is rendered in the prompt-cache heredoc below
     fleet_cache_pct="$(jq -r '.fleet.hit_pct' <<< "$cache_json")"
+    # shellcheck disable=SC2034  # cache_days is rendered in the prompt-cache heredoc below
     cache_days="$(jq -r '.window_days' <<< "$cache_json")"
     cache_rows="$(jq -r '.agents[] | select(.hit_pct != null) | "\(.agent)|\(.hit_pct)"' \
       <<< "$cache_json" | sort -t'|' -k2,2nr)"
@@ -277,9 +279,9 @@ if [ "$have_cache" = 1 ]; then
   while IFS='|' read -r _name _pct; do
     [ -z "$_name" ] && continue
     _p="${_pct%.*}"
-    _cls=s-lo
-    if   [ "$_p" -ge 90 ] 2>/dev/null; then _cls=s-hi
-    elif [ "$_p" -ge 70 ] 2>/dev/null; then _cls=s-mid; fi
+    _cls="s-lo"
+    if   [ "$_p" -ge 90 ] 2>/dev/null; then _cls="s-hi"
+    elif [ "$_p" -ge 70 ] 2>/dev/null; then _cls="s-mid"; fi
     _w="$_p"; [ "${_w:-0}" -lt 2 ] 2>/dev/null && _w=2
     cache_cards+="<div class=\"agent\">
       <div class=\"arow\"><span class=\"aname\">$(hesc "$_name")</span><span class=\"ascore ${_cls}\">${_pct}<small>%</small></span></div>
