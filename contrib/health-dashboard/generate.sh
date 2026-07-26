@@ -41,7 +41,7 @@ if [ "$DEMO" = 1 ]; then
 else
   OUTPUT_FILE="${OUTPUT_FILE:-/var/www/health/index.html}"
   FLEET_NAME="ai-holdingco"
-  STAMP_NOTE="refreshes every 10 min"
+  STAMP_NOTE="refreshes every 10 min · public board: fleet.ani.computer"
   DEFAULT_VIEW="simple"; CLIENT_BIZ="ai-holdingco"
 fi
 
@@ -159,6 +159,19 @@ fi
 if   [ "$gw_down" -gt 0 ] || [ "${doctor_fail:-0}" -gt 0 ]; then infra_state="bad"
 elif [ "$overall_amber" = 1 ]; then infra_state="warn"
 else infra_state="ok"; fi
+
+# ----------------------------------------- Claude Max / fallback pressure (24h)
+claude_limit_hits=0
+if [ "$DEMO" != 1 ]; then
+  _clog="$(ls -1t /tmp/openclaw/openclaw-*.log 2>/dev/null | head -1)"
+  if [ -n "$_clog" ] && [ -r "$_clog" ]; then
+    claude_limit_hits=$(grep -c -E 'weekly limit|rate_limit' "$_clog" 2>/dev/null || echo 0)
+  fi
+  if [ "${claude_limit_hits:-0}" -gt 0 ] 2>/dev/null; then
+    overall_amber=1
+    attn+=("med|Claude Max hit rate limits ${claude_limit_hits} time(s) in today's gateway log.|Fallback to ChatGPT/Codex (openai/gpt-5.5) is configured — confirm agents kept working.")
+  fi
+fi
 
 # ------------------------------------------------------- FLEET REVIEW (real work)
 if [ "$DEMO" = 1 ]; then
@@ -787,6 +800,19 @@ $( [ "$have_burn" = 1 ] && cat <<BURN
 BURN
 )
 
+$( [ "$DEMO" != 1 ] && cat <<RESIL
+<section>
+  <div class="shead"><h2>Model resilience</h2><div class="rule"></div><div class="note">what happens when Claude Max runs out</div></div>
+  <div class="health">
+    $(hc ok 'Claude Max → ChatGPT/Codex fallback' 'Opus/Sonnet agents fall back to openai/gpt-5.5 (or mini) when weekly Claude limits hit.')
+    $(hc ok 'Codex worker agent online' 'kai / ping / dash can spawn the codex subagent for heavy build loops.')
+    $(hc ok 'Public spectator board' 'fleet.ani.computer shows redacted live quests for sharing.')
+  </div>
+  <div class="teamlabel" style="margin-top:10px">Auth sync: hourly from ~/.codex → OpenClaw agent stores · OpenClaw $(openclaw --version 2>/dev/null | head -1 | sed 's/OpenClaw //')</div>
+</section>
+RESIL
+)
+
 <section>
   <div class="shead"><h2>System health</h2><div class="rule"></div><div class="note">the plumbing, in plain terms</div></div>
   <div class="health">
@@ -817,7 +843,7 @@ BURN
 <footer>$( if [ "$DEMO" = 1 ]; then
   echo "demo fleet with illustrative data · every panel is generated from live signals on a real install · session-warden"
 else
-  echo "session-warden · fleet-review + health-dashboard · $(hostname -s 2>/dev/null)"
+  echo "session-warden · fleet-review + health-dashboard · <a href=\"https://fleet.ani.computer\">fleet.ani.computer</a> · $(hostname -s 2>/dev/null)"
 fi )</footer>
 </div><!--/tv-->
 
