@@ -262,6 +262,36 @@ if [ "$have_burn" = 1 ]; then
   done <<< "$burn_rows"
 fi
 
+# ------------------------------------------------ REVENUE (Adventures Of)
+# Founder question: did the portfolio make money this week? Read-only pull from
+# the adventures_of prod DB via the fleet's revenue-report.sh (SELECT only,
+# password fetched per-run from Secret Manager, never on disk). Operator-only:
+# hidden in the client demo like the experimental bench.
+have_rev=0; rev_section=""
+REVENUE_CMD="${WARDEN_REVENUE_CMD:-$HOME/.openclaw/bin/revenue-report.sh}"
+if [ "$DEMO" != 1 ] && [ -x "$REVENUE_CMD" ]; then
+  rev_json="$(timeout 25 "$REVENUE_CMD" --json 2>/dev/null || true)"
+  if [ -n "$rev_json" ] && printf '%s' "$rev_json" | jq -e '.window_revenue_usd' >/dev/null 2>&1; then
+    have_rev=1
+    rev_week_usd=$(printf '%s' "$rev_json" | jq -r '.window_revenue_usd')
+    rev_week_n=$(printf '%s' "$rev_json" | jq -r '.window_purchases')
+    rev_subs=$(printf '%s' "$rev_json" | jq -r '.active_subscriptions')
+    rev_mrr=$(printf '%s' "$rev_json" | jq -r '.mrr_usd')
+    rev_leads=$(printf '%s' "$rev_json" | jq -r '.leads_window')
+    rev_all_usd=$(printf '%s' "$rev_json" | jq -r '.alltime_revenue_usd')
+    rev_all_n=$(printf '%s' "$rev_json" | jq -r '.alltime_purchases')
+    rev_section="<section>
+  <div class=\"shead\"><h2>Revenue — Adventures Of</h2><div class=\"rule\"></div><div class=\"note\">paid Stripe purchases, live from the prod DB · last 7 days</div></div>
+  <div class=\"stats\">
+    <div class=\"stat\"><div class=\"n\">\$${rev_week_usd}</div><div class=\"l\">Revenue</div><div class=\"sub\">${rev_week_n} purchase(s) this week</div></div>
+    <div class=\"stat\"><div class=\"n\">\$${rev_mrr}</div><div class=\"l\">MRR</div><div class=\"sub\">${rev_subs} active subscription(s)</div></div>
+    <div class=\"stat\"><div class=\"n\">${rev_leads}</div><div class=\"l\">Leads</div><div class=\"sub\">emails captured this week</div></div>
+    <div class=\"stat\"><div class=\"n\">\$${rev_all_usd}</div><div class=\"l\">All-time</div><div class=\"sub\">${rev_all_n} paid purchase(s)</div></div>
+  </div>
+</section>"
+  fi
+fi
+
 # --------------------------------------------- EXPERIMENTAL bench (scorecard)
 sc_date=""; have_bench=0
 declare -A BENCH_TOTAL BENCH_N
@@ -771,6 +801,8 @@ ${client_html}
   <div class="shead"><h2>Needs your attention</h2><div class="rule"></div><div class="note">ranked by urgency</div></div>
   <div class="attn">${attn_html}</div>
 </section>
+
+${rev_section}
 
 <section>
   <div class="shead"><h2>How your agents are performing</h2><div class="rule"></div><div class="note">score = quality of real work${fleet_date:+, week of $fleet_date}</div></div>
