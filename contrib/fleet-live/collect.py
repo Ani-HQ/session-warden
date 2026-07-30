@@ -25,7 +25,6 @@ DISPLAY = [
     ("bloop", "work", "Design Engineer", "Landing pages, UI builds, visual craft on Opus", "#C77DFF"),
     ("isaac", "work", "Engineer", "Code-heavy client work & technical escalations", "#4ECDC4"),
     ("zara", "personal", "Chief of Staff", "Inbox, calendar, morning rundown, drafts", "#F4A261"),
-    ("codex", "special", "Codex Worker", "Execution specialist spawned by Opus agents", "#A0C4FF"),
 ]
 
 COSTS_JSON = Path(os.environ.get("COSTS_JSON", str(WARDEN / "state" / "costs" / "costs.json")))
@@ -352,7 +351,7 @@ def main() -> None:
         agents.append(
             {
                 "id": aid,
-                "name": "Codex" if aid == "codex" else aid.title(),
+                "name": aid.title(),
                 "title": title,
                 "role": role,
                 "team": team,
