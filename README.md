@@ -1,6 +1,6 @@
 # session-warden
 
-Session lifeguard and self-improvement harness for persistent [OpenClaw](https://github.com/openclaw/openclaw) agent fleets.
+Session supervisor and self-improvement loop for persistent [OpenClaw](https://github.com/openclaw/openclaw) agent fleets.
 
 The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, and monthly memory evals.
 
@@ -53,6 +53,7 @@ The agent comes back online in under a second, knowing what it was doing.
 | Model scorecard | `bin/scorecard.sh` | weekly Sat 06:00 (`deploy/scorecard.timer`) | fixed benchmark across models, blind-judged |
 | Memory evals | `bin/eval-memory.sh` | monthly 1st 07:00 (`deploy/eval-memory.timer`) | replay fixed cases against current memory; pass-rate delta is the regression signal |
 | MCP supervisor | `bin/mcp-supervisor.sh` | manual / cron | keep heavy MCP servers alive across rotations |
+| Fleet board | `contrib/fleet-live/collect.py` | cron, 2 min (manual) | static public status board: live sessions, spend, recurring loops |
 
 `install.sh` wires the cron entries marked *(install.sh)*. Rows marked *(manual)* need a crontab line you add yourself (shown in each section below); the timer-based rows are systemd user units you copy from `deploy/` (see Quick start).
 
@@ -465,14 +466,20 @@ session-warden/
 │   └── post-summary/       # extensible: drop .sh scripts here
 │       └── 01-gbrain.sh    # ingest memory into GBrain
 ├── contrib/
-│   └── openclaw-patches/   # optional OpenClaw JS patches (version-specific)
+│   ├── openclaw-patches/   # optional OpenClaw JS patches (version-specific)
+│   ├── costs/              # token spend vs. subscription cost model
+│   ├── timers/             # recurring-loop collector (systemd timers + crontab)
+│   └── fleet-live/         # static public fleet board
 ├── deploy/                 # systemd user units, logrotate policy
 ├── tests/                  # full test suite (bash tests/run-tests.sh)
 ├── config/
-│   ├── thresholds.env.example    # complete config reference
-│   ├── agent-paths.env.example   # optional path-glob → agent attribution map
-│   ├── scorecard-tasks.jsonl     # fixed scorecard benchmark task set
-│   └── thresholds.env      # your config (gitignored)
+│   ├── thresholds.env.example       # complete config reference
+│   ├── agent-paths.env.example      # optional path-glob → agent attribution map
+│   ├── fleet-roster.tsv.example     # agent roster + board presentation
+│   ├── timers-labels.json.example   # recurring-loop labels
+│   ├── cost-rates.json              # API list prices + subscription plans
+│   ├── scorecard-tasks.jsonl        # fixed scorecard benchmark task set
+│   └── thresholds.env, fleet-roster.tsv, timers-labels.json   # yours (gitignored)
 ├── state/                  # runtime state (gitignored)
 ├── install.sh
 └── LICENSE
@@ -574,6 +581,38 @@ Set `WARDEN_HEARTBEAT_URL` (e.g. a [healthchecks.io](https://healthchecks.io)
 check) and doctor pings it on every fully-healthy run. If the host dies or
 doctor itself gets unwired, the pings stop and the external service alerts you
 — covering the one failure no on-host check can report.
+
+## Fleet board (contrib)
+
+A static, public-safe status board for the fleet — live example: **[fleet.ani.computer](https://fleet.ani.computer)**.
+
+![The fleet board](docs/fleet-board.png)
+
+Three collectors feed it, each usable on its own:
+
+| Collector | Output | What it reads |
+|---|---|---|
+| `contrib/costs/costs.py` | `state/costs/costs.json` | token usage per agent, priced against `config/cost-rates.json` — what the month *would* have cost at API list rates vs. what the flat subscriptions actually cost |
+| `contrib/timers/collect.py` | `state/timers/timers.json` | every recurring loop from systemd user timers and your crontab, with last/next run times |
+| `contrib/fleet-live/collect.py` | `live.json` in `$FLEET_OUT` (default `/var/www/fleet`) | the two above plus live session state, rendered by the single-file `index.html` |
+
+```bash
+# preview locally: write live.json next to index.html and serve the directory
+FLEET_OUT=contrib/fleet-live python3 contrib/fleet-live/collect.py
+python3 -m http.server -d contrib/fleet-live 8000
+
+# in production, copy index.html to your web root once and keep live.json fresh
+*/2 * * * * /usr/bin/python3 $HOME/session-warden/contrib/fleet-live/collect.py >> /tmp/fleet-live.log 2>&1
+```
+
+`live.json` and `index.html` are static files — serve them from anything (Cloudflare Pages, S3, `python3 -m http.server`). There is no backend, and the page fetches nothing but `live.json`.
+
+Everything the board shows is opt-in:
+
+- **Agents** come from `config/fleet-roster.tsv` — set the `board` column to `0` to keep one off the public page.
+- **Loops** come from `config/timers-labels.json` — only loops marked `"public": true` are published. session-warden's own loops are public by default; everything else, including anything it discovers in your crontab, stays internal until you name it.
+
+Copy both `.example` files in `config/` to get started. The real files are gitignored, so your agent names, job names, and log paths never end up in a commit.
 
 ## OpenClaw patches (contrib)
 
