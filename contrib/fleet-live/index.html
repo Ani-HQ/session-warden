@@ -284,14 +284,13 @@
     .ecell .k { font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--mute); margin-bottom: 6px; }
     .ecell .v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
     .ecell .s { font-family: var(--mono); font-size: 10px; color: var(--mute); margin-top: 4px; }
-    .xpline { max-width: 320px; margin-top: 14px; }
+    .xpline { max-width: 320px; }
     .xpline .lab { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: var(--fog); margin-bottom: 6px; font-variant-numeric: tabular-nums; }
     .xpline .abar { font-family: var(--mono); font-size: 11.5px; color: var(--ink); white-space: pre; }
     .dside { display: flex; flex-direction: column; gap: 11px; align-items: flex-start; }
     .kv { display: flex; flex-direction: column; gap: 3px; }
     .kv .k { font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--mute); }
     .kv .v { font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
-    .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; }
     .btn {
       appearance: none; border: 1px solid var(--line-2);
       background: var(--panel); color: var(--ink);
@@ -602,19 +601,14 @@
       h += '<div class="ecell"><div class="k">worth · API value</div><div class="v">' + (a.worth != null ? money(a.worth) : '—') + '</div><div class="s">same work at list prices</div></div>';
       h += '<div class="ecell"><div class="k">tokens</div><div class="v">' + compactTokens(a.tokens) + '</div><div class="s">' + escapeHtml(a.topModel || a.model || '') + '</div></div>';
       h += '</div>';
-      if (typeof a.xp === 'number') {
-        h += '<div class="xpline"><div class="lab"><span>weekly xp</span><span>' + a.xp + ' / 100</span></div><div class="abar">' + asciiBar(a.xp / 100, 18) + '</div></div>';
-      }
       h += '</div>';
       h += '<div class="dside">';
       h += '<div class="kv"><span class="k">status</span><span class="v">' + escapeHtml(STATUS_WORD[a.status] || a.status) + ' · ' + escapeHtml(ago(a.ageMs)) + '</span></div>';
       h += '<div class="kv"><span class="k">sessions</span><span class="v">' + String(a.sessionsWeek || 0) + ' this week</span></div>';
       h += '<div class="kv"><span class="k">team</span><span class="v">' + escapeHtml(a.team || '—') + '</span></div>';
-      h += '<div class="actions">';
-      h += '<button class="btn primary" type="button" data-act="share">Copy link</button>';
-      h += '<button class="btn" type="button" data-act="next">Next agent</button>';
-      h += '<button class="btn" type="button" data-act="close">Close</button>';
-      h += '</div>';
+      if (typeof a.xp === 'number') {
+        h += '<div class="xpline"><div class="lab"><span>weekly xp</span><span>' + a.xp + ' / 100</span></div><div class="abar">' + asciiBar(a.xp / 100, 18) + '</div></div>';
+      }
       h += '</div>';
       h += '</div>';
       return h;
@@ -640,36 +634,7 @@
         card.style.animationDelay = (0.02 + i * 0.035) + 's';
         if (!reduce) { card.style.opacity = '0'; }
         card.innerHTML = cardHtml(a, isOpen);
-        card.addEventListener('click', function (e) {
-          var act = e.target && e.target.closest ? (e.target.closest('[data-act]') || {}).dataset : null;
-          if (act && act.act === 'share') {
-            e.stopPropagation();
-            var url = location.origin + location.pathname + '?agent=' + a.id;
-            var done = function () {
-              var b = card.querySelector('[data-act="share"]');
-              if (b) { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy link'; }, 1200); }
-            };
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              navigator.clipboard.writeText(url).then(done, function () { window.prompt('Copy this link', url); });
-            } else { window.prompt('Copy this link', url); }
-            return;
-          }
-          if (act && act.act === 'next') {
-            e.stopPropagation();
-            var idx = list.findIndex(function (x) { return x.id === a.id; });
-            var nxt = list[(idx + 1) % list.length];
-            expanded = nxt.id;
-            writeUrlAgent(expanded);
-            renderAll();
-            return;
-          }
-          if (act && act.act === 'close') {
-            e.stopPropagation();
-            expanded = null;
-            writeUrlAgent(null);
-            renderAll();
-            return;
-          }
+        card.addEventListener('click', function () {
           expanded = isOpen ? null : a.id;
           writeUrlAgent(expanded);
           renderAll();
