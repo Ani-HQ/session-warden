@@ -1,0 +1,49 @@
+{
+  "comment": [
+    "Presentation for the recurring-loops monitor (contrib/timers/collect.py).",
+    "Copy to config/timers-labels.json and edit — that path is gitignored, so your",
+    "own job names never land in a commit.",
+    "",
+    "session-warden's own loops (scan, doctor, reflect, harvest, scorecard, memory",
+    "eval, fleet review, dream cycle, snapshot, context sync, worktree gc) are",
+    "labelled by default and need no entry here. Add an entry only to rename one,",
+    "or to describe a job of your own.",
+    "",
+    "Loop ids come from the crontab comment tag first, so the simplest way to name",
+    "a job is to tag its crontab line:  */5 * * * * /path/job.sh  # inbox-watch",
+    "",
+    "Per-loop keys:",
+    "  label   display name (default: the id, hyphens replaced with spaces)",
+    "  agent   who owns it — groups the rows (default: 'ops')",
+    "  cadence human-readable schedule (default: the raw cron expression)",
+    "  public  true to show it on the public fleet board (default: false)",
+    "  script  basename that pins a crontab line to this id, e.g. 'watch.mjs'",
+    "  log     file whose mtime is used as the last-run time; ~ is expanded",
+    "  source  set to 'systemd' for a timer unit that lives outside deploy/"
+  ],
+  "loops": {
+    "inbox-watch": {
+      "label": "inbox watch",
+      "agent": "chief-of-staff",
+      "cadence": "every 5 min",
+      "public": true,
+      "script": "watch.mjs",
+      "log": "/tmp/inbox-watch.log"
+    },
+    "morning-brief": {
+      "label": "morning brief",
+      "agent": "chief-of-staff",
+      "cadence": "daily",
+      "public": true,
+      "script": "morning-brief.sh",
+      "log": "~/logs/morning-brief.log"
+    },
+    "nightly-backup": {
+      "label": "nightly backup",
+      "agent": "ops",
+      "cadence": "nightly",
+      "public": false,
+      "script": "backup.sh"
+    }
+  }
+}

@@ -3,7 +3,7 @@
 
 Emits ~/session-warden/state/timers/timers.json, consumed by:
   - contrib/fleet-live/collect.py   (public loops only, curated labels)
-  - contrib/health-dashboard/generate.sh (all loops, internal detail)
+  - any internal dashboard of your own (all loops, full detail)
 
 Read-only. Fast enough to run inline from either generator.
 """
@@ -19,57 +19,63 @@ from pathlib import Path
 HOME = Path(os.environ.get("HOME", str(Path.home())))
 WARDEN = Path(os.environ.get("WARDEN_HOME", str(HOME / "session-warden")))
 OUT = WARDEN / "state" / "timers" / "timers.json"
+LABELS_JSON = Path(os.environ.get("TIMER_LABELS", str(WARDEN / "config" / "timers-labels.json")))
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 NOW_MS = int(NOW.timestamp() * 1000)
 
-SYSTEMD_TIMERS = ["snapshot", "dream-cycle", "reflect", "scorecard", "fleet-review", "eval-memory", "harvest"]
-
-# curated public-safe presentation; anything not listed here is internal-only
-PUBLIC = {
-    "zara-rundown":  {"label": "morning rundown",     "agent": "zara",  "cadence": "daily"},
-    "inbox-watch":   {"label": "inbox watch",         "agent": "zara",  "cadence": "every 5 min"},
-    "aria-support-watch": {"label": "support inbox sweep", "agent": "dash", "cadence": "every 10 min"},
-    "daily-standup": {"label": "daily standup",       "agent": "dash",  "cadence": "weekdays"},
-    "snapshot":      {"label": "state snapshot",      "agent": "fleet", "cadence": "every 30 min"},
-    "dream-cycle":   {"label": "dream cycle",         "agent": "fleet", "cadence": "nightly"},
-    "reflect":       {"label": "reflection pass",     "agent": "fleet", "cadence": "nightly"},
-    "scorecard":     {"label": "revenue scorecard",   "agent": "fleet", "cadence": "weekly"},
-    "fleet-review":  {"label": "fleet review",        "agent": "fleet", "cadence": "weekly"},
-    "eval-memory":   {"label": "memory eval",         "agent": "fleet", "cadence": "weekly"},
-    "harvest":       {"label": "lesson harvest",      "agent": "fleet", "cadence": "weekly"},
+# session-warden's own loops — present in every install, safe to show publicly.
+# Anything else defaults to internal-only until named in config/timers-labels.json
+# (see config/timers-labels.json.example).
+WARDEN_LOOPS = {
+    "snapshot":              {"label": "state snapshot",   "agent": "warden", "cadence": "every 30 min", "public": True},
+    "dream-cycle":           {"label": "dream cycle",      "agent": "warden", "cadence": "nightly",      "public": True},
+    "reflect":               {"label": "reflection pass",  "agent": "warden", "cadence": "nightly",      "public": True},
+    "scorecard":             {"label": "model scorecard",  "agent": "warden", "cadence": "weekly",       "public": True},
+    "fleet-review":          {"label": "fleet review",     "agent": "warden", "cadence": "weekly",       "public": True},
+    "eval-memory":           {"label": "memory eval",      "agent": "warden", "cadence": "monthly",      "public": True},
+    "harvest":               {"label": "lesson harvest",   "agent": "warden", "cadence": "weekly",       "public": True},
+    "session-warden":        {"label": "session scan",     "agent": "warden", "cadence": "every 30s"},
+    "session-warden-reap":   {"label": "stall reaper",     "agent": "warden", "cadence": "every 30s"},
+    "session-warden-doctor": {"label": "warden doctor",    "agent": "warden", "cadence": "every 5 min"},
+    "warden-context-sync":   {"label": "context sync",     "agent": "warden", "cadence": "every 5 min"},
+    "warden-cleanup":        {"label": "archive cleanup",  "agent": "warden", "cadence": "daily"},
+    "warden-worktree-gc":    {"label": "worktree gc",      "agent": "warden", "cadence": "every 15 min"},
+    "mcp-supervisor":        {"label": "mcp supervisor",   "agent": "warden", "cadence": "every 5 min"},
 }
 
-# internal attribution for loops not in PUBLIC
-AGENT_OF = {
-    "fleet-payroll-refresh": "ops", "fleet-live-refresh": "ops", "health-dashboard-refresh": "ops",
-    "sync-codex-auth": "ops", "autoapply-reminder": "ops",
-    "aria-support-watch": "dash", "daily-standup": "dash",
-    "zara-rundown": "zara", "inbox-watch": "zara",
-    "warden-cleanup": "warden", "mcp-supervisor": "warden", "warden-context-sync": "warden",
-    "session-warden": "warden", "session-warden-30s": "warden", "session-warden-reap": "warden",
-    "session-warden-reap-30s": "warden", "session-warden-doctor": "warden", "warden-worktree-gc": "warden",
-    "planck-sync": "planck", "planck-focus": "planck", "planck-renew": "planck",
-    "planck-gamification": "planck", "planck-weekly": "planck",
-    "capexodus-daily": "capexodus", "capexodus-weekly": "capexodus",
-    "capexodus-monthly": "capexodus", "capexodus-quarterly": "capexodus",
-}
 
-# last-run proxy: log file mtimes for crontab jobs
-LOG_OF = {
-    "zara-rundown": "/tmp/morning-rundown.log",
-    "inbox-watch": "/tmp/inbox-watch.log",
-    "aria-support-watch": "/tmp/aria-watch.log",
-    "daily-standup": "/tmp/daily-standup.log",
-    "health-dashboard-refresh": "/tmp/health-dashboard.log",
-    "fleet-live-refresh": "/tmp/fleet-live.log",
-    "fleet-payroll-refresh": "/tmp/costs.log",
-    "sync-codex-auth": str(HOME / ".openclaw" / "logs" / "sync-codex-auth.log"),
-    "planck-sync": "/tmp/planck-cron.log",
-    "planck-focus": "/tmp/planck-cron.log",
-    "planck-renew": "/tmp/planck-cron.log",
-    "planck-gamification": "/tmp/planck-cron.log",
-    "planck-weekly": "/tmp/planck-cron.log",
-}
+def load_labels() -> dict[str, dict]:
+    """Built-in warden loops, overlaid with the operator's own config."""
+    loops = {k: dict(v) for k, v in WARDEN_LOOPS.items()}
+    try:
+        user = json.loads(LABELS_JSON.read_text()).get("loops", {})
+    except Exception:
+        return loops
+    for lid, cfg in user.items():
+        if isinstance(cfg, dict):
+            loops.setdefault(lid, {}).update(cfg)
+    return loops
+
+
+LOOPS = load_labels()
+
+
+def systemd_units() -> list[str]:
+    """Timer units shipped in deploy/, plus any named in the labels config."""
+    units = sorted(p.stem for p in (WARDEN / "deploy").glob("*.timer"))
+    for lid, cfg in LOOPS.items():
+        if cfg.get("source") == "systemd" and lid not in units:
+            units.append(lid)
+    return units
+
+
+def meta(lid: str) -> dict:
+    return LOOPS.get(lid, {})
+
+
+def log_path(lid: str) -> str | None:
+    p = meta(lid).get("log")
+    return os.path.expanduser(p) if p else None
 
 
 def run(cmd: list[str], timeout: int = 20) -> str:
@@ -133,7 +139,7 @@ def list_timers_next() -> dict[str, datetime]:
 def systemd_loops() -> list[dict]:
     loops = []
     nexts = list_timers_next()
-    for name in SYSTEMD_TIMERS:
+    for name in systemd_units():
         out = run(["systemctl", "--user", "show", f"{name}.timer",
                    "--property=LastTriggerUSec,ActiveState"])
         props = dict(
@@ -142,18 +148,18 @@ def systemd_loops() -> list[dict]:
         active = props.get("ActiveState", "") == "active"
         nxt = nexts.get(f"{name}.timer") if active else None
         last = parse_systemd_ts(props.get("LastTriggerUSec", ""))
-        pub = PUBLIC.get(name)
+        m = meta(name)
         loops.append({
             "id": name,
             "source": "systemd",
-            "label": (pub or {}).get("label", name.replace("-", " ")),
-            "agent": (pub or {}).get("agent", AGENT_OF.get(name, "fleet")),
-            "cadence": (pub or {}).get("cadence", "scheduled"),
+            "label": m.get("label", name.replace("-", " ")),
+            "agent": m.get("agent", "fleet"),
+            "cadence": m.get("cadence", "scheduled"),
             "schedule": f"{name}.timer",
             "detail": f"{name}.service" if active else "timer inactive",
             "last": ms(last), "next": ms(nxt),
             "lastHuman": human(last), "nextHuman": human(nxt),
-            "public": bool(pub),
+            "public": bool(m.get("public")),
             "missing": not active,
         })
     return loops
@@ -225,7 +231,9 @@ def cron_id(schedule_rest: str, comment: str) -> str:
         return m.group(1).rsplit(".", 1)[0]
     m = re.search(r"https?://([\w.-]+)(/[\w/-]*)?", schedule_rest)
     if m:
-        return m.group(1).split(".")[0] + (m.group(2) or "").replace("/", "-").strip("-")
+        host = m.group(1).split(".")[0]
+        path = (m.group(2) or "").strip("/").replace("/", "-")
+        return f"{host}-{path}" if path else host
     return schedule_rest.strip().split()[-1][:24] if schedule_rest.strip() else "job"
 
 
@@ -239,17 +247,26 @@ def cron_detail(rest: str) -> str:
     return re.sub(r"\s+", " ", rest)[:48]
 
 
-ID_BY_SCRIPT = {  # basename overrides (comment tags are unreliable prose)
-    "daily-standup.sh": "daily-standup",
-    "morning-rundown.sh": "zara-rundown",
-    "watch.mjs": "inbox-watch",
-    "aria-watch.mjs": "aria-support-watch",
-    "sync-codex-auth.sh": "sync-codex-auth",
-}
+def id_by_script() -> dict[str, str]:
+    """script basename -> loop id, from the labels config.
+
+    Crontab comment tags are free prose, so an explicit `script` in the config
+    is the reliable way to pin a job to its label.
+    """
+    out = {}
+    for lid, cfg in LOOPS.items():
+        s = cfg.get("script")
+        if s:
+            out[s] = lid
+    return out
+
+
+ID_BY_SCRIPT = id_by_script()
 
 
 def crontab_loops() -> list[dict]:
     loops = []
+    seen: dict[str, int] = {}
     for line in run(["crontab", "-l"]).splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" in line.split()[0]:
@@ -268,31 +285,28 @@ def crontab_loops() -> list[dict]:
         cid = ID_BY_SCRIPT.get(script.group(1)) if script else None
         if not cid:
             cid = cron_id(rest, comment)
-        if "capexodus" in rest:
-            m = re.search(r"sources[^a-zA-Z0-9]+(\w+)", rest)
-            cid = "capexodus-" + (m.group(1) if m else "job")
-        elif "planck" in rest:
-            m = re.search(r"/api/cron/([\w-]+)", rest)
-            slug = {"sync": "sync", "focus-schedule": "focus", "renew-watches": "renew",
-                    "gamification": "gamification", "weekly-digest": "weekly"}
-            cid = "planck-" + slug.get(m.group(1) if m else "", "job")
-        pub = PUBLIC.get(cid)
+        # several jobs can hit the same script or endpoint; keep ids unique so
+        # rows stay distinguishable (tag the crontab line to name it properly)
+        seen[cid] = seen.get(cid, 0) + 1
+        if seen[cid] > 1:
+            cid = f"{cid}-{seen[cid]}"
+        m = meta(cid)
         nxt = next_cron(expr)
         last = None
-        logf = LOG_OF.get(cid)
+        logf = log_path(cid)
         if logf and os.path.exists(logf):
             last = datetime.fromtimestamp(os.path.getmtime(logf), tz=timezone.utc).replace(microsecond=0)
         loops.append({
             "id": cid,
             "source": "crontab",
-            "label": (pub or {}).get("label", cid.replace("-", " ")),
-            "agent": (pub or {}).get("agent", AGENT_OF.get(cid, "ops")),
-            "cadence": (pub or {}).get("cadence", expr),
+            "label": m.get("label", cid.replace("-", " ")),
+            "agent": m.get("agent", "ops"),
+            "cadence": m.get("cadence", expr),
             "schedule": expr,
             "detail": cron_detail(rest),
             "last": ms(last), "next": ms(nxt),
             "lastHuman": human(last), "nextHuman": human(nxt),
-            "public": bool(pub),
+            "public": bool(m.get("public")),
             "missing": False,
         })
     return loops
