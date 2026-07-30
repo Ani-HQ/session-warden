@@ -588,11 +588,11 @@ render_client() {
   <section class="rise" style="--d:.18s">
     <div class="shead"><h2>Team</h2><span class="scount">5</span></div>
     <div class="roster">
-      <div class="row"><div class="who"><span class="av">M</span><div><b>Maya</b><span>Content &amp; Social · wage $55/mo</span></div></div><canvas class="spark" data-spark="[3,4,5,4,6,5,7,6,5,8,7,6,8,9]" width="96" height="28"></canvas><div class="score"><b>94</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">L</span><div><b>Leo</b><span>Customer Support · wage $51/mo</span></div></div><canvas class="spark" data-spark="[8,7,9,8,10,9,8,11,10,9,12,11,10,9]" width="96" height="28"></canvas><div class="score"><b>88</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">A</span><div><b>Ava</b><span>Operations · wage $48/mo</span></div></div><canvas class="spark" data-spark="[2,3,2,4,3,5,4,3,4,5,4,6,5,4]" width="96" height="28"></canvas><div class="score"><b>92</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">S</span><div><b>Sam</b><span>Bookkeeping · wage $33/mo</span></div></div><canvas class="spark" data-spark="[1,2,1,2,3,2,2,3,2,3,4,3,3,2]" width="96" height="28"></canvas><div class="score"><b>85</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">I</span><div><b>Iris</b><span>Your Assistant · wage $33/mo</span></div></div><canvas class="spark" data-spark="[4,3,5,4,4,5,6,5,4,5,6,5,7,6]" width="96" height="28"></canvas><div class="score"><b>91</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><div><b>Maya</b><span>Content &amp; Social · wage $55/mo</span></div></div><canvas class="spark" data-spark="[3,4,5,4,6,5,7,6,5,8,7,6,8,9]" width="96" height="28"></canvas><div class="score"><b>94</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><div><b>Leo</b><span>Customer Support · wage $51/mo</span></div></div><canvas class="spark" data-spark="[8,7,9,8,10,9,8,11,10,9,12,11,10,9]" width="96" height="28"></canvas><div class="score"><b>88</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><div><b>Ava</b><span>Operations · wage $48/mo</span></div></div><canvas class="spark" data-spark="[2,3,2,4,3,5,4,3,4,5,4,6,5,4]" width="96" height="28"></canvas><div class="score"><b>92</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><div><b>Sam</b><span>Bookkeeping · wage $33/mo</span></div></div><canvas class="spark" data-spark="[1,2,1,2,3,2,2,3,2,3,4,3,3,2]" width="96" height="28"></canvas><div class="score"><b>85</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><div><b>Iris</b><span>Your Assistant · wage $33/mo</span></div></div><canvas class="spark" data-spark="[4,3,5,4,4,5,6,5,4,5,6,5,7,6]" width="96" height="28"></canvas><div class="score"><b>91</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
     </div>
   </section>
   <footer class="foot rise" style="--d:.22s">Fleet · Ember &amp; Oak Coffee · managed for you</footer>
@@ -629,7 +629,7 @@ CVEOF
     [ -z "$spark" ] && spark="0,0,0,0,0,0,0,0,0,0,0,0,0,0"
     delay="$(python3 -c "print(f'{0.18 + 0.03 * $i:.2f}')")"
     rows+="<div class=\"row rise\" style=\"--d:${delay}s\" title=\"$(hesc "$did")\">"
-    rows+="<div class=\"who\"><span class=\"av\">${init}</span><div><b>$(hesc "$disp")</b><span>$(hesc "$rshort")</span></div></div>"
+    rows+="<div class=\"who\"><div><b>$(hesc "$disp")</b><span>$(hesc "$rshort")</span></div></div>"
     rows+="<canvas class=\"spark\" data-spark=\"[${spark}]\" width=\"96\" height=\"28\" aria-hidden=\"true\"></canvas>"
     rows+="<div class=\"score\"><b>${rscore}</b><span class=\"t-${tier}\">${sword}</span></div>"
     rows+="<span class=\"st on\">on</span></div>"
@@ -983,7 +983,6 @@ cat > "$tmp" <<HTML
   .cv .row:last-child{border-bottom:0}
   .cv .row:hover{background:#121217}
   .cv .who{display:flex;align-items:center;gap:12px;min-width:0}
-  .cv .av{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;font-size:12px;font-weight:600;background:#1a1a20;color:var(--acc);border:1px solid var(--line);flex-shrink:0}
   .cv .who b{display:block;font-size:13.5px;font-weight:550;letter-spacing:-.01em}
   .cv .who span{display:block;font-size:12px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}
   .cv .spark{width:96px;height:28px;display:block}
