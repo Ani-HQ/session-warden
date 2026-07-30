@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Collect redacted live fleet activity for fleet.ani.computer."""
+"""Collect redacted live fleet activity for the public fleet board."""
 from __future__ import annotations
 
 import json
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -13,19 +14,19 @@ HOME = Path(os.environ.get("HOME", str(Path.home())))
 OPENCLAW = HOME / ".openclaw"
 WARDEN = Path(os.environ.get("WARDEN_HOME", str(HOME / "session-warden")))
 OUT_DIR = Path(os.environ.get("FLEET_OUT", "/var/www/fleet"))
+
+# Branding. Everything here is optional — leave it unset and the board renders
+# unbranded rather than with somebody else's domain on it.
+SITE = {
+    "host": os.environ.get("FLEET_SITE", ""),            # e.g. ani.computer
+    "url": os.environ.get("FLEET_SITE_URL", ""),         # e.g. https://ani.computer
+    "note": os.environ.get("FLEET_FOOTER_NOTE", ""),     # e.g. private ops on health.ani.computer
+}
 ROSTER = WARDEN / "config" / "fleet-roster.tsv"
 OPENCLAW_JSON = OPENCLAW / "openclaw.json"
 
 ACTIVE_MINUTES = int(os.environ.get("FLEET_ACTIVE_MINUTES", "180"))
 NOW = int(time.time() * 1000)
-
-DISPLAY = [
-    ("ping", "work", "Content & SEO", "Owns the Adventures Of blog engine end-to-end", "#FFD166"),
-    ("dash", "work", "Ops & Outreach", "Pipelines, support backstop, standups, ad ops", "#FF6B6B"),
-    ("bloop", "work", "Design Engineer", "Landing pages, UI builds, visual craft on Opus", "#C77DFF"),
-    ("isaac", "work", "Engineer", "Code-heavy client work & technical escalations", "#4ECDC4"),
-    ("zara", "personal", "Chief of Staff", "Inbox, calendar, morning rundown, drafts", "#F4A261"),
-]
 
 COSTS_JSON = Path(os.environ.get("COSTS_JSON", str(WARDEN / "state" / "costs" / "costs.json")))
 TIMERS_COLLECT = WARDEN / "contrib" / "timers" / "collect.py"
@@ -90,16 +91,42 @@ def tidy_quest(text: str) -> str:
     return t
 
 
+def roster_rows() -> list[list[str]]:
+    if not ROSTER.exists():
+        return []
+    rows = []
+    for line in ROSTER.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split("\t")]
+        if len(parts) >= 4:
+            rows.append(parts)
+    return rows
+
+
+def short_role(role: str) -> str:
+    return role.split(" — ")[0].split(" (")[0]
+
+
 def load_roster_roles() -> dict[str, str]:
-    roles: dict[str, str] = {}
-    if ROSTER.exists():
-        for line in ROSTER.read_text().splitlines():
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) >= 4:
-                roles[parts[0]] = parts[3].split(" — ")[0].split(" (")[0]
-    return roles
+    return {r[0]: short_role(r[3]) for r in roster_rows()}
+
+
+def load_board() -> list[tuple[str, str, str, str]]:
+    """Agents to show on the public board, from config/fleet-roster.tsv.
+
+    Columns: agent, team, channel, role[, board, title, blurb]. The last three
+    are optional — a roster without them puts every agent on the board and
+    falls back to the role for the title.
+    """
+    board = []
+    for p in roster_rows():
+        if len(p) > 4 and p[4].lower() not in ("1", "true", "yes", ""):
+            continue
+        title = p[5] if len(p) > 5 and p[5] else short_role(p[3])
+        blurb = p[6] if len(p) > 6 and p[6] else p[3]
+        board.append((p[0], p[1], title, blurb))
+    return board
 
 
 def load_models() -> dict[str, dict]:
@@ -324,12 +351,19 @@ def main() -> None:
     roles = load_roster_roles()
     costs = load_costs()
     loops = load_loops()
+    board = load_board()
+    if not board:
+        print(
+            f"warning: no agents on the board — {ROSTER} is missing or empty "
+            "(copy config/fleet-roster.tsv.example to get started)",
+            file=sys.stderr,
+        )
     cost_by_agent = {a["id"]: a for a in costs.get("agents", [])}
 
     agents = []
     feed = []
     online = 0
-    for aid, team, title, blurb, color in DISPLAY:
+    for aid, team, title, blurb in board:
         s = by_agent.get(aid)
         quest, hint = extract_activity(aid)
         age = s.get("ageMs") if s else None
@@ -362,7 +396,6 @@ def main() -> None:
                 "role": role,
                 "team": team,
                 "blurb": blurb,
-                "color": color,
                 "status": status,
                 "quest": quest,
                 "model": pretty_model(str(model)),
@@ -399,10 +432,12 @@ def main() -> None:
         # board so cards reconcile; actual payroll is the true flat bill
         # (which also covers work by recently retired agents this month).
         visible_would = sum(a.get("worth") or 0.0 for a in agents)
+        visible_tokens = sum(a.get("tokens") or 0 for a in agents)
         actual = totals.get("actualCost")
         econ = {
             "windowLabel": window.get("label", ""),
             "daysElapsed": window.get("daysElapsed"),
+            "tokens": visible_tokens,
             "wouldCost": round(visible_would, 2),
             "actualCost": actual,
             "savings": round(visible_would - (actual or 0), 2) if actual is not None else None,
@@ -422,11 +457,10 @@ def main() -> None:
     payload = {
         "generatedAt": NOW,
         "generatedAtIso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "fleet": "ani.computer",
-        "tagline": "Live look at Ani's agent fleet — redacted for public spectating.",
+        "site": SITE,
         "stats": {
             "online": online,
-            "total": len(DISPLAY),
+            "total": len(board),
             "sessionsActive": len(sessions),
             "fallbackReady": True,
         },

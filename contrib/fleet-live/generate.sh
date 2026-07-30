@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fleet-live/generate.sh — public redacted spectator board for fleet.ani.computer
+# fleet-live/generate.sh — build the public redacted spectator board
 set -euo pipefail
 
 export HOME="${HOME:-/home/$(id -un)}"
@@ -11,6 +11,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export SCRIPT_DIR
 export FLEET_OUT="${FLEET_OUT:-/var/www/fleet}"
 mkdir -p "$FLEET_OUT"
+
+# Optional branding for this deployment — gitignored, see site.env.example.
+# Without it the board renders unbranded rather than with someone else's domain.
+# shellcheck source=/dev/null
+[ -f "$SCRIPT_DIR/site.env" ] && . "$SCRIPT_DIR/site.env"
 
 python3 "$SCRIPT_DIR/collect.py"
 python3 "$SCRIPT_DIR/bake.py"

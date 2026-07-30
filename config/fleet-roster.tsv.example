@@ -1,0 +1,28 @@
+# fleet-roster.tsv — production OpenClaw agents reviewed by bin/fleet-review.sh
+# and rendered on the public board by contrib/fleet-live/.
+#
+# Copy to config/fleet-roster.tsv and edit — that path is gitignored, so your
+# agent names and role descriptions never land in a commit.
+#
+# Model is resolved at runtime from ~/.openclaw/openclaw.json (single source of
+# truth); only the editorial fields live here.
+#
+# Columns (tab-separated). The first four are required, the last three are
+# optional — omit them and every agent shows on the board with its role as the
+# title.
+#
+#   agent    OpenClaw agent id, must match ~/.openclaw/agents/<id>/
+#   team     free-form grouping, e.g. work / personal / internal
+#   channel  where it is reachable, e.g. discord / telegram / internal
+#   role     one-line mandate; text before an em dash is used as a short role
+#   board    1 to show on the public fleet board, 0 to keep it off
+#   title    short display title on the board card, e.g. "Content & SEO"
+#   blurb    one-line description shown when a board card is expanded
+#
+# agent	team	channel	role	board	title	blurb
+alex	work	discord	content & SEO — owns the blog end to end (research, draft, SEO pass, publish)	1	Content & SEO	Owns the blog pipeline end to end
+robin	work	discord	design engineer — landing pages, UI builds, visual assets	1	Design Engineer	Landing pages, UI builds, visual craft
+sam	work	discord	ops — outbound pipeline, support backstop, daily standup	1	Ops & Outreach	Pipelines, support backstop, standups
+jules	work	discord	engineer — code-heavy project work and technical escalations	1	Engineer	Code-heavy work & technical escalations
+iris	personal	telegram	chief of staff — inbox and calendar triage, morning brief, drafting	1	Chief of Staff	Inbox, calendar, morning brief, drafts
+worker	internal	internal	execution worker — spawned for heavy build loops or when the plan is exhausted	0	Execution Worker	Spawned by other agents for heavy build loops
