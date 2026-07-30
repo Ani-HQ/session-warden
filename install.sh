@@ -84,6 +84,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
   exit 0
 fi
 echo "  [ok] Config exists: $CONFIG_FILE"
+
+ROSTER_FILE="$WARDEN_HOME/config/fleet-roster.tsv"
+if [ ! -f "$ROSTER_FILE" ]; then
+  cp "$WARDEN_HOME/config/fleet-roster.tsv.example" "$ROSTER_FILE"
+  echo "  [new] Roster created: $ROSTER_FILE — edit it to list your agents"
+fi
 echo ""
 
 # ─── Make scripts executable ──────────────────────────────

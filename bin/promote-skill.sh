@@ -20,6 +20,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/roster.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
 
 LOG_FILE="${WARDEN_HOME}/state/harvest.log"
@@ -55,11 +56,7 @@ if [ -e "$dest_dir" ]; then
   exit 1
 fi
 
-# Keep in sync with bin/reflect.sh / bin/apply-lessons.sh.
-case "$AGENT" in
-  ping|bloop|dash|isaac) SCOPE="work" ;;
-  *)                     SCOPE="personal" ;;
-esac
+SCOPE="$(team_for "$AGENT")"
 
 # 1. Move the pending skill into the live skills dir.
 mkdir -p "$(dirname "$dest_dir")"

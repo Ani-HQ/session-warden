@@ -26,11 +26,12 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/roster.sh"
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 [ -f "${WARDEN_HOME}/lib/notify.sh" ] && source "${WARDEN_HOME}/lib/notify.sh"
 
 # Defaults (override in config/thresholds.env)
-HARVEST_AGENTS="${WARDEN_HARVEST_AGENTS:-ping bloop dash isaac zara kai nova remy}"
+HARVEST_AGENTS="${WARDEN_HARVEST_AGENTS:-$(roster_agents)}"
 HARVEST_MODEL="${WARDEN_HARVEST_MODEL:-claude-sonnet-4-6}"
 WINDOW_DAYS="${WARDEN_HARVEST_WINDOW_DAYS:-7}"
 WINDOW_MINUTES=$((WINDOW_DAYS * 1440))

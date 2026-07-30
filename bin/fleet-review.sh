@@ -3,15 +3,15 @@
 #
 # The model scorecard (bin/scorecard.sh) benchmarks the experimental Hermes
 # agents on synthetic tasks. That tells you nothing about how the agents doing
-# actual revenue work — the Discord work team (ping/bloop/dash/isaac) and the
-# personal Telegram team (zara/kai/nova/...) — are performing on their REAL
+# actual revenue work — every agent in config/fleet-roster.tsv, grouped by the
+# team column — are performing on their REAL
 # jobs. This job closes that gap: for each production agent it harvests the
 # work it actually did over the past week (from its session transcripts),
 # then a judge scores that real output against a role-aware quality bar and
 # writes a 0-100 score + a one-line insight + one recommended action.
 #
 # Dormant agents (no sessions in the window) are recorded as idle, not scored
-# or penalised. An agent that correctly does nothing (e.g. zara returning
+# or penalised. An agent that correctly does nothing (e.g. a chief-of-staff agent returning
 # NO_REPLY on marketing mail) is good filtering — the harvester collapses those
 # runs so the judge sees the substantive work, and the judge is told as much.
 #

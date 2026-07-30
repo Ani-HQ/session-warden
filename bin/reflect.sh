@@ -26,12 +26,13 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/roster.sh"
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/extract.sh"
 [ -f "${WARDEN_HOME}/lib/notify.sh" ] && source "${WARDEN_HOME}/lib/notify.sh"
 
 # Defaults (override in config/thresholds.env)
-REFLECT_AGENTS="${WARDEN_REFLECT_AGENTS:-ping bloop dash isaac zara kai nova remy}"
+REFLECT_AGENTS="${WARDEN_REFLECT_AGENTS:-$(roster_agents)}"
 REFLECT_MODEL="${WARDEN_REFLECT_MODEL:-claude-sonnet-4-6}"
 VERIFY_MODEL="${WARDEN_REFLECT_VERIFY_MODEL:-claude-haiku-4-5-20251001}"
 AUTO_APPLY="${WARDEN_REFLECT_AUTO_APPLY:-0}"
@@ -65,13 +66,6 @@ CLAUDE_BASE="${WARDEN_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
 OPENCLAW_BASE="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}"
 
 # work/personal team mapping (used for logging and by apply-lessons.sh for
-# GBrain scope). Keep in sync with bin/apply-lessons.sh.
-team_for() {
-  case "$1" in
-    ping|bloop|dash|isaac) echo "work" ;;
-    *)                     echo "personal" ;;
-  esac
-}
 
 # Extract the agent's own "## General rules" + "## Lessons learned" sections
 # from MEMORY.md, skipping the warden-injected context block (which contains

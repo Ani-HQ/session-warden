@@ -20,6 +20,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/roster.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
 
 LOG_FILE="${WARDEN_HOME}/state/reflect.log"
@@ -41,11 +42,7 @@ memfile="${agent_home}/MEMORY.md"
 [ -d "$agent_home" ] || { echo "no such agent: ${AGENT} (${agent_home})" >&2; exit 1; }
 [ -f "$memfile" ]    || { echo "no MEMORY.md for ${AGENT} (${memfile})" >&2; exit 1; }
 
-# Keep in sync with bin/reflect.sh.
-case "$AGENT" in
-  ping|bloop|dash|isaac) SCOPE="work" ;;
-  *)                     SCOPE="personal" ;;
-esac
+SCOPE="$(team_for "$AGENT")"
 
 # Same section-aware insert as reflect.sh: append at the end of the
 # "## Lessons learned" section that lives below the warden block.

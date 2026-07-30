@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Fleet — ani.computer</title>
-  <meta name="description" content="A public window into Ani's AI agent fleet — live quests, real payroll, redacted for spectating." />
+  <title>Agents on the clock — live fleet board</title>
+  <meta name="description" content="A public window into an AI agent fleet — live quests, real payroll, redacted for spectating." />
   <meta name="robots" content="index,follow" />
   <meta name="theme-color" content="#ffffff" />
   <meta name="color-scheme" content="light" />
-  <meta property="og:title" content="Fleet — ani.computer" />
+  <meta property="og:title" content="Agents on the clock — live fleet board" />
   <meta property="og:description" content="Agents on subscription payrolls, doing real work right now. Watch them live." />
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://fleet.ani.computer/" />
+  <meta property="og:url" content="" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -166,7 +166,7 @@
       padding: 16px 18px 14px; margin-bottom: 26px; overflow: hidden;
     }
     .paygrid {
-      display: grid; grid-template-columns: repeat(3, 1fr);
+      display: grid; grid-template-columns: repeat(4, 1fr);
       margin-bottom: 16px;
     }
     .pcell { padding: 2px 20px; border-left: 1px solid var(--line); }
@@ -363,7 +363,7 @@
   <a class="skip" href="#main">Skip to fleet</a>
   <div class="wrap">
     <header class="top rise" style="--d:.02s">
-      <div class="wordmark">ani<span class="dim">.computer / fleet</span><span class="cursor" aria-hidden="true"></span></div>
+      <div class="wordmark" id="wordmark"><span class="dim">fleet</span><span class="cursor" aria-hidden="true"></span></div>
       <div class="live" id="livepill" aria-live="polite"><i aria-hidden="true"></i> LIVE · connecting…</div>
     </header>
     <div class="arule rise" style="--d:.04s" aria-hidden="true"></div>
@@ -381,6 +381,11 @@
     <section class="payroll rise" style="--d:.1s" id="payroll" hidden>
       <div class="slabel"><span>// fleet payroll · <b id="p-window">this month</b></span><span class="r" id="p-note">would-cost at API list prices</span></div>
       <div class="paygrid">
+        <div class="pcell">
+          <div class="k">tokens burned</div>
+          <div class="v" id="p-tokens">—</div>
+          <div class="s">month to date, across the agents below</div>
+        </div>
         <div class="pcell">
           <div class="k">work delivered</div>
           <div class="v" id="p-would">—</div>
@@ -417,8 +422,8 @@
 
     <div class="arule rise" style="--d:.24s" aria-hidden="true"></div>
     <footer class="foot rise" style="--d:.26s">
-      <div>fleet.ani.computer · redacted spectator board · updates ~every 2 min · payroll at API list prices, subscriptions at face value</div>
-      <div><a href="https://ani.computer">ani.computer</a> · private ops on health.ani.computer</div>
+      <div><span id="f-host"></span>redacted spectator board · updates ~every 2 min · payroll at API list prices, subscriptions at face value</div>
+      <div id="f-site" hidden></div>
     </footer>
   </div>
 
@@ -568,6 +573,7 @@
       if (!e || e.wouldCost == null) { band.hidden = true; return; }
       band.hidden = false;
       $('p-window').textContent = e.windowLabel || 'this month';
+      $('p-tokens').textContent = compactTokens(e.tokens);
       $('p-would').innerHTML = money(e.wouldCost, 0) + '<small>API value</small>';
       $('p-actual').innerHTML = money(e.actualCost, 0) + '<small>actual</small>';
       var pct = e.savingsPct != null ? e.savingsPct : null;
@@ -685,7 +691,29 @@
       if (total) $('h-count').textContent = String(total);
     }
 
+    // Branding is optional and comes from live.json, so the shipped page is
+    // unbranded until an operator sets FLEET_SITE for their own deployment.
+    function renderSite() {
+      var s = (data && data.site) || {};
+      if (!s.host) return;
+      var dot = s.host.indexOf('.');
+      var head = dot > 0 ? s.host.slice(0, dot) : s.host;
+      var rest = dot > 0 ? s.host.slice(dot) : '';
+      $('wordmark').innerHTML = escapeHtml(head) +
+        '<span class="dim">' + escapeHtml(rest) + ' / fleet</span>' +
+        '<span class="cursor" aria-hidden="true"></span>';
+      document.title = 'Fleet — ' + s.host;
+      $('f-host').textContent = 'fleet.' + s.host + ' · ';
+      if (s.url || s.note) {
+        var line = s.url ? '<a href="' + escapeHtml(s.url) + '">' + escapeHtml(s.host) + '</a>' : escapeHtml(s.host);
+        if (s.note) line += ' · ' + escapeHtml(s.note);
+        $('f-site').innerHTML = line;
+        $('f-site').hidden = false;
+      }
+    }
+
     function renderAll() {
+      renderSite();
       renderLive();
       renderLoops();
       renderEcon();
