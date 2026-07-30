@@ -31,8 +31,21 @@ stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/
   identical — the failure mode predicted in #31. Writes now compare content
   with the clock blanked, so an unchanged summary leaves the file untouched.
   A changed summary, session id, or channel still rewrites as before.
+- `lib/memory.sh`: move the injected block **below** the agent's own memory
+  instead of above it. Because a cache is invalidated from the first differing
+  byte onward, putting the only volatile section on line 1 meant a legitimate
+  summary change discarded the entire file — for the largest agent in the
+  fleet, 11.3KB thrown away to update 2.2KB. With the block last, the 9.2KB of
+  stable rules and lessons above it stay warm. Existing files migrate on their
+  next write; no manual step.
+- `bin/reflect.sh`, `bin/apply-lessons.sh`: close the `## Lessons learned`
+  section when the warden block starts, so new bullets are still inserted above
+  it rather than flushed at end-of-file underneath it. Works under either
+  layout.
 - `tests/test-memory.sh`: exercise the real `write_workspace_context` against
-  the sandbox instead of a hand-copied stub that had drifted from it.
+  the sandbox instead of a hand-copied stub that had drifted from it. Adds
+  coverage for the migration and for the cached prefix staying byte-identical
+  across a real summary change.
 
 ### Changed — health dashboard information architecture
 

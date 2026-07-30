@@ -45,7 +45,7 @@ memfile="${agent_home}/MEMORY.md"
 SCOPE="$(team_for "$AGENT")"
 
 # Same section-aware insert as reflect.sh: append at the end of the
-# "## Lessons learned" section that lives below the warden block.
+# "## Lessons learned" section, which sits above the warden block.
 append_to_lessons() {
   local bullets_file="$1"
   awk -v bf="$bullets_file" '
@@ -54,7 +54,7 @@ append_to_lessons() {
       while ((getline line < bf) > 0) print line
       close(bf); print ""; done=1
     }
-    /<!-- SESSION-WARDEN-START -->/ {inwb=1}
+    /<!-- SESSION-WARDEN-START -->/ {if (insec) {flush(); insec=0} inwb=1}
     /<!-- SESSION-WARDEN-END -->/   {inwb=0; print; next}
     inwb {print; next}
     insec && /^## / {flush(); insec=0}

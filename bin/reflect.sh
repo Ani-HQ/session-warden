@@ -83,8 +83,8 @@ existing_rules() {
   ' "$memfile"
 }
 
-# Append a bullets file at the end of the "## Lessons learned" section that
-# lives BELOW the warden block. In-place via temp file.
+# Append a bullets file at the end of the "## Lessons learned" section, which
+# sits above the warden block. In-place via temp file.
 append_to_lessons() {
   local memfile="$1" bullets_file="$2"
   [ -f "$memfile" ] || return 1
@@ -94,7 +94,7 @@ append_to_lessons() {
       while ((getline line < bf) > 0) print line
       close(bf); print ""; done=1
     }
-    /<!-- SESSION-WARDEN-START -->/ {inwb=1}
+    /<!-- SESSION-WARDEN-START -->/ {if (insec) {flush(); insec=0} inwb=1}
     /<!-- SESSION-WARDEN-END -->/   {inwb=0; print; next}
     inwb {print; next}
     insec && /^## / {flush(); insec=0}
