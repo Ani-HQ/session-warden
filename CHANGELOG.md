@@ -15,7 +15,7 @@ stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/
   sends a Telegram digest. Dormant agents are recorded as idle, not penalised;
   runs of routine no-op turns (e.g. NO_REPLY triage) are collapsed so the judge
   sees substantive work. Closes the gap where the Discord work team
-  (ping/bloop/dash/isaac) had no performance signal — only the experimental
+  (the work-team agents) had no performance signal — only the experimental
   Hermes agents were benchmarked by the model scorecard. Weekly via
   `deploy/fleet-review.{service,timer}` (Sat 06:30 UTC).
 - `lib/notify.sh`: `notify_fleet` Telegram digest helper.

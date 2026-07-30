@@ -4,7 +4,7 @@ Drop executable `.sh` scripts here. They run after each session is summarized, w
 
 | Variable | Description |
 |---|---|
-| `WARDEN_AGENT` | Agent name (e.g., `ping`) |
+| `WARDEN_AGENT` | Agent name (e.g., `researcher`) |
 | `WARDEN_CHANNEL_KEY` | Full channel key |
 | `WARDEN_SESSION_ID` | Claude CLI session ID |
 | `WARDEN_MEMORY_FILE` | Path to the generated memory file |

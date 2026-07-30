@@ -36,11 +36,12 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARDEN_HOME="${WARDEN_HOME:-$(dirname "$SCRIPT_DIR")}"
 source "${WARDEN_HOME}/config/thresholds.env"
+source "${WARDEN_HOME}/lib/roster.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
 [ -f "${WARDEN_HOME}/lib/notify.sh" ] && source "${WARDEN_HOME}/lib/notify.sh"
 
 # Defaults (override in config/thresholds.env)
-EVAL_AGENTS="${WARDEN_EVAL_AGENTS:-ping bloop dash isaac zara kai nova remy}"
+EVAL_AGENTS="${WARDEN_EVAL_AGENTS:-$(roster_agents)}"
 EVAL_MODEL="${WARDEN_EVAL_MODEL:-claude-sonnet-4-6}"
 EVAL_JUDGE_MODEL="${WARDEN_EVAL_JUDGE_MODEL:-claude-haiku-4-5-20251001}"
 EVAL_GEN_MODEL="${WARDEN_EVAL_GEN_MODEL:-claude-sonnet-4-6}"
