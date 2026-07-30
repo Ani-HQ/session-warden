@@ -226,6 +226,27 @@ ${content}" 2>/dev/null)
   echo "$compacted" > "$mem_file"
 }
 
+# Write $2 to $1 only if the content differs, ignoring the timestamp line.
+#
+# These files are part of the agent's system prompt, and context-sync rewrites
+# them every few minutes. Any changed byte invalidates the provider's cached
+# prefix from that point on, so stamping a fresh time when nothing else moved
+# costs a full prefix re-write and buys nothing. Returns 0 if written, 1 if the
+# file was left alone.
+write_if_content_changed() {
+  local file="$1" content="$2" cur new
+  # Blank the clock but keep the rest of the header — session id and channel
+  # live on that line too, and a change in either is a real change.
+  local strip='s/^(_(Last updated|Updated): )[^|]*/\1<ts>/'
+  if [ -f "$file" ]; then
+    cur=$(sed -E "$strip" "$file")
+    new=$(printf '%s' "$content" | sed -E "$strip")
+    [ "$cur" = "$new" ] && return 1
+  fi
+  printf '%s' "$content" > "$file"
+  return 0
+}
+
 # Write session context to workspace files that bootstrap auto-loads.
 # This is the system-level guarantee: the agent receives context in its system
 # prompt without needing to voluntarily read files.
@@ -250,18 +271,22 @@ write_workspace_context() {
     crash_buffer_content=$(read_crash_buffer "$agent" "$channel_key")
   fi
 
-  cat > "$context_file" << CTXEOF
-_Last updated: ${ts} | Session: ${cli_session_id} | Channel: ${channel_key}_
+  local context_content
+  context_content="_Last updated: ${ts} | Session: ${cli_session_id} | Channel: ${channel_key}_
 
 ${summary}
-CTXEOF
-
-  # Append crash buffer if present
+"
   if [ -n "$crash_buffer_content" ]; then
-    printf '\n%s\n' "$crash_buffer_content" >> "$context_file"
+    context_content="${context_content}
+${crash_buffer_content}
+"
   fi
 
-  log "MEMORY: wrote CONTEXT.md for $agent ($(stat_size "$context_file") bytes, crash_buffer=$([ -n "$crash_buffer_content" ] && echo "yes" || echo "no"))"
+  if write_if_content_changed "$context_file" "$context_content"; then
+    log "MEMORY: wrote CONTEXT.md for $agent ($(stat_size "$context_file") bytes, crash_buffer=$([ -n "$crash_buffer_content" ] && echo "yes" || echo "no"))"
+  else
+    log "MEMORY: CONTEXT.md unchanged for $agent — left alone to keep the prompt cache warm"
+  fi
 
   # 2. Inject into workspace MEMORY.md (bootstrap loads this into system prompt)
   local existing=""
@@ -286,8 +311,8 @@ ${crash_buffer_content}
 "
   fi
 
-  cat > "$memory_file" << MEMEOF
-${crash_buffer_block}<!-- SESSION-WARDEN-START -->
+  local memory_content
+  memory_content="${crash_buffer_block}<!-- SESSION-WARDEN-START -->
 ## Previous Session Context (auto-injected by session-warden, do not edit this section)
 
 _Updated: ${ts} | Channel: ${channel_key}_
@@ -296,7 +321,12 @@ ${summary}
 
 <!-- SESSION-WARDEN-END -->
 ${existing}
-MEMEOF
+"
 
-  log "MEMORY: injected context into workspace MEMORY.md for $agent"
+  if write_if_content_changed "$memory_file" "$memory_content"; then
+    log "MEMORY: injected context into workspace MEMORY.md for $agent"
+  else
+    log "MEMORY: MEMORY.md unchanged for $agent — left alone to keep the prompt cache warm"
+  fi
+  return 0
 }

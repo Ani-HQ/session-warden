@@ -9,6 +9,7 @@ log() {
   echo "[$(date_iso_seconds)] $*" >> "${WARDEN_LOG_FILE:-/dev/null}"
 }
 
+source "$WARDEN_HOME/lib/portable.sh"
 source "$WARDEN_HOME/lib/extract.sh"
 source "$WARDEN_HOME/lib/memory.sh"
 
@@ -20,43 +21,13 @@ claude_memory_dir() {
   echo "$dir"
 }
 
-# Override write_workspace_context to use sandbox
+# Run the REAL write_workspace_context against the sandbox rather than a stub.
+# A hand-copied stub drifts from the implementation and hides regressions in it.
+WARDEN_OPENCLAW_HOME="$SANDBOX/openclaw"
+eval "orig_write_workspace_context() $(declare -f write_workspace_context | tail -n +2)"
 write_workspace_context() {
-  local agent="$1" summary="$2" cli_session_id="$3" channel_key="$4"
-  local workspace="$SANDBOX/openclaw/agents/${agent}"
-  mkdir -p "$workspace"
-
-  local context_file="${workspace}/CONTEXT.md"
-  local memory_file="${workspace}/MEMORY.md"
-  local ts
-  ts=$(date_iso_seconds)
-
-  cat > "$context_file" << CTXEOF
-_Last updated: ${ts} | Session: ${cli_session_id} | Channel: ${channel_key}_
-
-${summary}
-CTXEOF
-
-  local existing=""
-  if [ -f "$memory_file" ]; then
-    existing=$(awk '
-      /^<!-- SESSION-WARDEN-START -->/{skip=1; next}
-      /^<!-- SESSION-WARDEN-END -->/{skip=0; next}
-      !skip{print}
-    ' "$memory_file")
-  fi
-
-  cat > "$memory_file" << MEMEOF
-<!-- SESSION-WARDEN-START -->
-## Previous Session Context (auto-injected by session-warden, do not edit this section)
-
-_Updated: ${ts} | Channel: ${channel_key}_
-
-${summary}
-
-<!-- SESSION-WARDEN-END -->
-${existing}
-MEMEOF
+  mkdir -p "${WARDEN_OPENCLAW_HOME}/agents/${1}"
+  orig_write_workspace_context "$@"
 }
 
 echo "  memory: claude_memory_dir"
@@ -197,3 +168,46 @@ assert_contains "$mem_content" "description:" "memory file has description field
 assert_contains "$mem_content" "type: project" "memory file has type field"
 
 rm -f "$transcript_file"
+
+echo "  memory: prompt-cache stability"
+
+# ─── Rewriting is what invalidates the prompt cache ──────
+# MEMORY.md and CONTEXT.md are part of the agent's system prompt and
+# context-sync rewrites them every few minutes. Touching them when only the
+# clock moved throws away the provider's cached prefix for no new information.
+
+cdir="$SANDBOX/openclaw/agents/cache-agent"
+
+write_workspace_context "cache-agent" "Steady summary." "sess-cache-1" "discord-general"
+assert_file_exists "$cdir/MEMORY.md" "MEMORY.md created on first write"
+c_mem=$(md5sum "$cdir/MEMORY.md" | cut -d' ' -f1)
+c_ctx=$(md5sum "$cdir/CONTEXT.md" | cut -d' ' -f1)
+c_mtime=$(stat_mtime "$cdir/MEMORY.md")
+
+sleep 1
+write_workspace_context "cache-agent" "Steady summary." "sess-cache-1" "discord-general"
+assert_eq "$c_mem" "$(md5sum "$cdir/MEMORY.md" | cut -d' ' -f1)" \
+  "MEMORY.md unchanged when only the timestamp would move"
+assert_eq "$c_ctx" "$(md5sum "$cdir/CONTEXT.md" | cut -d' ' -f1)" \
+  "CONTEXT.md unchanged when only the timestamp would move"
+assert_eq "$c_mtime" "$(stat_mtime "$cdir/MEMORY.md")" \
+  "MEMORY.md not rewritten at all (mtime held)"
+
+# ─── but any real change must still land ─────────────────
+
+sleep 1
+write_workspace_context "cache-agent" "A different summary entirely." "sess-cache-1" "discord-general"
+assert_contains "$(cat "$cdir/MEMORY.md")" "different summary entirely" \
+  "MEMORY.md rewritten when the summary changed"
+
+sleep 1
+write_workspace_context "cache-agent" "A different summary entirely." "sess-cache-2" "discord-general"
+assert_contains "$(cat "$cdir/CONTEXT.md")" "sess-cache-2" \
+  "CONTEXT.md rewritten when the session id changed"
+
+write_workspace_context "cache-agent" "A different summary entirely." "sess-cache-2" "telegram-dm"
+assert_contains "$(cat "$cdir/MEMORY.md")" "telegram-dm" \
+  "MEMORY.md rewritten when the channel changed"
+
+assert_eq "1" "$(grep -c "SESSION-WARDEN-START" "$cdir/MEMORY.md")" \
+  "still exactly one marker block after conditional rewrites"
