@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Fleet Live — ani.computer</title>
-  <meta name="description" content="Spectate Ani’s AI agent fleet in real time. Redacted. Public. A little bit of a game." />
+  <title>Fleet — ani.computer</title>
+  <meta name="description" content="A public window into Ani's AI agent fleet — live quests, real payroll, redacted for spectating." />
   <meta name="robots" content="index,follow" />
-  <meta name="theme-color" content="#070b10" />
+  <meta name="theme-color" content="#05080c" />
   <meta name="color-scheme" content="dark" />
-  <meta property="og:title" content="Fleet Live — ani.computer" />
-  <meta property="og:description" content="Watch the agent holding company work — quests, patrols, fallbacks. Sensitive stuff stripped." />
+  <meta property="og:title" content="Fleet — ani.computer" />
+  <meta property="og:description" content="Agents on subscription payrolls, doing real work right now. Watch them live." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://fleet.ani.computer/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,22 +18,19 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #070b10;
-      --panel: #0e151c;
-      --panel-2: #121b24;
-      --line: rgba(232, 241, 234, 0.10);
-      --line-strong: rgba(232, 241, 234, 0.18);
-      --fog: #8fa39a;
-      --paper: #e7f0ea;
+      --bg: #05080c;
+      --panel: #0b1118;
+      --panel-2: #0e151e;
+      --line: rgba(231, 240, 234, 0.09);
+      --line-strong: rgba(231, 240, 234, 0.16);
+      --fog: #93a69b;
+      --paper: #e9f2ec;
       --mint: #6ef3a8;
-      --mint-dim: rgba(110, 243, 168, 0.14);
+      --mint-dim: rgba(110, 243, 168, 0.13);
       --amber: #ffc45a;
-      --amber-dim: rgba(255, 196, 90, 0.14);
       --sky: #7ec8ff;
-      --sky-dim: rgba(126, 200, 255, 0.12);
-      --mute: #5d6e66;
+      --mute: #5b6c63;
       --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-      --ease-inout: cubic-bezier(0.77, 0, 0.175, 1);
       --safe-b: env(safe-area-inset-bottom, 0px);
       --safe-t: env(safe-area-inset-top, 0px);
     }
@@ -45,8 +42,8 @@
       font-family: "IBM Plex Mono", ui-monospace, monospace;
       color: var(--paper);
       background:
-        radial-gradient(900px 520px at 12% -8%, rgba(110,243,168,.10), transparent 55%),
-        radial-gradient(700px 420px at 100% 0%, rgba(255,196,90,.06), transparent 45%),
+        radial-gradient(1000px 480px at 8% -10%, rgba(110, 243, 168, 0.08), transparent 58%),
+        radial-gradient(760px 420px at 104% -4%, rgba(255, 196, 90, 0.05), transparent 50%),
         var(--bg);
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
@@ -55,100 +52,127 @@
     a:hover { color: #9affc6; }
     .skip {
       position: absolute; left: -999px; top: 0; background: var(--mint); color: #06110b;
-      padding: 8px 12px; z-index: 20; border-radius: 0 0 8px 0; font-weight: 600;
+      padding: 8px 12px; z-index: 30; border-radius: 0 0 8px 0; font-weight: 600;
     }
     .skip:focus { left: 0; }
     .wrap {
-      width: min(1080px, calc(100% - 28px));
+      width: min(1120px, calc(100% - 32px));
       margin: 0 auto;
-      padding: calc(18px + var(--safe-t)) 0 calc(48px + var(--safe-b));
+      padding: calc(20px + var(--safe-t)) 0 calc(56px + var(--safe-b));
     }
+    .rise { opacity: 0; transform: translateY(10px); animation: rise 0.6s var(--ease-out) forwards; animation-delay: var(--d, 0s); }
+    @keyframes rise { to { opacity: 1; transform: none; } }
 
-    /* —— hero: one composition —— */
-    .hero {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 16px 20px;
-      align-items: end;
-      margin-bottom: 22px;
+    /* —— header —— */
+    .top {
+      display: flex; justify-content: space-between; align-items: center; gap: 14px;
+      margin-bottom: 26px;
     }
-    .brand {
+    .wordmark {
       font-family: Syne, system-ui, sans-serif;
-      font-weight: 800;
-      font-size: clamp(2.6rem, 8vw, 4.8rem);
-      letter-spacing: -0.045em;
-      line-height: 0.9;
-      margin: 0;
-      text-wrap: balance;
-      translate: no;
+      font-weight: 800; font-size: 15px; letter-spacing: 0.02em;
+      display: inline-flex; align-items: center; gap: 10px;
     }
-    .brand em {
-      font-style: normal;
-      color: var(--mint);
+    .wordmark .sq {
+      width: 12px; height: 12px; border-radius: 3.5px;
+      background: linear-gradient(135deg, var(--mint), #2fbf71);
+      box-shadow: 0 0 16px rgba(110, 243, 168, 0.35);
     }
-    .tag {
-      grid-column: 1;
-      margin: 0;
-      max-width: 42ch;
-      color: var(--fog);
-      font-size: 13px;
-      line-height: 1.55;
-      text-wrap: pretty;
-    }
+    .wordmark span.dim { color: var(--fog); font-weight: 700; }
     .live {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      align-self: start;
+      display: inline-flex; align-items: center; gap: 8px;
       border: 1px solid var(--line);
-      background: rgba(14, 21, 28, 0.85);
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-size: 12px;
-      color: var(--fog);
-      white-space: nowrap;
+      background: rgba(11, 17, 24, 0.8);
+      padding: 7px 12px; border-radius: 999px;
+      font-size: 11.5px; color: var(--fog); white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
     .live i {
       width: 7px; height: 7px; border-radius: 50%; background: var(--mint);
-      box-shadow: 0 0 0 0 var(--mint-dim);
       animation: pulse 2s var(--ease-out) infinite;
     }
     @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(110,243,168,.45); }
-      70% { box-shadow: 0 0 0 9px rgba(110,243,168,0); }
-      100% { box-shadow: 0 0 0 0 rgba(110,243,168,0); }
+      0% { box-shadow: 0 0 0 0 rgba(110, 243, 168, 0.45); }
+      70% { box-shadow: 0 0 0 9px rgba(110, 243, 168, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(110, 243, 168, 0); }
     }
-    .strip {
-      grid-column: 1 / -1;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px 14px;
-      align-items: baseline;
-      color: var(--fog);
-      font-size: 12px;
+
+    /* —— hero —— */
+    .hero { margin-bottom: 26px; }
+    .hero h1 {
+      font-family: Syne, system-ui, sans-serif;
+      font-weight: 800;
+      font-size: clamp(2.5rem, 7.5vw, 4.4rem);
+      letter-spacing: -0.045em;
+      line-height: 0.94;
+      margin: 0 0 14px;
+      text-wrap: balance;
+    }
+    .hero h1 em { font-style: normal; color: var(--mint); }
+    .hero .sub {
+      margin: 0; max-width: 56ch;
+      color: var(--fog); font-size: 13.5px; line-height: 1.6;
+      text-wrap: pretty;
+    }
+    .hero .sub b { color: var(--paper); font-weight: 600; }
+
+    /* —— payroll band —— */
+    .payroll {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background:
+        linear-gradient(160deg, rgba(110, 243, 168, 0.05), transparent 45%),
+        var(--panel);
+      padding: 20px 22px 18px;
+      margin-bottom: 26px;
+      overflow: hidden;
+    }
+    .payroll .plabel {
+      font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--fog); margin-bottom: 14px;
+      display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    }
+    .payroll .plabel .right { color: var(--mute); letter-spacing: 0.06em; text-transform: none; }
+    .paygrid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+      margin-bottom: 16px;
+    }
+    .pcell .k { font-size: 11px; color: var(--fog); margin-bottom: 6px; }
+    .pcell .v {
+      font-family: Syne, system-ui, sans-serif;
+      font-size: clamp(1.7rem, 4.5vw, 2.5rem);
+      font-weight: 800; letter-spacing: -0.03em; line-height: 1;
       font-variant-numeric: tabular-nums;
-      padding-top: 2px;
     }
-    .strip b { color: var(--paper); font-weight: 600; }
-    .strip .sep { color: var(--mute); }
+    .pcell .v small { font-size: 0.45em; font-weight: 700; color: var(--fog); letter-spacing: 0; margin-left: 4px; }
+    .pcell.would .v { color: var(--paper); }
+    .pcell.actual .v { color: var(--mint); }
+    .pcell.saved .v { color: var(--amber); }
+    .pcell .s { font-size: 11px; color: var(--mute); margin-top: 7px; line-height: 1.45; }
+    .paybar {
+      height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.07);
+      position: relative; overflow: hidden; margin-bottom: 12px;
+    }
+    .paybar i {
+      position: absolute; inset: 0 auto 0 0; width: 0%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, #2fbf71, var(--mint));
+      transition: width 900ms var(--ease-out);
+    }
+    .payplans { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pplan {
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 5px 11px; font-size: 11px; color: var(--fog);
+      font-variant-numeric: tabular-nums;
+    }
+    .pplan b { color: var(--paper); font-weight: 600; }
 
     /* —— filters —— */
-    .filters {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 0 0 14px;
-    }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
     .chip {
-      appearance: none;
-      border: 1px solid var(--line);
-      background: transparent;
-      color: var(--fog);
-      border-radius: 999px;
-      padding: 7px 12px;
-      font: inherit;
-      font-size: 12px;
-      cursor: pointer;
+      appearance: none; border: 1px solid var(--line); background: transparent;
+      color: var(--fog); border-radius: 999px; padding: 7px 12px;
+      font: inherit; font-size: 12px; cursor: pointer;
       transition: transform 140ms var(--ease-out), background-color 160ms ease, border-color 160ms ease, color 160ms ease;
     }
     .chip:hover { border-color: var(--line-strong); color: var(--paper); }
@@ -159,320 +183,232 @@
       border-color: color-mix(in srgb, var(--mint) 45%, transparent);
       color: var(--mint);
     }
-    .chip .n {
-      font-variant-numeric: tabular-nums;
-      opacity: .75;
-      margin-left: 4px;
-    }
+    .chip .n { font-variant-numeric: tabular-nums; opacity: 0.75; margin-left: 4px; }
 
-    /* —— main stage —— */
-    .stage {
+    /* —— agent grid —— */
+    .grid {
       display: grid;
-      grid-template-columns: 200px 1fr;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 12px;
-      min-height: 420px;
     }
-    .roster {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      max-height: min(70dvh, 560px);
-      overflow: auto;
-      overscroll-behavior: contain;
-      padding-right: 2px;
-    }
-    .agent {
+    .card {
       --c: var(--mint);
-      appearance: none;
-      width: 100%;
-      text-align: left;
-      border: 1px solid var(--line);
-      background: var(--panel);
-      color: inherit;
-      border-radius: 14px;
-      padding: 10px 11px;
-      cursor: pointer;
-      font: inherit;
-      transition: transform 140ms var(--ease-out), border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
-    }
-    .agent:hover {
-      border-color: color-mix(in srgb, var(--c) 40%, var(--line));
-      background: var(--panel-2);
-    }
-    .agent:active { transform: scale(0.97); }
-    .agent:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
-    .agent[aria-selected="true"] {
-      border-color: color-mix(in srgb, var(--c) 70%, transparent);
-      background: color-mix(in srgb, var(--c) 10%, var(--panel));
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 25%, transparent);
-    }
-    .agent .top {
-      display: flex; justify-content: space-between; align-items: center; gap: 8px;
-    }
-    .agent .name {
-      font-family: Syne, system-ui, sans-serif;
-      font-weight: 700;
-      font-size: 1rem;
-      letter-spacing: -0.02em;
-    }
-    .badge {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      padding: 3px 7px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      color: var(--fog);
-      flex-shrink: 0;
-    }
-    .badge.questing { background: var(--mint); color: #06110b; border-color: transparent; font-weight: 600; }
-    .badge.patrol { background: var(--amber); color: #1a1406; border-color: transparent; font-weight: 600; }
-    .badge.cooling { color: var(--sky); border-color: color-mix(in srgb, var(--sky) 40%, transparent); background: var(--sky-dim); }
-    .badge.dormant { color: var(--mute); }
-    .agent .role {
-      margin-top: 4px;
-      color: var(--fog);
-      font-size: 11px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .spotlight {
+      appearance: none; text-align: left; font: inherit; color: inherit;
       border: 1px solid var(--line);
       background:
-        linear-gradient(165deg, color-mix(in srgb, var(--accent, var(--mint)) 8%, transparent), transparent 42%),
+        linear-gradient(165deg, color-mix(in srgb, var(--c) 7%, transparent), transparent 40%),
         var(--panel);
-      border-radius: 20px;
-      padding: 22px 22px 18px;
-      display: flex;
-      flex-direction: column;
-      min-height: 420px;
-      transition: background-color 200ms ease;
-    }
-    .spotlight .eyebrow {
-      color: var(--fog);
-      font-size: 11px;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-    }
-    .spotlight h2 {
-      font-family: Syne, system-ui, sans-serif;
-      font-size: clamp(1.6rem, 3.5vw, 2.2rem);
-      letter-spacing: -0.03em;
-      margin: 0;
-      text-wrap: balance;
-      line-height: 1.05;
-    }
-    .spotlight .quest {
-      margin: 16px 0 0;
-      font-size: 16px;
-      line-height: 1.55;
-      color: var(--paper);
-      text-wrap: pretty;
-      min-height: 4.5em;
-      max-width: 46ch;
-    }
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 18px;
-    }
-    .pill {
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 11.5px;
-      color: var(--fog);
-      font-variant-numeric: tabular-nums;
-    }
-    .pill strong { color: var(--paper); font-weight: 600; }
-    .xp {
-      margin-top: 18px;
-      max-width: 280px;
-    }
-    .xp .lab {
-      display: flex; justify-content: space-between;
-      font-size: 11px; color: var(--fog); margin-bottom: 6px;
-      font-variant-numeric: tabular-nums;
-    }
-    .xp .bar {
-      height: 5px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden;
-    }
-    .xp .bar i {
-      display: block; height: 100%; width: 0%;
-      background: var(--accent, var(--mint));
-      transition: width 500ms var(--ease-out);
-    }
-    .actions {
-      margin-top: auto;
-      padding-top: 22px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }
-    .btn {
-      appearance: none;
-      border: 1px solid var(--line-strong);
-      background: rgba(255,255,255,.03);
-      color: var(--paper);
-      border-radius: 999px;
-      padding: 9px 14px;
-      font: inherit;
-      font-size: 12.5px;
+      border-radius: 18px;
+      padding: 16px 16px 14px;
       cursor: pointer;
-      transition: transform 140ms var(--ease-out), background-color 160ms ease, border-color 160ms ease;
+      display: flex; flex-direction: column; gap: 12px;
+      transition: transform 160ms var(--ease-out), border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
     }
-    .btn:hover { background: rgba(255,255,255,.06); }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: color-mix(in srgb, var(--c) 38%, var(--line));
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+    .card:active { transform: scale(0.99); }
+    .card:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+    .card[aria-expanded="true"] {
+      grid-column: 1 / -1;
+      border-color: color-mix(in srgb, var(--c) 55%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 18%, transparent);
+      cursor: default;
+    }
+    .card[aria-expanded="true"]:hover { transform: none; }
+    .card .chead { display: flex; align-items: center; gap: 10px; }
+    .card .dot {
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+      background: var(--mute);
+    }
+    .card .dot.questing { background: var(--mint); box-shadow: 0 0 10px color-mix(in srgb, var(--mint) 60%, transparent); }
+    .card .dot.patrol { background: var(--amber); }
+    .card .dot.cooling { background: var(--sky); }
+    .card .who { min-width: 0; flex: 1; }
+    .card .name {
+      font-family: Syne, system-ui, sans-serif;
+      font-weight: 700; font-size: 1.12rem; letter-spacing: -0.02em; line-height: 1.1;
+      display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    }
+    .card .name .status-txt { font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fog); }
+    .card .roleline {
+      color: var(--fog); font-size: 11.5px; margin-top: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .wagechip {
+      flex-shrink: 0;
+      border: 1px solid color-mix(in srgb, var(--mint) 32%, transparent);
+      background: var(--mint-dim);
+      color: var(--mint);
+      border-radius: 999px; padding: 5px 10px;
+      font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .wagechip small { font-weight: 400; opacity: 0.8; }
+    .card .quest {
+      margin: 0; font-size: 13px; line-height: 1.55; color: #c9d8cf;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+      min-height: 2.9em;
+      text-wrap: pretty;
+    }
+    .card .cfoot {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-top: auto;
+    }
+    .tag {
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 4px 9px; font-size: 10.5px; color: var(--fog);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .tag b { color: var(--paper); font-weight: 600; }
+    .tag.worth b { color: var(--amber); }
+
+    /* expanded detail */
+    .detail {
+      display: none;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      gap: 14px;
+    }
+    .card[aria-expanded="true"] .detail { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; animation: rise 0.35s var(--ease-out); }
+    .detail .blurb { margin: 0; font-size: 12.5px; color: var(--fog); line-height: 1.6; max-width: 52ch; }
+    .econ {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+      margin-top: 12px;
+    }
+    .ecell {
+      border: 1px solid var(--line); border-radius: 12px;
+      padding: 10px 12px; background: rgba(255, 255, 255, 0.02);
+    }
+    .ecell .k { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); margin-bottom: 5px; }
+    .ecell .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; font-family: Syne, sans-serif; letter-spacing: -0.01em; }
+    .ecell .v.mint { color: var(--mint); }
+    .ecell .v.amber { color: var(--amber); }
+    .ecell .s { font-size: 10px; color: var(--mute); margin-top: 3px; }
+    .xpline { max-width: 260px; margin-top: 14px; }
+    .xpline .lab { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--fog); margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+    .xpline .bar { height: 5px; border-radius: 99px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+    .xpline .bar i { display: block; height: 100%; width: 0%; background: var(--c, var(--mint)); transition: width 500ms var(--ease-out); }
+    .dside { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+    .kv { display: flex; flex-direction: column; gap: 3px; }
+    .kv .k { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+    .kv .v { font-size: 12.5px; color: var(--paper); font-variant-numeric: tabular-nums; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; }
+    .btn {
+      appearance: none; border: 1px solid var(--line-strong);
+      background: rgba(255, 255, 255, 0.03); color: var(--paper);
+      border-radius: 999px; padding: 8px 13px;
+      font: inherit; font-size: 12px; cursor: pointer;
+      transition: transform 140ms var(--ease-out), background-color 160ms ease;
+    }
+    .btn:hover { background: rgba(255, 255, 255, 0.07); }
     .btn:active { transform: scale(0.97); }
     .btn:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
-    .btn.primary {
-      background: var(--mint);
-      color: #06110b;
-      border-color: transparent;
-      font-weight: 600;
-    }
+    .btn.primary { background: var(--mint); color: #06110b; border-color: transparent; font-weight: 600; }
     .btn.primary:hover { background: #8affb8; }
-    .hint { color: var(--mute); font-size: 11.5px; margin-left: 4px; }
 
+    /* —— ticker —— */
     .ticker {
-      margin-top: 14px;
+      margin-top: 16px;
       border: 1px solid var(--line);
       border-radius: 16px;
       background: var(--panel);
-      padding: 12px 14px;
-      overflow: hidden;
+      padding: 13px 16px;
     }
     .ticker .head {
       display: flex; justify-content: space-between; align-items: center;
-      font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--fog);
-      margin-bottom: 8px;
+      font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fog);
+      margin-bottom: 6px;
     }
-    .ticks {
-      display: flex; flex-direction: column; gap: 0;
-      max-height: 132px; overflow: auto; overscroll-behavior: contain;
-    }
+    .ticks { display: flex; flex-direction: column; max-height: 150px; overflow: auto; overscroll-behavior: contain; }
     .tick {
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,.05);
+      padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       font-size: 12.5px; line-height: 1.45; color: #c5d4cb;
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
-    }
-    .tick:first-child {
-      @starting-style {
-        opacity: 0;
-        transform: translateY(4px) scale(0.98);
-      }
     }
     .tick:last-child { border-bottom: 0; }
     .tick b { color: var(--mint); font-weight: 600; }
 
     .foot {
-      margin-top: 22px;
+      margin-top: 26px;
       display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-      color: var(--mute); font-size: 12px; line-height: 1.5;
+      color: var(--mute); font-size: 11.5px; line-height: 1.6;
     }
     .err {
       display: none;
-      margin: 0 0 12px;
-      padding: 12px 14px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,120,120,.35);
-      background: rgba(255,80,80,.08);
-      color: #ffd0d0;
-      font-size: 13px;
+      margin: 0 0 14px; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid rgba(255, 120, 120, 0.35); background: rgba(255, 80, 80, 0.08);
+      color: #ffd0d0; font-size: 13px;
     }
     .err[data-show="1"] { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .empty { padding: 28px 8px; color: var(--fog); font-size: 13px; }
 
-    .empty {
-      padding: 28px 8px;
-      color: var(--fog);
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    @media (max-width: 800px) {
-      .hero { grid-template-columns: 1fr; }
-      .live { justify-self: start; }
-      .stage { grid-template-columns: 1fr; }
-      .roster {
-        flex-direction: row;
-        max-height: none;
-        overflow-x: auto;
-        overflow-y: hidden;
-        gap: 8px;
-        padding-bottom: 4px;
-        scroll-snap-type: x mandatory;
-      }
-      .agent {
-        min-width: 148px;
-        scroll-snap-align: start;
-        flex: 0 0 auto;
-      }
-      .spotlight { min-height: 320px; }
-      .hint { display: none; }
+    @media (max-width: 760px) {
+      .paygrid { grid-template-columns: 1fr; gap: 14px; }
+      .pcell .v { font-size: 2rem; }
+      .card[aria-expanded="true"] .detail { grid-template-columns: 1fr; }
+      .econ { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
     @media (prefers-reduced-motion: reduce) {
-      .live i, .agent, .chip, .btn, .xp .bar i, .tick { animation: none !important; transition: none !important; }
+      .rise, .live i { animation: none !important; }
+      .card, .chip, .btn, .paybar i, .xpline .bar i { transition: none !important; }
+      .rise { opacity: 1; transform: none; }
     }
   </style>
 </head>
 <body>
   <a class="skip" href="#main">Skip to fleet</a>
   <div class="wrap">
-    <header class="hero">
-      <h1 class="brand" translate="no">ani.<em>computer</em></h1>
+    <header class="top rise" style="--d:.02s">
+      <div class="wordmark"><span class="sq" aria-hidden="true"></span>ani<span class="dim">.computer · fleet</span></div>
       <div class="live" id="livepill" aria-live="polite"><i aria-hidden="true"></i> LIVE · connecting…</div>
-      <p class="tag">Spectate the agent fleet. Pick someone. Watch their quest update live. Sensitive bits are stripped before they hit the board.</p>
-      <div class="strip" id="strip" aria-live="polite">
-        <span><b id="s-online">—</b> online</span>
-        <span class="sep">·</span>
-        <span><b id="s-sessions">—</b> sessions</span>
-        <span class="sep">·</span>
-        <span>avg XP <b id="s-xp">—</b></span>
-        <span class="sep">·</span>
-        <span>Codex fallback <b id="s-fallback">ON</b></span>
-      </div>
     </header>
+
+    <section class="hero rise" style="--d:.06s">
+      <h1>Agents on the <em>clock</em>.</h1>
+      <p class="sub">A public window into the fleet: <b id="h-count">six</b> agents on subscription payrolls, doing real work right now. Every card shows its current quest and what that work costs. Sensitive bits are stripped before they hit this page.</p>
+    </section>
+
+    <section class="payroll rise" style="--d:.1s" id="payroll" hidden>
+      <div class="plabel"><span>Fleet payroll · <b id="p-window">this month</b></span><span class="right" id="p-note">would-cost at API list prices</span></div>
+      <div class="paygrid">
+        <div class="pcell would">
+          <div class="k">Work delivered</div>
+          <div class="v" id="p-would">—</div>
+          <div class="s">what the same tokens would cost at public API rates</div>
+        </div>
+        <div class="pcell actual">
+          <div class="k">Actual payroll</div>
+          <div class="v" id="p-actual">—</div>
+          <div class="s">flat subscriptions — the meter never runs</div>
+        </div>
+        <div class="pcell saved">
+          <div class="k">Kept in pocket</div>
+          <div class="v" id="p-saved">—</div>
+          <div class="s" id="p-saved-sub">vs paying API prices for the same work</div>
+        </div>
+      </div>
+      <div class="paybar" aria-hidden="true"><i id="p-bar"></i></div>
+      <div class="payplans" id="p-plans"></div>
+    </section>
 
     <div class="err" id="err" role="status">
       <span id="err-text">Live feed is warming up…</span>
       <button class="btn" type="button" id="retry">Retry</button>
     </div>
 
-    <div class="filters" id="filters" role="toolbar" aria-label="Filter by status"></div>
+    <div class="filters rise" style="--d:.14s" id="filters" role="toolbar" aria-label="Filter by status"></div>
 
-    <main class="stage" id="main">
-      <div class="roster" id="roster" role="listbox" aria-label="Agents"></div>
-      <section class="spotlight" id="spotlight" aria-live="polite">
-        <div class="eyebrow">Spotlight</div>
-        <h2 id="spot-name">Loading fleet…</h2>
-        <p class="quest" id="spot-quest">Pulling the latest redacted quests.</p>
-        <div class="meta" id="spot-meta"></div>
-        <div class="xp" id="spot-xp" hidden>
-          <div class="lab"><span>Weekly XP</span><span id="xp-num">—</span></div>
-          <div class="bar"><i id="xp-bar"></i></div>
-        </div>
-        <div class="actions">
-          <button class="btn primary" type="button" id="share">Copy link</button>
-          <button class="btn" type="button" id="next">Next agent</button>
-          <span class="hint">← → to switch</span>
-        </div>
-      </section>
-    </main>
+    <main class="grid rise" style="--d:.18s" id="main" aria-live="polite"></main>
 
-    <aside class="ticker">
+    <aside class="ticker rise" style="--d:.22s">
       <div class="head"><span>Mission ticker</span><span id="tick-count">0</span></div>
       <div class="ticks" id="feed" aria-live="polite" aria-relevant="additions"></div>
     </aside>
 
-    <footer class="foot">
-      <div>fleet.ani.computer · redacted spectator board · updates ~every 2 min · no controls here</div>
+    <footer class="foot rise" style="--d:.26s">
+      <div>fleet.ani.computer · redacted spectator board · updates ~every 2 min · payroll at API list prices, subscriptions at face value</div>
       <div><a href="https://ani.computer">ani.computer</a> · private ops on health.ani.computer</div>
     </footer>
   </div>
@@ -481,9 +417,10 @@
   <script>
   (function () {
     var STATUS_ORDER = { questing: 0, patrol: 1, cooling: 2, dormant: 3 };
+    var STATUS_WORD = { questing: 'questing', patrol: 'on patrol', cooling: 'cooling', dormant: 'dormant' };
     var FILTERS = ['all', 'questing', 'patrol', 'cooling', 'dormant'];
     var data = null;
-    var selected = null;
+    var expanded = null;
     var filter = 'all';
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches;
 
@@ -503,10 +440,22 @@
       return Math.round(m / 60) + 'h ago';
     }
 
+    function money(v, decimals) {
+      if (v == null || isNaN(v)) return '—';
+      if (v >= 1000) return '$' + Math.round(v).toLocaleString();
+      return '$' + Number(v).toFixed(decimals == null ? 2 : decimals);
+    }
+
+    function compactTokens(t) {
+      if (t == null || isNaN(t)) return '—';
+      if (t >= 1e9) return (t / 1e9).toFixed(1) + 'B';
+      if (t >= 1e6) return (t / 1e6).toFixed(1) + 'M';
+      if (t >= 1e3) return Math.round(t / 1e3) + 'k';
+      return String(t);
+    }
+
     function readUrlAgent() {
-      try {
-        return new URLSearchParams(location.search).get('agent');
-      } catch (e) { return null; }
+      try { return new URLSearchParams(location.search).get('agent'); } catch (e) { return null; }
     }
 
     function writeUrlAgent(id) {
@@ -518,13 +467,13 @@
       } catch (e) {}
     }
 
-    function sortedAgents() {
+    function visibleAgents() {
       var list = (data && data.agents) ? data.agents.slice() : [];
       list.sort(function (a, b) {
         var da = STATUS_ORDER[a.status] != null ? STATUS_ORDER[a.status] : 9;
         var db = STATUS_ORDER[b.status] != null ? STATUS_ORDER[b.status] : 9;
         if (da !== db) return da - db;
-        return String(a.name).localeCompare(String(b.name));
+        return (b.worth || 0) - (a.worth || 0);
       });
       if (filter !== 'all') list = list.filter(function (a) { return a.status === filter; });
       return list;
@@ -548,91 +497,145 @@
         btn.type = 'button';
         btn.className = 'chip';
         btn.setAttribute('aria-pressed', filter === key ? 'true' : 'false');
-        btn.innerHTML = (key === 'all' ? 'all' : key) + '<span class="n">' + c[key] + '</span>';
+        btn.innerHTML = key + '<span class="n">' + c[key] + '</span>';
         btn.addEventListener('click', function () {
           filter = key;
-          var list = sortedAgents();
-          if (list.length && !list.some(function (a) { return a.id === selected; })) {
-            selected = list[0].id;
-            writeUrlAgent(selected);
-          }
           renderAll();
         });
         root.appendChild(btn);
       });
     }
 
-    function renderRoster() {
-      var root = $('roster');
-      root.innerHTML = '';
-      var list = sortedAgents();
+    function renderEcon() {
+      var e = data && data.econ;
+      var band = $('payroll');
+      if (!e || e.wouldCost == null) { band.hidden = true; return; }
+      band.hidden = false;
+      $('p-window').textContent = e.windowLabel || 'this month';
+      $('p-would').innerHTML = money(e.wouldCost, 0) + '<small>API value</small>';
+      $('p-actual').innerHTML = money(e.actualCost, 0) + '<small>actual</small>';
+      var pct = e.savingsPct != null ? e.savingsPct : null;
+      $('p-saved').innerHTML = (pct != null ? Number(pct).toFixed(0) + '%' : money(e.savings, 0)) + '<small>' + money(e.savings, 0) + '</small>';
+      var frac = e.wouldCost > 0 ? Math.max(2, Math.min(100, (e.actualCost / e.wouldCost) * 100)) : 0;
+      requestAnimationFrame(function () { $('p-bar').style.width = frac + '%'; });
+      var plans = (e.plans || []).map(function (p) {
+        var body = p.billed === 'subscription'
+          ? '<b>' + money(p.monthlyUsd, 0) + '/mo</b> flat'
+          : '<b>' + money(p.used || 0) + '</b> used · metered';
+        return '<span class="pplan">' + escapeHtml(p.label || '') + ' · ' + body + '</span>';
+      });
+      plans.push('<span class="pplan">window · <b>' + (e.daysElapsed != null ? e.daysElapsed : '—') + 'd elapsed</b></span>');
+      $('p-plans').innerHTML = plans.join('');
+    }
+
+    function cardHtml(a, isOpen) {
+      var h = '';
+      h += '<div class="chead">';
+      h += '<span class="dot ' + escapeHtml(a.status) + '" aria-hidden="true"></span>';
+      h += '<div class="who">';
+      h += '<div class="name">' + escapeHtml(a.name) + ' <span class="status-txt">' + escapeHtml(STATUS_WORD[a.status] || a.status) + '</span></div>';
+      h += '<div class="roleline">' + escapeHtml(a.title || a.role || '') + '</div>';
+      h += '</div>';
+      if (a.wage != null) {
+        h += '<span class="wagechip" title="Share of this month’s flat payroll">' + money(a.wage) + '<small>/mo</small></span>';
+      }
+      h += '</div>';
+      h += '<p class="quest">' + escapeHtml(a.quest || 'Standing by for the next brief.') + '</p>';
+      h += '<div class="cfoot">';
+      h += '<span class="tag">model · <b>' + escapeHtml(a.model || '—') + (a.fallback ? ' ↻' : '') + '</b></span>';
+      if (a.worth != null) h += '<span class="tag worth">worth <b>' + money(a.worth, 0) + '</b> at API</span>';
+      h += '<span class="tag">' + escapeHtml(ago(a.ageMs)) + '</span>';
+      h += '</div>';
+
+      h += '<div class="detail">';
+      h += '<div>';
+      h += '<p class="blurb">' + escapeHtml(a.blurb || a.role || '') + '</p>';
+      h += '<div class="econ">';
+      h += '<div class="ecell"><div class="k">Wage · this month</div><div class="v mint">' + (a.wage != null ? money(a.wage) : '—') + '</div><div class="s">share of the flat payroll</div></div>';
+      h += '<div class="ecell"><div class="k">Worth · API value</div><div class="v amber">' + (a.worth != null ? money(a.worth) : '—') + '</div><div class="s">same work at list prices</div></div>';
+      h += '<div class="ecell"><div class="k">Tokens</div><div class="v">' + compactTokens(a.tokens) + '</div><div class="s">' + escapeHtml(a.topModel || a.model || '') + '</div></div>';
+      h += '</div>';
+      if (typeof a.xp === 'number') {
+        h += '<div class="xpline"><div class="lab"><span>Weekly XP</span><span>' + a.xp + ' / 100</span></div><div class="bar"><i data-xp="' + a.xp + '"></i></div></div>';
+      }
+      h += '</div>';
+      h += '<div class="dside">';
+      h += '<div class="kv"><span class="k">Status</span><span class="v">' + escapeHtml(STATUS_WORD[a.status] || a.status) + ' · ' + escapeHtml(ago(a.ageMs)) + '</span></div>';
+      h += '<div class="kv"><span class="k">Sessions</span><span class="v">' + String(a.sessionsWeek || 0) + ' this week</span></div>';
+      h += '<div class="kv"><span class="k">Team</span><span class="v">' + escapeHtml(a.team || '—') + '</span></div>';
+      h += '<div class="actions">';
+      h += '<button class="btn primary" type="button" data-act="share">Copy link</button>';
+      h += '<button class="btn" type="button" data-act="next">Next agent</button>';
+      h += '<button class="btn" type="button" data-act="close">Close</button>';
+      h += '</div>';
+      h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    function renderGrid() {
+      var root = $('main');
+      var list = visibleAgents();
       if (!list.length) {
         root.innerHTML = '<div class="empty">No agents in this filter. Try <b>all</b>.</div>';
         return;
       }
-      list.forEach(function (a) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'agent';
-        btn.setAttribute('role', 'option');
-        btn.setAttribute('aria-selected', selected === a.id ? 'true' : 'false');
-        btn.setAttribute('aria-label', a.name + ', ' + a.status + ', ' + (a.title || ''));
-        btn.style.setProperty('--c', a.color || '#6ef3a8');
-        btn.innerHTML =
-          '<div class="top"><span class="name">' + escapeHtml(a.name) + '</span>' +
-          '<span class="badge ' + escapeHtml(a.status) + '">' + escapeHtml(a.status) + '</span></div>' +
-          '<div class="role">' + escapeHtml(a.title || a.role || '') + '</div>';
-        btn.addEventListener('click', function () {
-          selected = a.id;
-          writeUrlAgent(selected);
+      if (expanded && !list.some(function (a) { return a.id === expanded; })) expanded = null;
+      root.innerHTML = '';
+      list.forEach(function (a, i) {
+        var isOpen = expanded === a.id;
+        var card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'card';
+        card.style.setProperty('--c', a.color || '#6ef3a8');
+        card.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        card.setAttribute('aria-label', a.name + ', ' + (STATUS_WORD[a.status] || a.status) + ', ' + (a.title || ''));
+        card.style.animation = 'rise .5s var(--ease-out) forwards';
+        card.style.animationDelay = (0.02 + i * 0.04) + 's';
+        if (!reduce) { card.style.opacity = '0'; }
+        card.innerHTML = cardHtml(a, isOpen);
+        card.addEventListener('click', function (e) {
+          var act = e.target && e.target.closest ? (e.target.closest('[data-act]') || {}).dataset : null;
+          if (act && act.act === 'share') {
+            e.stopPropagation();
+            var url = location.origin + location.pathname + '?agent=' + a.id;
+            var done = function () {
+              var b = card.querySelector('[data-act="share"]');
+              if (b) { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy link'; }, 1200); }
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(url).then(done, function () { window.prompt('Copy this link', url); });
+            } else { window.prompt('Copy this link', url); }
+            return;
+          }
+          if (act && act.act === 'next') {
+            e.stopPropagation();
+            var idx = list.findIndex(function (x) { return x.id === a.id; });
+            var nxt = list[(idx + 1) % list.length];
+            expanded = nxt.id;
+            writeUrlAgent(expanded);
+            renderAll();
+            return;
+          }
+          if (act && act.act === 'close') {
+            e.stopPropagation();
+            expanded = null;
+            writeUrlAgent(null);
+            renderAll();
+            return;
+          }
+          expanded = isOpen ? null : a.id;
+          writeUrlAgent(expanded);
           renderAll();
         });
-        root.appendChild(btn);
+        root.appendChild(card);
       });
-    }
-
-    function currentAgent() {
-      var list = sortedAgents();
-      var a = list.find(function (x) { return x.id === selected; });
-      if (a) return a;
-      if (list[0]) return list[0];
-      var all = (data && data.agents) || [];
-      return all.find(function (x) { return x.id === selected; }) || all[0] || null;
-    }
-
-    function renderSpotlight() {
-      var a = currentAgent();
-      var spot = $('spotlight');
-      if (!a) {
-        $('spot-name').textContent = 'Fleet is quiet';
-        $('spot-quest').textContent = 'No agent data yet. Hit retry in a moment.';
-        $('spot-meta').innerHTML = '';
-        $('spot-xp').hidden = true;
-        return;
-      }
-      selected = a.id;
-      spot.style.setProperty('--accent', a.color || '#6ef3a8');
-      $('spot-name').textContent = a.name + ' · ' + (a.title || a.role || 'Agent');
-      $('spot-quest').textContent = a.quest || 'Standing by for the next brief.';
-      var meta = [
-        ['status', a.status],
-        ['model', a.model + (a.fallback ? ' · fallback' : '')],
-        ['team', a.team],
-        ['updated', ago(a.ageMs)],
-        ['sessions', String(a.sessionsWeek || 0) + ' this week']
-      ];
-      $('spot-meta').innerHTML = meta.map(function (pair) {
-        return '<span class="pill">' + escapeHtml(pair[0]) + ': <strong>' + escapeHtml(String(pair[1])) + '</strong></span>';
-      }).join('');
-      if (typeof a.xp === 'number') {
-        $('spot-xp').hidden = false;
-        $('xp-num').textContent = a.xp + ' / 100';
-        requestAnimationFrame(function () {
-          $('xp-bar').style.width = Math.max(0, Math.min(100, a.xp)) + '%';
+      requestAnimationFrame(function () {
+        document.querySelectorAll('.xpline .bar i').forEach(function (el) {
+          var xp = parseFloat(el.getAttribute('data-xp') || '0');
+          el.style.width = Math.max(0, Math.min(100, xp)) + '%';
         });
-      } else {
-        $('spot-xp').hidden = true;
-      }
+      });
     }
 
     function renderFeed() {
@@ -651,28 +654,22 @@
       }).join('');
     }
 
-    function renderStats() {
-      var s = (data && data.stats) || {};
-      $('s-online').textContent = s.online != null ? s.online : '—';
-      $('s-sessions').textContent = s.sessionsActive != null ? s.sessionsActive : '—';
-      var agents = (data && data.agents) || [];
-      var scored = agents.filter(function (a) { return typeof a.xp === 'number'; });
-      $('s-xp').textContent = scored.length
-        ? String(Math.round(scored.reduce(function (n, a) { return n + a.xp; }, 0) / scored.length))
-        : '—';
-      $('s-fallback').textContent = s.fallbackReady ? 'ON' : 'OFF';
+    function renderLive() {
       var when = data && data.generatedAtIso ? new Date(data.generatedAtIso) : null;
       var label = when
         ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : 'synced';
-      $('livepill').innerHTML = '<i aria-hidden="true"></i> LIVE · ' + escapeHtml(label);
+      var online = data && data.stats ? data.stats.online : '—';
+      $('livepill').innerHTML = '<i aria-hidden="true"></i> LIVE · ' + escapeHtml(label) + ' · ' + escapeHtml(String(online)) + ' online';
+      var total = data && data.stats ? data.stats.total : null;
+      if (total) $('h-count').textContent = String(total);
     }
 
     function renderAll() {
-      renderStats();
+      renderLive();
+      renderEcon();
       renderFilters();
-      renderRoster();
-      renderSpotlight();
+      renderGrid();
       renderFeed();
     }
 
@@ -686,12 +683,10 @@
       showErr('', false);
       var fromUrl = readUrlAgent();
       if (fromUrl && (data.agents || []).some(function (a) { return a.id === fromUrl; })) {
-        selected = fromUrl;
-      } else if (!selected || !(data.agents || []).some(function (a) { return a.id === selected; })) {
-        var hot = sortedAgents().find(function (a) { return a.status === 'questing'; }) || sortedAgents()[0];
-        selected = hot ? hot.id : null;
+        expanded = fromUrl;
+      } else if (expanded && !(data.agents || []).some(function (a) { return a.id === expanded; })) {
+        expanded = null;
       }
-      if (selected) writeUrlAgent(selected);
       renderAll();
     }
 
@@ -705,34 +700,27 @@
       }
     }
 
-    function nextAgent(dir) {
-      var list = sortedAgents();
+    document.addEventListener('keydown', function (e) {
+      if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+      var list = visibleAgents();
       if (!list.length) return;
-      var idx = Math.max(0, list.findIndex(function (a) { return a.id === selected; }));
-      idx = (idx + dir + list.length) % list.length;
-      selected = list[idx].id;
-      writeUrlAgent(selected);
-      renderAll();
-    }
-
-    $('retry').addEventListener('click', load);
-    $('next').addEventListener('click', function () { nextAgent(1); });
-    $('share').addEventListener('click', async function () {
-      var url = location.href;
-      try {
-        await navigator.clipboard.writeText(url);
-        $('share').textContent = 'Copied';
-        setTimeout(function () { $('share').textContent = 'Copy link'; }, 1200);
-      } catch (e) {
-        window.prompt('Copy this link', url);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        var dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+        var idx = Math.max(0, list.findIndex(function (a) { return a.id === expanded; }));
+        idx = (idx + dir + list.length) % list.length;
+        expanded = list[idx].id;
+        writeUrlAgent(expanded);
+        renderAll();
+      }
+      if (e.key === 'Escape' && expanded) {
+        expanded = null;
+        writeUrlAgent(null);
+        renderAll();
       }
     });
 
-    document.addEventListener('keydown', function (e) {
-      if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); nextAgent(1); }
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); nextAgent(-1); }
-    });
+    $('retry').addEventListener('click', load);
 
     // first paint from embedded bootstrap (avoids blank arena)
     try {

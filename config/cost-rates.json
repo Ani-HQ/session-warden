@@ -1,0 +1,39 @@
+{
+  "comment": "Fleet payroll rate card. wouldCost = what the same tokens would cost at public API list prices. actualCost = subscription allocation + real API spend. Prices are USD per 1M tokens; edit here, no code changes needed. Cache pricing defaults: cacheWrite = 1.25x input, cacheRead = cacheReadFactor x input (per provider).",
+  "plans": {
+    "claude": { "label": "Claude Max", "monthlyUsd": 200 },
+    "openai": { "label": "ChatGPT", "monthlyUsd": 50 },
+    "google": { "label": "Gemini API", "monthlyUsd": 0 }
+  },
+  "providers": {
+    "claude": { "cacheReadFactor": 0.10, "cacheWriteFactor": 1.25, "billed": "subscription" },
+    "openai": { "cacheReadFactor": 0.25, "cacheWriteFactor": 1.00, "billed": "subscription" },
+    "google": { "cacheReadFactor": 0.25, "cacheWriteFactor": 1.00, "billed": "api" },
+    "other":  { "cacheReadFactor": 0.10, "cacheWriteFactor": 1.25, "billed": "api" }
+  },
+  "models": {
+    "claude-opus-4-8":          { "in": 15.0, "out": 75.0 },
+    "claude-fable-5":           { "in": 15.0, "out": 75.0 },
+    "claude-sonnet-5":          { "in": 3.0,  "out": 15.0 },
+    "claude-sonnet-4-6":        { "in": 3.0,  "out": 15.0 },
+    "claude-haiku-4-5":         { "in": 0.80, "out": 4.0 },
+    "gpt-5.6-sol":              { "in": 10.0, "out": 40.0 },
+    "gpt-5.6-terra":            { "in": 2.0,  "out": 8.0 },
+    "gpt-5.6-luna":             { "in": 0.50, "out": 2.0 },
+    "gpt-5.5":                  { "in": 3.0,  "out": 15.0 },
+    "gpt-5.4":                  { "in": 1.25, "out": 10.0 },
+    "gpt-5.4-mini":             { "in": 0.25, "out": 2.0 },
+    "gemini-3.1-pro-preview":   { "in": 1.25, "out": 10.0 },
+    "gemini-3-flash-preview":   { "in": 0.30, "out": 2.50 },
+    "gemini-2.5-flash":         { "in": 0.30, "out": 2.50 },
+    "gemini-embedding-001":     { "in": 0.15, "out": 0.0 }
+  },
+  "fallbackByPrefix": {
+    "claude-opus":   { "in": 15.0, "out": 75.0 },
+    "claude":        { "in": 3.0,  "out": 15.0 },
+    "gpt":           { "in": 2.0,  "out": 8.0 },
+    "o":             { "in": 2.0,  "out": 8.0 },
+    "gemini":        { "in": 0.50, "out": 2.50 },
+    "default":       { "in": 2.0,  "out": 8.0 }
+  }
+}

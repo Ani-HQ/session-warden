@@ -20,17 +20,15 @@ ACTIVE_MINUTES = int(os.environ.get("FLEET_ACTIVE_MINUTES", "180"))
 NOW = int(time.time() * 1000)
 
 DISPLAY = [
-    ("kai", "personal", "Builder", "Codes products & infra", "#7CFFB2"),
-    ("ping", "work", "SEO Strategist", "Content & search growth", "#FFD166"),
-    ("dash", "work", "Ops Engineer", "Ads, outreach, execution", "#FF6B6B"),
-    ("isaac", "work", "Chief of Staff", "Work-team coordination", "#4ECDC4"),
-    ("bloop", "work", "Design Ops", "Visuals & brand craft", "#C77DFF"),
-    ("zara", "personal", "Chief of Staff", "Inbox, calendar, drafts", "#F4A261"),
-    ("nova", "personal", "Researcher", "Deep research & synthesis", "#90BE6D"),
-    ("aria", "personal", "Support", "Customer support handling", "#48CAE4"),
-    ("remy", "personal", "Operator", "Outreach pipelines", "#E9C46A"),
-    ("codex", "special", "Codex Worker", "Execution under Opus", "#A0C4FF"),
+    ("ping", "work", "Content & SEO", "Owns the Adventures Of blog engine end-to-end", "#FFD166"),
+    ("dash", "work", "Ops & Outreach", "Pipelines, support backstop, standups, ad ops", "#FF6B6B"),
+    ("bloop", "work", "Design Engineer", "Landing pages, UI builds, visual craft on Opus", "#C77DFF"),
+    ("isaac", "work", "Engineer", "Code-heavy client work & technical escalations", "#4ECDC4"),
+    ("zara", "personal", "Chief of Staff", "Inbox, calendar, morning rundown, drafts", "#F4A261"),
+    ("codex", "special", "Codex Worker", "Execution specialist spawned by Opus agents", "#A0C4FF"),
 ]
+
+COSTS_JSON = Path(os.environ.get("COSTS_JSON", str(WARDEN / "state" / "costs" / "costs.json")))
 
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d\-\s().]{7,}\d)")
@@ -128,6 +126,18 @@ def load_review() -> dict[str, dict]:
         return {}
     data = json.loads(reviews[-1].read_text())
     return {a["agent"]: a for a in data.get("agents", [])}
+
+
+def load_costs() -> dict:
+    """Fleet payroll from contrib/costs/costs.py — public-safe aggregates only."""
+    try:
+        data = json.loads(COSTS_JSON.read_text())
+    except Exception:
+        return {}
+    # stale payroll is worse than none
+    if abs(NOW - int(data.get("generatedAt", 0))) > 6 * 3600 * 1000:
+        return {}
+    return data
 
 
 def active_sessions() -> list[dict]:
@@ -287,6 +297,8 @@ def main() -> None:
     models = load_models()
     review = load_review()
     roles = load_roster_roles()
+    costs = load_costs()
+    cost_by_agent = {a["id"]: a for a in costs.get("agents", [])}
 
     agents = []
     feed = []
@@ -309,6 +321,7 @@ def main() -> None:
         score = rev.get("score")
         sessions_n = rev.get("sessions") or 0
         role = roles.get(aid) or title
+        c = cost_by_agent.get(aid) or {}
         agents.append(
             {
                 "id": aid,
@@ -327,6 +340,10 @@ def main() -> None:
                 "score": score,
                 "sessionsWeek": sessions_n,
                 "xp": int(score) if isinstance(score, (int, float)) else None,
+                "wage": c.get("actualCost"),
+                "worth": c.get("wouldCost"),
+                "tokens": c.get("tokens"),
+                "topModel": c.get("topModel"),
             }
         )
         if status in ("questing", "patrol") and quest:
@@ -340,6 +357,34 @@ def main() -> None:
             )
 
     feed.sort(key=lambda x: x["ts"], reverse=True)
+    totals = costs.get("totals") or {}
+    window = costs.get("window") or {}
+    econ = None
+    if costs and totals:
+        # work-delivered headline sums only the agents shown on the public
+        # board so cards reconcile; actual payroll is the true flat bill
+        # (which also covers work by recently retired agents this month).
+        visible_would = sum(a.get("worth") or 0.0 for a in agents)
+        actual = totals.get("actualCost")
+        econ = {
+            "windowLabel": window.get("label", ""),
+            "daysElapsed": window.get("daysElapsed"),
+            "wouldCost": round(visible_would, 2),
+            "actualCost": actual,
+            "savings": round(visible_would - (actual or 0), 2) if actual is not None else None,
+            "savingsPct": round(100 * (1 - actual / visible_would), 1)
+            if actual is not None and visible_would > 0
+            else None,
+            "plans": [
+                {
+                    "label": p.get("label"),
+                    "monthlyUsd": p.get("monthlyUsd"),
+                    "billed": p.get("billed"),
+                    "used": p.get("poolWould"),
+                }
+                for p in (costs.get("plans") or {}).values()
+            ],
+        }
     payload = {
         "generatedAt": NOW,
         "generatedAtIso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -351,6 +396,7 @@ def main() -> None:
             "sessionsActive": len(sessions),
             "fallbackReady": True,
         },
+        "econ": econ,
         "agents": agents,
         "feed": feed[:24],
         "legend": {

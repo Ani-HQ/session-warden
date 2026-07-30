@@ -247,6 +247,72 @@ else
     fi
   fi
 fi
+# ----------------------------------------------------- PAYROLL (cost ledger)
+# Month-to-date per-agent cost from contrib/costs/costs.py: what each agent's
+# tokens would cost at public API list prices vs the flat subscription
+# payroll they actually run on. Read-only; skipped when stale (>6h).
+COSTS_JSON="$STATE/costs/costs.json"
+have_pay=0
+pay_label=""; pay_would=0; pay_actual=0; pay_saved=0; pay_pct=0
+pay_tokens=0; pay_plans=""; pay_rows=""; pay_detail_rows=""; pay_bar=0; pay_chips=""
+declare -A PAY_WAGE PAY_WORTH PAY_TOK PAY_MODEL
+money() { python3 -c 'import sys; v=float(sys.argv[1] or 0); print(f"${v:,.0f}" if v>=1000 else f"${v:,.2f}")' "${1:-0}"; }
+tokfmt() { python3 -c 'import sys; t=float(sys.argv[1] or 0); print(f"{t/1e9:.1f}B" if t>=1e9 else (f"{t/1e6:.1f}M" if t>=1e6 else (f"{t/1e3:.0f}k" if t>=1e3 else str(int(t)))))' "${1:-0}"; }
+if [ "$DEMO" = 1 ]; then
+  have_pay=1
+  pay_label="Jul 2026"; pay_would=1240; pay_actual=250; pay_saved=990; pay_pct=80
+  pay_tokens=512000000; pay_bar=20
+  pay_plans="Claude Max \$200/mo · ChatGPT \$50/mo · Gemini API \$0.00 used"
+  pay_chips='<span class="pchip">Claude Max · <b>$200/mo</b></span><span class="pchip">ChatGPT · <b>$50/mo</b></span><span class="pchip">Gemini API · <b>$0.00 used</b></span>'
+  pay_rows="$(printf '%s\n' \
+    '<tr><td class="name">maya</td><td class="mono">claude-sonnet</td><td class="mono">184M</td><td class="mono">$412</td><td class="mono">$86.10</td><td class="mono">$325.90</td></tr>' \
+    '<tr><td class="name">leo</td><td class="mono">claude-sonnet</td><td class="mono">142M</td><td class="mono">$318</td><td class="mono">$62.40</td><td class="mono">$255.60</td></tr>' \
+    '<tr><td class="name">ava</td><td class="mono">claude-opus</td><td class="mono">96M</td><td class="mono">$264</td><td class="mono">$51.20</td><td class="mono">$212.80</td></tr>' \
+    '<tr><td class="name">iris</td><td class="mono">claude-sonnet</td><td class="mono">61M</td><td class="mono">$152</td><td class="mono">$31.90</td><td class="mono">$120.10</td></tr>' \
+    '<tr><td class="name">sam</td><td class="mono">gpt-5.6</td><td class="mono">29M</td><td class="mono">$94</td><td class="mono">$18.40</td><td class="mono">$75.60</td></tr>')"
+else
+  if [ -s "$COSTS_JSON" ]; then
+    c_gen=$(jq -r '.generatedAt // 0' "$COSTS_JSON" 2>/dev/null)
+    now_ms=$(( $(date +%s) * 1000 ))
+    if [ "${c_gen:-0}" -gt 0 ] && [ $(( now_ms - c_gen )) -lt 21600000 ] 2>/dev/null; then
+      have_pay=1
+      pay_label=$(jq -r '.window.label // ""' "$COSTS_JSON")
+      pay_would=$(jq -r '.totals.wouldCost // 0' "$COSTS_JSON")
+      pay_actual=$(jq -r '.totals.actualCost // 0' "$COSTS_JSON")
+      pay_saved=$(jq -r '.totals.savings // 0' "$COSTS_JSON")
+      pay_pct=$(jq -r '.totals.savingsPct // 0' "$COSTS_JSON")
+      pay_tokens=$(jq -r '.totals.tokens // 0' "$COSTS_JSON")
+      pay_plans=$(jq -r '.plans | to_entries[] | .value
+        | if .billed == "subscription" then "\(.label) $\(.monthlyUsd | floor)/mo"
+          else "\(.label) $\(.poolWould) used" end' "$COSTS_JSON" \
+        | awk 'BEGIN{ORS=""} NR>1{printf " · "} {printf "%s",$0} END{print ""}')
+      [ "$(awk -v w="$pay_would" 'BEGIN{print (w>0)?1:0}')" = 1 ] && \
+        pay_bar=$(awk -v a="$pay_actual" -v w="$pay_would" 'BEGIN{p=a*100/w; if(p<2)p=2; if(p>100)p=100; printf "%.0f", p}')
+      active_roster=" ping dash bloop isaac zara codex "
+      while IFS=$'\t' read -r a would actual saved toks topm; do
+        [ -z "$a" ] && continue
+        note=""
+        case "$active_roster" in *" $a "*) ;; *) note=' <span class="achip off">retired</span>' ;; esac
+        pay_rows+="<tr><td class=\"name\">$(hesc "$a")$note</td><td class=\"mono\">$(hesc "$topm")</td><td class=\"mono\">$(tokfmt "$toks")</td><td class=\"mono\">$(money "$would")</td><td class=\"mono\">$(money "$actual")</td><td class=\"mono\">$(money "$saved")</td></tr>"
+        PAY_WAGE[$a]="$actual"; PAY_WORTH[$a]="$would"; PAY_TOK[$a]="$toks"; PAY_MODEL[$a]="$topm"
+      done < <(jq -r '.agents[] | [.id, (.wouldCost|tostring), (.actualCost|tostring), (.savings|tostring), (.tokens|tostring), (.topModel // "")] | @tsv' "$COSTS_JSON" | sort -t$'\t' -k2 -nr)
+      while IFS=$'\t' read -r a prov toks would actual; do
+        [ -z "$a" ] && continue
+        pay_detail_rows+="<tr><td class=\"name\">$(hesc "$a")</td><td class=\"mono\">$(hesc "$prov")</td><td class=\"mono\">$(tokfmt "$toks")</td><td class=\"mono\">$(money "$would")</td><td class=\"mono\">$(money "$actual")</td></tr>"
+      done < <(jq -r '.agents[] | .id as $a | .byProvider | to_entries[]
+        | [$a, .key, (.value.tokens|tostring), (.value.would|tostring), (.value.actual|tostring)] | @tsv' "$COSTS_JSON")
+      while IFS=$'\t' read -r plabel pbilled pmonthly pused; do
+        [ -z "$plabel" ] && continue
+        if [ "$pbilled" = "subscription" ]; then
+          pay_chips+="<span class=\"pchip\">$(hesc "$plabel") · <b>\$${pmonthly}/mo</b></span>"
+        else
+          pay_chips+="<span class=\"pchip\">$(hesc "$plabel") · <b>\$${pused} used</b></span>"
+        fi
+      done < <(jq -r '.plans | to_entries[] | .value | [.label, .billed, (.monthlyUsd|floor|tostring), (.poolWould|tostring)] | @tsv' "$COSTS_JSON")
+    fi
+  fi
+fi
+
 burn_cards=""
 if [ "$have_burn" = 1 ]; then
   _max=$(printf '%s\n' "$burn_rows" | head -1 | awk -F'|' '{print $2+0}')
@@ -426,103 +492,238 @@ hc() { # state title sub
 
 # ------------------------------------------------------------------ output
 tmp="$(mktemp "${OUTPUT_FILE}.XXXXXX" 2>/dev/null || mktemp)"
-# ---- client (simple) view: warm, plain-English "your AI team" ---------------
-stars_for() { # $1=score -> "STARSHTML|WORD"
+# ---- client (simple) view: Linear + Liveline dashboard ---------------
+stars_for() { # $1=score -> "WORD|TIER"
   local s="${1:-70}"
-  if   [ "$s" -ge 90 ] 2>/dev/null; then echo '★★★★★|Excellent'
-  elif [ "$s" -ge 78 ] 2>/dev/null; then echo '★★★★<span class="o">★</span>|Great'
-  elif [ "$s" -ge 65 ] 2>/dev/null; then echo '★★★<span class="o">★★</span>|Good'
-  else echo '★★★<span class="o">★★</span>|Solid'; fi
+  if   [ "$s" -ge 90 ] 2>/dev/null; then echo 'Excellent|exc'
+  elif [ "$s" -ge 78 ] 2>/dev/null; then echo 'Great|grt'
+  elif [ "$s" -ge 65 ] 2>/dev/null; then echo 'Good|gd'
+  else echo 'Solid|ok'; fi
 }
+
+# 14-day session activity series for the Liveline chart (mtime proxy).
+activity_series_json() {
+  python3 - <<'APY'
+from pathlib import Path
+from collections import Counter
+from datetime import datetime, timezone, timedelta
+import json
+home = Path.home() / ".openclaw/agents"
+roster=set()
+rf=Path.home()/"session-warden/config/fleet-roster.tsv"
+if rf.exists():
+    for line in rf.read_text().splitlines():
+        if not line.strip() or line.startswith("#"): continue
+        roster.add(line.split("\t")[0].strip())
+if not roster: roster={"ping","bloop","dash","isaac","zara"}
+now = datetime.now(timezone.utc)
+days = [(now - timedelta(days=i)) for i in range(13, -1, -1)]
+day_keys = [d.strftime("%Y-%m-%d") for d in days]
+total = Counter()
+per = {}
+for ag in sorted(home.iterdir()):
+    if not ag.is_dir() or ag.name not in roster: continue
+    cnt = Counter()
+    sess = ag / "sessions"
+    if sess.exists():
+        for f in sess.glob("*.jsonl"):
+            m = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d")
+            if m in day_keys:
+                total[m] += 1
+                cnt[m] += 1
+    per[ag.name] = [cnt[d] for d in day_keys]
+series = [{"time": int(d.replace(hour=12).timestamp()*1000), "value": total[k]} for d,k in zip(days, day_keys)]
+print(json.dumps({"series": series, "per": per, "days": day_keys}))
+APY
+}
+
 render_client() {
   if [ "$DEMO" = 1 ]; then
     cat <<'CVEOF'
 <div class="cv"><div class="wrap">
-  <div class="brandmark rise" style="animation-delay:.02s">
-    <div class="glyph">◉</div>
-    <div class="brandtxt"><b>Your AI Team</b><span>for <b>Ember &amp; Oak Coffee</b></span></div>
-  </div>
-  <div class="hero">
-    <div class="kicker rise" style="animation-delay:.06s"><span class="live"></span>Working right now · updated 2 min ago</div>
-    <h1 class="rise" style="animation-delay:.1s">Your team had a great week.</h1>
-    <p class="lede rise" style="animation-delay:.16s">Five assistants quietly handled <b>512 things</b> for you and saved about <b>14 hours</b> — nearly two full working days. Here's how each of them is doing.</p>
-  </div>
-  <div class="stats">
-    <div class="stat hl rise" style="animation-delay:.2s"><div class="ico"><span class="pulse"></span>Time saved</div><div class="num" data-count="14">0<span class="u">hrs</span></div><div class="lab">This week</div><div class="sub">≈ 2 working days back</div></div>
-    <div class="stat rise" style="animation-delay:.26s"><div class="ico"><span class="pulse"></span>Work done</div><div class="num" data-count="512">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
-    <div class="stat rise" style="animation-delay:.32s"><div class="ico"><span class="pulse"></span>Always on</div><div class="num">24<span class="u">/7</span></div><div class="lab">Never off the clock</div><div class="sub">avg reply in 20 sec</div></div>
-    <div class="stat rise" style="animation-delay:.38s"><div class="ico"><span class="pulse"></span>With you</div><div class="num" data-count="127">0<span class="u">days</span></div><div class="lab">Since March 8</div><div class="sub">0 days off, ever</div></div>
-  </div>
-  <div class="sectitle">Meet your team <span class="n">5 assistants</span></div>
-  <div class="secsub">Each one has a job, a track record, and a rating based on the quality of their work.</div>
-  <div class="team">
-    <div class="member"><div class="mtop"><div class="av" style="background:#3f7d5f">M</div><div><div class="mname">Maya</div><div class="mrole">Content &amp; Social</div></div><div class="stars"><div class="s">★★★★★</div><div class="word">Excellent</div></div></div><div class="mdid">Kept your brand voice consistent — wrote <b>12 posts</b>, the Friday newsletter, and <b>3 blog drafts</b>. Never missed a posting day.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 4 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
-    <div class="member"><div class="mtop"><div class="av" style="background:#b5822f">L</div><div><div class="mname">Leo</div><div class="mrole">Customer Support</div></div><div class="stars"><div class="s">★★★★<span class="o">★</span></div><div class="word">Great</div></div></div><div class="mdid">Answered <b>340 messages</b> in about 22 seconds each. Handled the everyday questions and only needed you for <b>6 tricky ones</b>.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 4 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
-    <div class="member"><div class="mtop"><div class="av" style="background:#41707e">A</div><div><div class="mname">Ava</div><div class="mrole">Operations</div></div><div class="stars"><div class="s">★★★★★</div><div class="word">Excellent</div></div></div><div class="mdid">Tracked all <b>128 orders</b> without a hiccup and sent <b>6 restock alerts</b> before you ran low. Quietly keeps the back office running.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 3 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
-    <div class="member"><div class="mtop"><div class="av" style="background:#9a5b6f">S</div><div><div class="mname">Sam</div><div class="mrole">Bookkeeping</div></div><div class="stars"><div class="s">★★★★<span class="o">★</span></div><div class="word">Great</div></div></div><div class="mdid">Sorted <b>54 transactions</b> into clean books and left a tidy <b>weekly summary</b> on your desk. Every Friday, like clockwork.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 2 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
-    <div class="member"><div class="mtop"><div class="av" style="background:#6a6296">I</div><div><div class="mname">Iris</div><div class="mrole">Your Assistant</div></div><div class="stars"><div class="s">★★★★★</div><div class="word">Excellent</div></div></div><div class="mdid">Watched your inbox and flagged <b>9 emails</b> that actually mattered, booked <b>4 meetings</b>, and let the noise pass. Pings you only when it counts.</div><div class="mfoot"><span class="tenure"><span class="cal">◷</span> With you 4 months</span><span class="onair"><span class="d"></span>on duty</span></div></div>
-  </div>
-  <div class="sectitle">This week, in plain words</div>
-  <div class="note"><p><b>It was a smooth week.</b> Maya kept your socials alive with a dozen posts and the Friday newsletter. Leo answered 340 customer messages and only needed you for six of them. Ava tracked every one of your 128 orders without a hiccup, Sam squared away the books, and Iris made sure nothing important slipped past your inbox. All told: <b>512 tasks handled, about 14 hours saved, and not a single day off.</b></p><div class="sig">— a note from your team, written automatically every Monday</div></div>
-  <div class="sectitle">Rock-solid reliability</div>
-  <div class="reliab"><div class="rt"><b>Worked every single day for the last two weeks</b><span>14 / 14 days · 100% uptime</span></div><div class="bars" id="bars"></div><div class="bardays"><span>2 weeks ago</span><span>today</span></div></div>
-  <footer><b>Your AI Team</b> · set up &amp; managed for Ember &amp; Oak Coffee<br>They don't call in sick, they don't quit, and they never stop working. · <b>powered by you</b></footer>
-</div></div>
+  <header class="top rise" style="--d:.02s">
+    <div class="brand"><span class="mark"></span><div><b>Fleet</b><span>Ember &amp; Oak Coffee</span></div></div>
+    <div class="livepill"><span class="dot"></span>Live · updated 2 min ago</div>
+  </header>
+  <section class="hero rise" style="--d:.06s">
+    <h1>Your team is healthy.</h1>
+    <p class="lede"><b>5 assistants</b> handled <b>512</b> tasks this week and returned about <b>14 hours</b>.</p>
+  </section>
+  <section class="panel rise" style="--d:.1s">
+    <div class="phead">
+      <div>
+        <div class="plabel">Activity</div>
+        <div class="pval" id="liveVal">512</div>
+        <div class="pmeta">tasks · last 14 days</div>
+      </div>
+      <div class="wins" role="tablist" aria-label="Time window">
+        <button class="w on" data-secs="1209600" type="button">14d</button>
+        <button class="w" data-secs="604800" type="button">7d</button>
+        <button class="w" data-secs="259200" type="button">3d</button>
+      </div>
+    </div>
+    <div class="chart" id="mainChart" aria-hidden="true"></div>
+  </section>
+  <section class="metrics rise" style="--d:.14s">
+    <div class="metric"><span class="mlab">Time saved</span><span class="mnum">14<span>hrs</span></span></div>
+    <div class="metric"><span class="mlab">Work done</span><span class="mnum">512</span></div>
+    <div class="metric"><span class="mlab">Uptime</span><span class="mnum">24<span>/7</span></span></div>
+    <div class="metric"><span class="mlab">With you</span><span class="mnum">127<span>d</span></span></div>
+  </section>
+  <section class="panel rise payband" style="--d:.16s">
+    <div class="phead">
+      <div>
+        <div class="plabel">Payroll · Jul 2026</div>
+        <div class="pval">$250<span class="psuffix">/mo</span></div>
+        <div class="pmeta">flat subscriptions — the meter never runs</div>
+      </div>
+      <div class="paynums">
+        <div class="pnum first"><span>work delivered</span><b>$1,240</b><i>at API list prices</i></div>
+        <div class="pnum"><span>kept in pocket</span><b>80%</b><i>saved $990</i></div>
+      </div>
+    </div>
+    <div class="paybar" aria-hidden="true"><i style="width:20%"></i></div>
+    <div class="payplans"><span class="pchip">Claude Max · <b>$200/mo</b></span><span class="pchip">ChatGPT · <b>$50/mo</b></span><span class="pchip">Gemini API · <b>$0.00 used</b></span></div>
+  </section>
+  <section class="rise" style="--d:.18s">
+    <div class="shead"><h2>Team</h2><span class="scount">5</span></div>
+    <div class="roster">
+      <div class="row"><div class="who"><span class="av">M</span><div><b>Maya</b><span>Content &amp; Social · wage $62/mo</span></div></div><canvas class="spark" data-spark="[3,4,5,4,6,5,7,6,5,8,7,6,8,9]" width="96" height="28"></canvas><div class="score"><b>94</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">L</span><div><b>Leo</b><span>Customer Support · wage $58/mo</span></div></div><canvas class="spark" data-spark="[8,7,9,8,10,9,8,11,10,9,12,11,10,9]" width="96" height="28"></canvas><div class="score"><b>88</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">A</span><div><b>Ava</b><span>Operations · wage $54/mo</span></div></div><canvas class="spark" data-spark="[2,3,2,4,3,5,4,3,4,5,4,6,5,4]" width="96" height="28"></canvas><div class="score"><b>92</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">S</span><div><b>Sam</b><span>Bookkeeping · wage $38/mo</span></div></div><canvas class="spark" data-spark="[1,2,1,2,3,2,2,3,2,3,4,3,3,2]" width="96" height="28"></canvas><div class="score"><b>85</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">I</span><div><b>Iris</b><span>Your Assistant · wage $38/mo</span></div></div><canvas class="spark" data-spark="[4,3,5,4,4,5,6,5,4,5,6,5,7,6]" width="96" height="28"></canvas><div class="score"><b>91</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+    </div>
+  </section>
+  <footer class="foot rise" style="--d:.22s">Fleet · Ember &amp; Oak Coffee · managed for you</footer>
+</div>
+<script type="application/json" id="activityData">{"series":[{"time":0,"value":22},{"time":1,"value":28},{"time":2,"value":31},{"time":3,"value":27},{"time":4,"value":35},{"time":5,"value":42},{"time":6,"value":38},{"time":7,"value":45},{"time":8,"value":40},{"time":9,"value":48},{"time":10,"value":44},{"time":11,"value":50},{"time":12,"value":47},{"time":13,"value":52}],"per":{}}</script>
+</div>
 CVEOF
     return
   fi
-  # ---- real mode: reframe the live fleet warmly (no scores/jargon) ----
+
   local OC="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}"
   local hours=$(( sessions_week / 4 )); [ "$hours" -lt 1 ] && hours=1
   local oldest days=""
   oldest=$(find "$OC"/agents/*/sessions -name '*.jsonl' -printf '%T@\n' 2>/dev/null | sort -n | head -1 | cut -d. -f1)
   [ -n "$oldest" ] && days=$(( ( $(date +%s) - oldest ) / 86400 ))
-  local cards="" i=0
-  local colors=('#3f7d5f' '#b5822f' '#41707e' '#9a5b6f' '#6a6296' '#4b7d6a')
+  local act_json
+  act_json="$(activity_series_json 2>/dev/null || echo '{"series":[],"per":{},"days":[]}')"
+
+  local rows="" i=0
   while IFS=$'\t' read -r rname rrole rscore rsess rins; do
     [ -z "$rname" ] && continue
-    local sw shtml sword init disp col rshort did
-    sw="$(stars_for "$rscore")"; shtml="${sw%|*}"; sword="${sw#*|}"
+    local sw sword tier init disp rshort did spark delay
+    sw="$(stars_for "$rscore")"; sword="${sw%|*}"; tier="${sw#*|}"
     init="$(printf '%s' "${rname:0:1}" | tr '[:lower:]' '[:upper:]')"
     disp="${init}${rname:1}"
-    col="${colors[$(( i % 6 ))]}"
-    rshort="$(printf '%s' "$rrole" | sed -E 's/ [—(].*//')"
-    # real plain-English summary: the positive lead clause of the review insight
-    # (the "— but ..." caveats stay in the technical view). Real data, friendly framing.
+    rshort="$(printf '%s' "$rrole" | sed -E 's/ [—(].*//; s/ —.*//')"
+    if [ "$have_pay" = 1 ] && [ -n "${PAY_WAGE[$rname]:-}" ]; then
+      rshort="${rshort} · wage $(money "${PAY_WAGE[$rname]}")/mo"
+    fi
     did="$(printf '%s' "$rins" | sed -E 's/ — but .*//; s/, but .*//; s/([^.]*\.).*/\1/')"
-    [ "${#did}" -gt 165 ] && did="${did:0:162}…"
-    [ -z "$did" ] && did="Handled ${rsess} tasks for you this week."
-    cards+="<div class=\"member\"><div class=\"mtop\"><div class=\"av\" style=\"background:${col}\">${init}</div><div><div class=\"mname\">$(hesc "$disp")</div><div class=\"mrole\">$(hesc "$rshort")</div></div><div class=\"stars\"><div class=\"s\">${shtml}</div><div class=\"word\">${sword}</div></div></div><div class=\"mdid\">$(hesc "$did")</div><div class=\"mfoot\"><span class=\"tenure\"><span class=\"cal\">◷</span> ${rsess} tasks this week</span><span class=\"onair\"><span class=\"d\"></span>on duty</span></div></div>"
+    [ "${#did}" -gt 120 ] && did="${did:0:117}…"
+    [ -z "$did" ] && did="${rsess} sessions this week."
+    spark="$(printf '%s' "$act_json" | python3 -c "import json,sys; d=json.load(sys.stdin); print(','.join(map(str,d.get('per',{}).get('$rname',[0]*14))))" 2>/dev/null)"
+    [ -z "$spark" ] && spark="0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+    delay="$(python3 -c "print(f'{0.18 + 0.03 * $i:.2f}')")"
+    rows+="<div class=\"row rise\" style=\"--d:${delay}s\" title=\"$(hesc "$did")\">"
+    rows+="<div class=\"who\"><span class=\"av\">${init}</span><div><b>$(hesc "$disp")</b><span>$(hesc "$rshort")</span></div></div>"
+    rows+="<canvas class=\"spark\" data-spark=\"[${spark}]\" width=\"96\" height=\"28\" aria-hidden=\"true\"></canvas>"
+    rows+="<div class=\"score\"><b>${rscore}</b><span class=\"t-${tier}\">${sword}</span></div>"
+    rows+="<span class=\"st on\">on</span></div>"
     i=$(( i + 1 ))
   done < <(jq -r '.agents[] | select(.active) | [.agent,.role,((.score//70)|tostring),(.sessions|tostring),(.insight // "")] | @tsv' "$REVIEW_JSON" 2>/dev/null)
-  [ -z "$cards" ] && cards='<p class="secsub">No active assistants this week.</p>'
-  local fourth
-  if [ -n "$days" ]; then
-    fourth="<div class=\"stat\"><div class=\"ico\"><span class=\"pulse\"></span>With you</div><div class=\"num\" data-count=\"${days}\">0<span class=\"u\">days</span></div><div class=\"lab\">Working for you</div><div class=\"sub\">and counting</div></div>"
-  else
-    fourth="<div class=\"stat\"><div class=\"ico\"><span class=\"pulse\"></span>Reliable</div><div class=\"num\">${active_prod}<span class=\"u\">/${total_prod}</span></div><div class=\"lab\">Assistants working</div><div class=\"sub\">for you</div></div>"
+  [ -z "$rows" ] && rows='<div class="empty">No active agents this week.</div>'
+
+  local fourth_lab="With you" fourth_num="${days:-—}" fourth_u="d"
+  if [ -z "$days" ]; then
+    fourth_lab="Agents"; fourth_num="${active_prod}"; fourth_u="/${total_prod}"
   fi
+
+  local verdict_line="Fleet is healthy."
+  local attn_cta=""
+  if [ "${gw_down:-0}" != 0 ] 2>/dev/null; then
+    verdict_line="A gateway is offline."
+    attn_cta="<button type=\"button\" class=\"cta\" onclick=\"setView('tech')\">See gateways in Technical <span aria-hidden=\"true\">→</span></button>"
+  elif [ "${n_attn:-0}" -gt 0 ] 2>/dev/null; then
+    if [ "${n_attn}" -eq 1 ]; then
+      verdict_line="1 item needs attention."
+    else
+      verdict_line="${n_attn} items need attention."
+    fi
+    attn_cta="<button type=\"button\" class=\"cta\" onclick=\"setView('tech')\">See them in Technical <span aria-hidden=\"true\">→</span></button>"
+  fi
+
   cat <<CVEOF
 <div class="cv"><div class="wrap">
-  <div class="brandmark"><div class="glyph">◉</div><div class="brandtxt"><b>Your AI Team</b><span>for <b>${CLIENT_BIZ}</b></span></div></div>
-  <div class="hero">
-    <div class="kicker"><span class="live"></span>Working right now</div>
-    <h1>Your team is doing great.</h1>
-    <p class="lede"><b>${active_prod} assistants</b> handled <b>${sessions_week} things</b> for you this week and saved you around <b>${hours} hours</b>. Here's how each of them is doing.</p>
-  </div>
-  <div class="stats">
-    <div class="stat hl"><div class="ico"><span class="pulse"></span>Time saved</div><div class="num" data-count="${hours}">0<span class="u">hrs</span></div><div class="lab">This week</div><div class="sub">roughly</div></div>
-    <div class="stat"><div class="ico"><span class="pulse"></span>Work done</div><div class="num" data-count="${sessions_week}">0</div><div class="lab">Tasks handled</div><div class="sub">so you didn't have to</div></div>
-    <div class="stat"><div class="ico"><span class="pulse"></span>Always on</div><div class="num">24<span class="u">/7</span></div><div class="lab">Never off the clock</div><div class="sub">instant response</div></div>
-    ${fourth}
-  </div>
-  <div class="sectitle">Meet your team <span class="n">${active_prod} assistants</span></div>
-  <div class="secsub">Each one has a job and a rating based on the quality of their work.</div>
-  <div class="team">${cards}</div>
-  <div class="sectitle">Rock-solid reliability</div>
-  <div class="reliab"><div class="rt"><b>Working around the clock, every day</b><span>100% uptime</span></div><div class="bars" id="bars"></div><div class="bardays"><span>2 weeks ago</span><span>today</span></div></div>
-  <footer><b>Your AI Team</b> · set up &amp; managed for ${CLIENT_BIZ}<br>They don't call in sick, they don't quit, and they never stop working.</footer>
-</div></div>
+  <header class="top rise" style="--d:.02s">
+    <div class="brand"><span class="mark"></span><div><b>Fleet</b><span>${CLIENT_BIZ}</span></div></div>
+    <div class="livepill"><span class="dot"></span>Live · ${NOW_UTC}</div>
+  </header>
+
+  <section class="hero rise" style="--d:.06s">
+    <h1>${verdict_line}</h1>
+    ${attn_cta}
+    <p class="lede"><b>${active_prod} agents</b> handled <b>${sessions_week}</b> sessions this week · about <b>${hours} hours</b> of work.</p>
+  </section>
+
+  <section class="panel rise" style="--d:.1s">
+    <div class="phead">
+      <div>
+        <div class="plabel">Activity</div>
+        <div class="pval" id="liveVal">${sessions_week}</div>
+        <div class="pmeta">sessions · trailing window</div>
+      </div>
+      <div class="wins" role="tablist" aria-label="Time window">
+        <button class="w on" data-secs="1209600" type="button">14d</button>
+        <button class="w" data-secs="604800" type="button">7d</button>
+        <button class="w" data-secs="259200" type="button">3d</button>
+      </div>
+    </div>
+    <div class="chart" id="mainChart" aria-hidden="true"></div>
+  </section>
+
+  <section class="metrics rise" style="--d:.14s">
+    <div class="metric"><span class="mlab">Time saved</span><span class="mnum">${hours}<span>hrs</span></span></div>
+    <div class="metric"><span class="mlab">Sessions</span><span class="mnum">${sessions_week}</span></div>
+    <div class="metric"><span class="mlab">Uptime</span><span class="mnum">24<span>/7</span></span></div>
+    <div class="metric"><span class="mlab">${fourth_lab}</span><span class="mnum">${fourth_num}<span>${fourth_u}</span></span></div>
+  </section>
+
+$( [ "$have_pay" = 1 ] && cat <<PAYBAND
+  <section class="panel rise payband" style="--d:.16s">
+    <div class="phead">
+      <div>
+        <div class="plabel">Payroll · ${pay_label}</div>
+        <div class="pval">$(money "$pay_actual")<span class="psuffix">/mo</span></div>
+        <div class="pmeta">flat subscriptions — the meter never runs</div>
+      </div>
+      <div class="paynums">
+        <div class="pnum first"><span>work delivered</span><b>$(money "$pay_would")</b><i>at API list prices</i></div>
+        <div class="pnum"><span>kept in pocket</span><b>${pay_pct}%</b><i>saved $(money "$pay_saved")</i></div>
+      </div>
+    </div>
+    <div class="paybar" aria-hidden="true"><i style="width:${pay_bar}%"></i></div>
+    <div class="payplans">${pay_chips}</div>
+  </section>
+PAYBAND
+)
+
+  <section class="rise" style="--d:.18s">
+    <div class="shead"><h2>Team</h2><span class="scount">${active_prod}</span></div>
+    <div class="roster">${rows}</div>
+  </section>
+
+  <footer class="foot rise" style="--d:.24s">
+    <a href="https://fleet.ani.computer">fleet.ani.computer</a>
+    <span>·</span>
+    <span>refreshes every 10 min</span>
+  </footer>
+</div>
+<script type="application/json" id="activityData">${act_json}</script>
+</div>
 CVEOF
 }
 client_html="$(render_client)"
@@ -535,9 +736,13 @@ cat > "$tmp" <<HTML
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="300">
 <meta name="robots" content="noindex,nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <title>Fleet Status — ${FLEET_NAME}</title>
 <style>
   :root{
+    --ease:cubic-bezier(0.23,1,0.32,1);
     --bg:#050805; --panel:#080e08; --ink:#0a120a; --sunk:#060a06;
     --edge:#173217; --edge2:#255025;
     --hi:#b6ffcb; --text:#5dff7e; --mid:#3f9c56; --dim:#2f8a44; --muted:#347a45;
@@ -636,6 +841,12 @@ cat > "$tmp" <<HTML
   details .name{color:var(--mid)}
   details pre{font:11.5px/1.5 var(--mono);color:var(--muted);background:var(--ink);border:1px dashed var(--edge);padding:9px 11px;overflow-x:auto;white-space:pre;margin-top:6px;text-shadow:none}
   details .tw{overflow-x:auto}
+  .tw{overflow-x:auto}
+  .tw table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+  .tw th{text-align:left;color:var(--dim);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.1em;padding:4px 12px 4px 0;border-bottom:1px dashed var(--edge2)}
+  .tw td{padding:6px 12px 6px 0;border-bottom:1px dotted var(--edge);color:var(--muted);vertical-align:top;text-shadow:none}
+  .tw .name{color:var(--mid);font-weight:700}
+  .paystats{margin-top:0;margin-bottom:4px}
   details .pill::before{content:"["} details .pill::after{content:"]"}
   .pill{font-weight:700} .pill.green{color:var(--green)} .pill.amber{color:var(--amber)} .pill.red{color:var(--red)} .pill.gray{color:var(--gray)}
   footer{margin-top:34px;color:var(--dim);font-size:11px;text-align:center;text-shadow:none;letter-spacing:.05em}
@@ -643,97 +854,171 @@ cat > "$tmp" <<HTML
   @media (max-width:680px){body{padding:16px 10px 50px}.stats{grid-template-columns:repeat(2,1fr)}.vstate{font-size:23px}}
 
   /* ============ view toggle ============ */
-  .viewbar{position:sticky;top:0;z-index:60;display:flex;justify-content:center;padding:14px 14px 12px}
-  html[data-view="simple"] .viewbar{background:linear-gradient(#F2F4F0,rgba(242,244,240,.6) 70%,transparent)}
-  html[data-view="tech"] .viewbar{background:linear-gradient(#050805,rgba(5,8,5,.55) 70%,transparent)}
-  .seg{display:inline-flex;border-radius:999px;padding:4px;gap:2px}
-  html[data-view="simple"] .seg{background:#fff;border:1px solid #E3E7E0;box-shadow:0 1px 2px rgba(20,45,30,.05)}
-  html[data-view="tech"] .seg{background:#0d140e;border:1px solid #1c3320}
-  .seg button{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:13px;font-weight:600;border:0;background:none;padding:8px 18px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:7px;transition:color .2s,background .2s}
-  .seg .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.5}
-  html[data-view="simple"] .seg button{color:#5D665F}
-  html[data-view="simple"] .seg .b-simple{background:#12734E;color:#fff}
-  html[data-view="tech"] .seg button{color:#5f7a66}
-  html[data-view="tech"] .seg .b-tech{background:#123a24;color:#7dffa8}
-  .seg button:focus-visible{outline:2px solid #12734E;outline-offset:2px}
-  /* view show/hide + page ground per view */
+  /* Floating view toggle — fixed geometry; only colors change between views */
+  .viewbar{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%);
+    z-index:80; display:flex; justify-content:center; padding:0;
+    pointer-events:none;
+  }
+  .seg{
+    pointer-events:auto;
+    display:inline-flex; gap:2px; padding:3px; border-radius:8px;
+    font-family:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+    border:1px solid #1e1e24; background:#121216;
+    box-shadow:0 8px 28px rgba(0,0,0,.35);
+    transition:background 160ms var(--ease,cubic-bezier(.23,1,.32,1)), border-color 160ms var(--ease,cubic-bezier(.23,1,.32,1)), box-shadow 160ms var(--ease,cubic-bezier(.23,1,.32,1));
+  }
+  .seg button{
+    appearance:none; border:0; background:transparent;
+    font:500 12px/1 'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+    padding:7px 12px; border-radius:6px; cursor:pointer; color:#6b6f76;
+    transition:transform 160ms var(--ease,cubic-bezier(.23,1,.32,1)), background 160ms var(--ease,cubic-bezier(.23,1,.32,1)), color 160ms var(--ease,cubic-bezier(.23,1,.32,1));
+  }
+  .seg button:active{transform:scale(.97)}
+  .seg button .dot{
+    display:inline-block; width:5px; height:5px; border-radius:50%;
+    margin-right:6px; opacity:.35; vertical-align:1px;
+    background:currentColor;
+    transition:opacity 160ms var(--ease,cubic-bezier(.23,1,.32,1)), background 160ms var(--ease,cubic-bezier(.23,1,.32,1));
+  }
+  html[data-view="simple"] .seg{background:#121216; border-color:#1e1e24; box-shadow:0 8px 28px rgba(0,0,0,.35)}
+  html[data-view="simple"] .seg button{color:#6b6f76}
+  html[data-view="simple"] .seg .b-simple{background:#1c1c22; color:#ededef}
+  html[data-view="simple"] .seg .b-simple .dot{opacity:1; background:#82a7ff}
+  html[data-view="tech"] .seg{background:#121216; border-color:#1e1e24; box-shadow:0 8px 28px rgba(0,0,0,.35)}
+  html[data-view="tech"] .seg button{color:#6b6f76}
+  html[data-view="tech"] .seg .b-tech{background:#1c1c22; color:#ededef}
+  html[data-view="tech"] .seg .b-tech .dot{opacity:1; background:#7dffa8}
   html[data-view="tech"] .cv{display:none}
+  .tv{padding-top:44px}
   html[data-view="simple"] .tv{display:none}
-  html[data-view="simple"]{background:#F2F4F0}
-  html[data-view="simple"] body{background:#F2F4F0;color:#17201B;text-shadow:none;max-width:none;padding:0}
+  html[data-view="simple"]{background:#09090b}
+  html[data-view="simple"] body{background:#09090b;color:#ededef;text-shadow:none;max-width:none;padding:0;font-family:var(--cv-sans,'IBM Plex Sans',sans-serif)}
   html[data-view="simple"] body::before,html[data-view="simple"] body::after{display:none}
 
-  /* ============ client (simple) view — all scoped under .cv ============ */
-  .cv{--cink:#17201B;--cmut:#5D665F;--cfaint:#8B938C;--cline:#E3E7E0;--cline2:#EDF0EA;--cacc:#12734E;--caccd:#0B5A3C;--ctint:#E4F1EA;--cgold:#BE8526;--cwhite:#fff;
-    --cserif:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,ui-serif,serif;--csans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;
-    font-family:var(--csans);line-height:1.55}
-  .cv .wrap{max-width:920px;margin:0 auto;padding:4px 22px 72px}
-  .cv .brandmark{display:flex;align-items:center;gap:11px;margin-bottom:30px}
-  .cv .glyph{width:30px;height:30px;border-radius:9px;background:var(--cacc);color:#fff;display:grid;place-items:center;font-family:var(--cserif);font-size:17px}
-  .cv .brandtxt b{font-family:var(--cserif);font-size:15px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;display:block;line-height:1.2}
-  .cv .brandtxt span{font-size:12px;color:var(--cfaint)}
-  .cv .brandtxt span b{display:inline;font-family:var(--csans);letter-spacing:0;text-transform:none;color:var(--cmut);font-weight:600}
-  .cv .hero{margin-bottom:34px}
-  .cv .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--caccd);background:var(--ctint);border:1px solid #cfe6da;padding:5px 12px;border-radius:999px;margin-bottom:18px}
-  .cv .kicker .live{width:7px;height:7px;border-radius:50%;background:var(--cacc);position:relative}
-  .cv .kicker .live::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--cacc);opacity:.5;animation:cvping 2s ease-out infinite}
-  @keyframes cvping{0%{transform:scale(.6);opacity:.6}100%{transform:scale(1.8);opacity:0}}
-  .cv h1{font-family:var(--cserif);font-weight:500;font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.01em;text-wrap:balance;margin-bottom:14px;color:var(--cink)}
-  .cv .lede{font-size:clamp(16px,2.2vw,18.5px);color:var(--cmut);max-width:60ch;line-height:1.5}
-  .cv .lede b{color:var(--cink);font-weight:600}
-  .cv .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:30px 0 12px;background:none;border:0}
-  .cv .stat{background:var(--cwhite);border:1px solid var(--cline);border-radius:18px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(20,45,30,.04),0 6px 18px rgba(20,45,30,.05);position:relative;overflow:hidden}
-  .cv .stat .ico{font-size:14px;font-weight:600;margin-bottom:14px;color:var(--cacc);display:flex;align-items:center;gap:8px}
-  .cv .stat .ico .pulse{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
-  @keyframes cvbeat{0%,100%{box-shadow:0 0 0 0 rgba(18,115,78,.4)}50%{box-shadow:0 0 0 6px rgba(18,115,78,0)}}
-  .cv .num{font-size:clamp(30px,5vw,46px);font-weight:650;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums;color:var(--cink)}
-  .cv .num .u{font-size:.42em;font-weight:600;color:var(--cmut);margin-left:2px;letter-spacing:0}
-  .cv .stat .lab{font-size:12.5px;font-weight:600;color:var(--cink);margin-top:9px}
-  .cv .stat .sub{font-size:12px;color:var(--cfaint);margin-top:1px}
-  .cv .stat.hl{background:linear-gradient(160deg,#155f42,#0e7a51);border-color:#0e7a51}
-  .cv .stat.hl .ico,.cv .stat.hl .lab,.cv .stat.hl .num{color:#fff}
-  .cv .stat.hl .ico .pulse{background:#c9ffe0}
-  .cv .stat.hl .num .u{color:#bfe9d1}
-  .cv .stat.hl .sub{color:#bfe9d1}
-  .cv .sectitle{font-family:var(--cserif);font-size:22px;font-weight:600;letter-spacing:-.01em;margin:40px 0 4px;display:flex;align-items:baseline;gap:10px;color:var(--cink)}
-  .cv .sectitle .n{font-family:var(--csans);font-size:12px;color:var(--cfaint);font-weight:600}
-  .cv .secsub{font-size:13.5px;color:var(--cmut);margin-bottom:18px}
-  .cv .team{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
-  .cv .member{background:var(--cwhite);border:1px solid var(--cline);border-radius:18px;padding:18px;box-shadow:0 1px 2px rgba(20,45,30,.04),0 6px 18px rgba(20,45,30,.05);transition:transform .18s,box-shadow .18s;display:flex;flex-direction:column}
-  .cv .member:hover{transform:translateY(-2px);box-shadow:0 2px 4px rgba(20,45,30,.04),0 10px 26px rgba(20,45,30,.07)}
-  .cv .mtop{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-  .cv .av{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-family:var(--cserif);font-size:19px;font-weight:600;color:#fff;flex-shrink:0}
-  .cv .mname{font-size:16.5px;font-weight:650;line-height:1.15;color:var(--cink)}
-  .cv .mrole{font-size:12.5px;color:var(--cmut)}
-  .cv .stars{margin-left:auto;text-align:right;flex-shrink:0}
-  .cv .stars .s{color:var(--cgold);font-size:13px;letter-spacing:1px}
-  .cv .stars .s .o{color:#dcd8ce}
-  .cv .stars .word{font-size:10.5px;color:var(--cfaint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:1px}
-  .cv .mdid{font-size:13.5px;color:var(--cink);line-height:1.55;padding:13px 0 2px;border-top:1px solid var(--cline2)}
-  .cv .mdid b{color:var(--caccd);font-weight:650}
-  .cv .mfoot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:13px;font-size:12px;color:var(--cmut)}
-  .cv .tenure{display:flex;align-items:center;gap:6px}
-  .cv .tenure .cal{color:var(--cgold)}
-  .cv .onair{display:inline-flex;align-items:center;gap:6px;color:var(--cacc);font-weight:600}
-  .cv .onair .d{width:6px;height:6px;border-radius:50%;background:var(--cacc);animation:cvbeat 2s infinite}
-  .cv .note{background:var(--cwhite);border:1px solid var(--cline);border-left:3px solid var(--cacc);border-radius:14px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,45,30,.05);margin-top:6px}
-  .cv .note p{font-size:15.5px;line-height:1.62;color:#2b332e}
-  .cv .note p b{color:var(--cink);font-weight:650}
-  .cv .note .sig{margin-top:14px;font-size:12.5px;color:var(--cfaint)}
-  .cv .reliab{background:var(--cwhite);border:1px solid var(--cline);border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,45,30,.05);margin-top:6px}
-  .cv .reliab .rt{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px;flex-wrap:wrap;gap:6px}
-  .cv .reliab .rt b{font-size:14.5px;font-weight:650;color:var(--cink)}
-  .cv .reliab .rt span{font-size:12.5px;color:var(--cacc);font-weight:600}
-  .cv .bars{display:flex;align-items:flex-end;gap:5px;height:60px}
-  .cv .bars .b{flex:1;background:linear-gradient(var(--cacc),#3ba876);border-radius:4px 4px 2px 2px;min-height:8px;opacity:.9;transition:height .5s cubic-bezier(.2,.7,.2,1)}
-  .cv .bars .b:last-child{background:linear-gradient(var(--cgold),#d8a955)}
-  .cv .bardays{display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--cfaint)}
-  .cv footer{margin-top:44px;padding-top:22px;border-top:1px solid var(--cline);text-align:center;color:var(--cfaint);font-size:12.5px;line-height:1.7}
-  .cv footer b{color:var(--cmut);font-weight:600}
-  .cv .rise{opacity:0;transform:translateY(12px);animation:cvrise .6s cubic-bezier(.2,.7,.2,1) forwards}
-  @keyframes cvrise{to{opacity:1;transform:none}}
-  @media (prefers-reduced-motion:reduce){.cv .rise{animation:none;opacity:1;transform:none}.cv .kicker .live::after,.cv .onair .d,.cv .stat .ico .pulse{animation:none}}
-  @media (max-width:720px){.cv .stats{grid-template-columns:repeat(2,1fr)}.cv .wrap{padding:4px 16px 60px}}
+  /* ============ Simple view — Linear + Liveline ============ */
+  .cv{
+    --ink:#ededef; --mut:#8a8f98; --faint:#5c6169; --line:#1e1e24; --line2:#16161a;
+    --panel:#0f0f12; --acc:#82a7ff; --ok:#3dd68c; --warn:#f5a524;
+    --ease:cubic-bezier(0.23,1,0.32,1);
+    --cv-sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+    --cv-mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+    font-family:var(--cv-sans); color:var(--ink); line-height:1.45;
+    min-height:100vh; background:
+      radial-gradient(900px 420px at 18% -10%, rgba(130,167,255,.07), transparent 60%),
+      radial-gradient(700px 380px at 90% 0%, rgba(61,214,140,.04), transparent 55%),
+      #09090b;
+  }
+  .cv .wrap{max-width:880px;margin:0 auto;padding:56px 24px 80px}
+  .cv .rise{opacity:0;transform:translateY(8px) scale(.985);animation:cvin .55s var(--ease) forwards;animation-delay:var(--d,0s)}
+  @keyframes cvin{to{opacity:1;transform:none}}
+
+  .cv .top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0 28px}
+  .cv .brand{display:flex;align-items:center;gap:12px}
+  .cv .mark{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#82a7ff,#5b7fd4);box-shadow:0 0 0 1px rgba(130,167,255,.25),0 0 20px rgba(130,167,255,.15)}
+  .cv .brand b{display:block;font-size:13px;font-weight:600;letter-spacing:.02em}
+  .cv .brand span{display:block;font-size:12px;color:var(--faint);margin-top:1px}
+  .cv .livepill{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
+  .cv .livepill .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(61,214,140,.45);animation:cvpulse 2.4s var(--ease) infinite}
+  @keyframes cvpulse{0%{box-shadow:0 0 0 0 rgba(61,214,140,.4)}70%{box-shadow:0 0 0 8px rgba(61,214,140,0)}100%{box-shadow:0 0 0 0 rgba(61,214,140,0)}}
+
+  .cv .hero{margin-bottom:28px}
+  .cv h1{font-size:clamp(28px,4.5vw,40px);font-weight:500;letter-spacing:-.035em;line-height:1.1;margin:0 0 10px}
+  .cv .lede{font-size:15px;color:var(--mut);max-width:54ch;margin:0}
+  .cv .lede b{color:var(--ink);font-weight:550}
+  .cv .cta{
+    display:inline-flex; align-items:center; gap:6px;
+    margin:14px 0 16px; padding:8px 12px;
+    border:1px solid var(--line); border-radius:8px;
+    background:#141418; color:var(--ink);
+    font:500 13px/1 var(--cv-sans); cursor:pointer;
+    transition:transform 160ms var(--ease), background 160ms var(--ease), border-color 160ms var(--ease), color 160ms var(--ease);
+  }
+  .cv .cta span{color:var(--acc); transition:transform 160ms var(--ease)}
+  .cv .cta:hover{background:#1a1a20; border-color:#2a2a32}
+  .cv .cta:hover span{transform:translateX(2px)}
+  .cv .cta:active{transform:scale(.97)}
+  .cv h1 + .lede{margin-top:10px}
+  .cv h1 + .cta + .lede{margin-top:0}
+
+  .cv .panel{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:18px 18px 8px;margin-bottom:14px}
+  .cv .phead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:4px}
+  .cv .plabel{font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .cv .pval{font-size:34px;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1;font-family:var(--cv-mono)}
+  .cv .pmeta{font-size:12px;color:var(--faint);margin-top:6px}
+  .cv .wins{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:8px;background:#0a0a0d}
+  .cv .wins .w{appearance:none;border:0;background:transparent;color:var(--faint);font:500 11px/1 var(--cv-mono);padding:6px 10px;border-radius:5px;cursor:pointer;transition:background 160ms var(--ease),color 160ms var(--ease),transform 140ms var(--ease)}
+  .cv .wins .w:hover{color:var(--mut)}
+  .cv .wins .w:active{transform:scale(.97)}
+  .cv .wins .w.on{background:#1a1a20;color:var(--ink)}
+  .cv .chart{height:168px;margin:0 -6px -2px;position:relative}
+
+  .cv .payband .phead{margin-bottom:14px}
+  .cv .psuffix{font-size:14px;color:var(--faint);margin-left:3px}
+  .cv .paynums{display:flex;gap:26px}
+  .cv .pnum{display:flex;flex-direction:column;align-items:flex-end;text-align:right}
+  .cv .pnum span{font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .cv .pnum b{font-family:var(--cv-mono);font-size:20px;font-weight:500;letter-spacing:-.02em;color:var(--ok);margin:5px 0 3px;font-variant-numeric:tabular-nums}
+  .cv .pnum.first b{color:var(--ink)}
+  .cv .pnum i{font-style:normal;font-size:11px;color:var(--faint)}
+  .cv .paybar{height:5px;border-radius:99px;background:#16161b;overflow:hidden;margin:0 0 12px}
+  .cv .paybar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#2f9e68,var(--ok))}
+  .cv .payplans{display:flex;flex-wrap:wrap;gap:6px}
+  .cv .pchip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
+  .cv .pchip b{color:var(--ink);font-weight:550}
+
+  .cv .metrics{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:28px;background:var(--panel)}
+  .cv .metric{padding:16px 18px;border-right:1px solid var(--line)}
+  .cv .metric:last-child{border-right:0}
+  .cv .mlab{display:block;font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+  .cv .mnum{display:block;font-size:22px;font-weight:500;letter-spacing:-.02em;font-variant-numeric:tabular-nums;font-family:var(--cv-mono);line-height:1}
+  .cv .mnum span{font-size:12px;color:var(--faint);margin-left:3px;font-weight:500}
+
+  .cv .shead{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}
+  .cv .shead h2{font-size:13px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:0}
+  .cv .scount{font-size:12px;color:var(--mut);font-family:var(--cv-mono);font-variant-numeric:tabular-nums}
+
+  .cv .roster{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+  .cv .row{display:grid;grid-template-columns:minmax(160px,1.4fr) 96px 88px 40px;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line);transition:background 160ms var(--ease)}
+  .cv .row:last-child{border-bottom:0}
+  .cv .row:hover{background:#121217}
+  .cv .who{display:flex;align-items:center;gap:12px;min-width:0}
+  .cv .av{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;font-size:12px;font-weight:600;background:#1a1a20;color:var(--acc);border:1px solid var(--line);flex-shrink:0}
+  .cv .who b{display:block;font-size:13.5px;font-weight:550;letter-spacing:-.01em}
+  .cv .who span{display:block;font-size:12px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}
+  .cv .spark{width:96px;height:28px;display:block}
+  .cv .score{text-align:right}
+  .cv .score b{display:block;font-size:14px;font-weight:550;font-family:var(--cv-mono);font-variant-numeric:tabular-nums}
+  .cv .score span{font-size:11px;color:var(--faint)}
+  .cv .score .t-exc{color:var(--ok)}
+  .cv .score .t-grt{color:#8fd4a8}
+  .cv .st{justify-self:end;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+  .cv .st.on{color:var(--ok)}
+  .cv .empty{padding:20px;color:var(--faint);font-size:13px}
+
+  .cv .foot{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:36px;padding-top:20px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+  .cv .foot a{color:var(--mut);text-decoration:none;transition:color 160ms var(--ease)}
+  .cv .foot a:hover{color:var(--ink)}
+
+  @media (prefers-reduced-motion:reduce){
+    .cv .rise{animation:none;opacity:1;transform:none}
+    .cv .livepill .dot{animation:none}
+  }
+  @media (max-width:720px){
+    .cv .wrap{padding:4px 16px 64px}
+    .cv .metrics{grid-template-columns:repeat(2,1fr)}
+    .cv .metric:nth-child(2){border-right:0}
+    .cv .metric:nth-child(1),.cv .metric:nth-child(2){border-bottom:1px solid var(--line)}
+    .cv .row{grid-template-columns:1fr 72px 40px;gap:10px}
+    .cv .spark{display:none}
+    .cv .score{display:none}
+    .cv .chart{height:140px}
+    .cv .phead{flex-direction:column;align-items:stretch}
+    .cv .paynums{gap:14px}
+    .cv .pnum{align-items:flex-start;text-align:left}
+    .cv .pnum b{font-size:17px}
+  }
+
 </style>
 </head>
 <body>
@@ -791,6 +1076,23 @@ TEAMS
 )
 </section>
 
+$( [ "$have_pay" = 1 ] && cat <<PAY
+<section>
+  <div class="shead"><h2>Payroll — ${pay_label}</h2><div class="rule"></div><div class="note">would-cost = tokens × public API list prices · actual = flat subscriptions + metered API</div></div>
+  <div class="stats paystats">
+    <div class="stat"><div class="n">$(money "$pay_would")</div><div class="l">Work delivered</div><div class="sub">API list value, month to date</div></div>
+    <div class="stat"><div class="n">$(money "$pay_actual")</div><div class="l">Actual payroll</div><div class="sub">$(hesc "$pay_plans")</div></div>
+    <div class="stat"><div class="n">${pay_pct}<small>%</small></div><div class="l">Kept in pocket</div><div class="sub">saved $(money "$pay_saved") vs API</div></div>
+    <div class="stat"><div class="n">$(tokfmt "$pay_tokens")</div><div class="l">Tokens</div><div class="sub">month to date</div></div>
+  </div>
+  <div class="tw" style="margin-top:12px"><table>
+    <tr><th>agent</th><th>top model</th><th>tokens</th><th>would cost</th><th>actual</th><th>saved</th></tr>${pay_rows}
+  </table></div>
+  <div class="teamlabel" style="margin-top:8px">rate card: config/cost-rates.json · subscriptions allocated pro-rata by each agent's share of that provider's API-value pool · Gemini billed per token only when it actually runs</div>
+</section>
+PAY
+)
+
 $( [ "$have_burn" = 1 ] && cat <<BURN
 <section>
   <div class="shead"><h2>Token burn — last 24h</h2><div class="rule"></div><div class="note">what each agent consumed of your Claude plan${plan_pct:+ · plan window ${plan_pct}% used}</div></div>
@@ -805,7 +1107,7 @@ $( [ "$DEMO" != 1 ] && cat <<RESIL
   <div class="shead"><h2>Model resilience</h2><div class="rule"></div><div class="note">what happens when Claude Max runs out</div></div>
   <div class="health">
     $(hc ok 'Claude Max → ChatGPT/Codex fallback' 'Opus/Sonnet agents fall back to openai/gpt-5.5 (or mini) when weekly Claude limits hit.')
-    $(hc ok 'Codex worker agent online' 'kai / ping / dash can spawn the codex subagent for heavy build loops.')
+    $(hc ok 'Codex worker agent online' 'bloop / isaac / ping / dash can spawn the codex subagent for heavy build loops.')
     $(hc ok 'Public spectator board' 'fleet.ani.computer shows redacted live quests for sharing.')
   </div>
   <div class="teamlabel" style="margin-top:10px">Auth sync: hourly from ~/.codex → OpenClaw agent stores · OpenClaw $(openclaw --version 2>/dev/null | head -1 | sed 's/OpenClaw //')</div>
@@ -833,6 +1135,7 @@ RESIL
     <div class="tw"><table><tr><th>timer</th><th>next fire</th><th></th></tr>${timers_rows}</table></div>
     <h4>Scan health</h4>
     <p>${rot_24h} rotations / ${backoff_24h} backoffs in 24h · ${backoff_1h} backoff in last hour · doctor: ${doctor_ok:-0} ok, ${doctor_warn:-0} warn, ${doctor_fail:-0} fail</p>
+    $( [ "$have_pay" = 1 ] && [ -n "$pay_detail_rows" ] && printf '<h4>Payroll detail — by provider, month to date</h4><div class="tw"><table><tr><th>agent</th><th>provider</th><th>tokens</th><th>would cost</th><th>actual</th></tr>%s</table></div>' "$pay_detail_rows" )
     <h4>GBrain</h4><pre>${gbrain_out}</pre>
     ${scorecard_html:+<h4>Experimental scorecard</h4>$scorecard_html}
     ${evals_html:+<h4>Memory evals</h4>$evals_html}
@@ -852,26 +1155,155 @@ fi )</footer>
   var root=document.documentElement;
   var isDemo=root.getAttribute('data-demo')==='1';
   var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion:reduce)').matches;
-  var h=[72,88,64,95,80,70,90,60,85,78,92,68,86,100];
-  function buildBars(){var bars=document.getElementById('bars');if(!bars||bars.childElementCount)return;
-    h.forEach(function(v){var b=document.createElement('div');b.className='b';b.style.height=(reduce?v:8)+'%';bars.appendChild(b);});}
-  function grow(){if(reduce)return;var bars=document.getElementById('bars');if(!bars)return;
-    [].forEach.call(bars.children,function(b,i){setTimeout(function(){b.style.height=h[i]+'%';},120+i*45);});}
-  function count(){if(reduce)return;
-    document.querySelectorAll('.cv .num[data-count]').forEach(function(el){
-      var target=+el.getAttribute('data-count');var u=el.querySelector('.u');var suffix=u?u.outerHTML:'';
-      var start=null,dur=800;
-      function step(ts){if(!start)start=ts;var p=Math.min((ts-start)/dur,1);var e=1-Math.pow(1-p,3);
-        el.innerHTML=Math.round(e*target).toLocaleString()+suffix;if(p<1)requestAnimationFrame(step);}
-      el.innerHTML='0'+suffix;requestAnimationFrame(step);});}
-  function animateSimple(){buildBars();count();grow();}
-  window.setView=function(v){root.setAttribute('data-view',v);
+  var EASE=0.08;
+
+  function parseData(){
+    var el=document.getElementById('activityData');
+    if(!el) return {series:[], per:{}};
+    try{return JSON.parse(el.textContent||'{}');}catch(e){return {series:[], per:{}};}
+  }
+
+  /* Mini Liveline: one canvas, lerp, fill, live tip — inspired by https://benji.org/liveline */
+  function Liveline(host, opts){
+    this.host=host; this.opts=opts||{};
+    this.canvas=document.createElement('canvas');
+    this.canvas.style.width='100%'; this.canvas.style.height='100%'; this.canvas.style.display='block';
+    host.innerHTML=''; host.appendChild(this.canvas);
+    this.ctx=this.canvas.getContext('2d');
+    this.points=[]; this.disp=[]; this.ymin=0; this.ymax=1;
+    this.dyMin=0; this.dyMax=1; this.value=0; this.dValue=0;
+    this.windowSecs=opts.window||1209600;
+    this.color=opts.color||'#82a7ff';
+    this.raf=null; this._bound=this.frame.bind(this);
+    this.resize();
+    window.addEventListener('resize', this.resize.bind(this));
+  }
+  Liveline.prototype.resize=function(){
+    var r=this.host.getBoundingClientRect();
+    var dpr=Math.min(window.devicePixelRatio||1, 2);
+    this.w=Math.max(1,r.width); this.h=Math.max(1,r.height);
+    this.canvas.width=this.w*dpr; this.canvas.height=this.h*dpr;
+    this.ctx.setTransform(dpr,0,0,dpr,0,0);
+  };
+  Liveline.prototype.setData=function(series, windowSecs){
+    if(windowSecs) this.windowSecs=windowSecs;
+    var now=series.length?series[series.length-1].time:Date.now();
+    var cut=now-this.windowSecs*1000;
+    var pts=series.filter(function(p){return p.time>=cut || series[0].time<1e10;});
+    if(!pts.length) pts=series.slice();
+    this.points=pts;
+    if(!this.disp.length) this.disp=pts.map(function(p){return {t:p.time,v:p.value};});
+    var vs=pts.map(function(p){return p.value});
+    var mn=Math.min.apply(null,vs.concat([0]));
+    var mx=Math.max.apply(null,vs.concat([1]));
+    if(mx===mn){mx=mn+1;}
+    var pad=(mx-mn)*0.18;
+    this.ymin=Math.max(0,mn-pad); this.ymax=mx+pad;
+    this.value=pts.length?pts[pts.length-1].value:0;
+    if(!this.raf && !reduce) this.raf=requestAnimationFrame(this._bound);
+    else if(reduce){ this.disp=pts.map(function(p){return {t:p.time,v:p.value};}); this.dyMin=this.ymin; this.dyMax=this.ymax; this.dValue=this.value; this.draw(); }
+  };
+  Liveline.prototype.frame=function(){
+    var pts=this.points;
+    while(this.disp.length<pts.length) this.disp.push({t:pts[this.disp.length].time,v:this.disp.length?this.disp[this.disp.length-1].v:pts[0].value});
+    while(this.disp.length>pts.length) this.disp.pop();
+    for(var i=0;i<pts.length;i++){
+      this.disp[i].t=pts[i].time;
+      this.disp[i].v+=(pts[i].value-this.disp[i].v)*EASE;
+    }
+    this.dyMin+=(this.ymin-this.dyMin)*EASE;
+    this.dyMax+=(this.ymax-this.dyMax)*EASE;
+    this.dValue+=(this.value-this.dValue)*EASE;
+    var valEl=document.getElementById('liveVal');
+    if(valEl && this.points.length){
+      var sum=0; for(var j=0;j<this.points.length;j++) sum+=this.points[j].value;
+      /* show trailing-window sum while lerping tip value for the badge feel */
+      valEl.textContent=Math.round(sum).toLocaleString();
+    }
+    this.draw();
+    this.raf=requestAnimationFrame(this._bound);
+  };
+  Liveline.prototype.draw=function(){
+    var ctx=this.ctx, w=this.w, h=this.h, pad={t:12,r:12,b:22,l:8};
+    ctx.clearRect(0,0,w,h);
+    var pts=this.disp; if(pts.length<2) return;
+    var t0=pts[0].t, t1=pts[pts.length-1].t; if(t1===t0) t1=t0+1;
+    var y0=this.dyMin, y1=this.dyMax; if(y1===y0) y1=y0+1;
+    function X(t){return pad.l + (t-t0)/(t1-t0)*(w-pad.l-pad.r);}
+    function Y(v){return pad.t + (1-(v-y0)/(y1-y0))*(h-pad.t-pad.b);}
+    ctx.strokeStyle='rgba(237,237,239,0.04)'; ctx.lineWidth=1;
+    for(var g=0;g<3;g++){ var gy=pad.t+(h-pad.t-pad.b)*g/2; ctx.beginPath(); ctx.moveTo(pad.l,gy); ctx.lineTo(w-pad.r,gy); ctx.stroke(); }
+    ctx.beginPath();
+    for(var i=0;i<pts.length;i++){ var x=X(pts[i].t), y=Y(pts[i].v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    var last=pts[pts.length-1];
+    ctx.lineTo(X(last.t), h-pad.b); ctx.lineTo(X(pts[0].t), h-pad.b); ctx.closePath();
+    var grd=ctx.createLinearGradient(0,pad.t,0,h-pad.b);
+    grd.addColorStop(0,'rgba(130,167,255,0.22)'); grd.addColorStop(1,'rgba(130,167,255,0)');
+    ctx.fillStyle=grd; ctx.fill();
+    ctx.beginPath();
+    for(i=0;i<pts.length;i++){ x=X(pts[i].t); y=Y(pts[i].v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    ctx.strokeStyle=this.color; ctx.lineWidth=2; ctx.lineJoin='round'; ctx.lineCap='round'; ctx.stroke();
+    var tipX=X(last.t), tipY=Y(last.v);
+    ctx.beginPath(); ctx.arc(tipX,tipY,8,0,Math.PI*2); ctx.fillStyle='rgba(130,167,255,0.15)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(tipX,tipY,3.5,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+    ctx.beginPath(); ctx.arc(tipX,tipY,2.2,0,Math.PI*2); ctx.fillStyle=this.color; ctx.fill();
+  };
+
+  function spark(canvas){
+    var raw=canvas.getAttribute('data-spark')||'[]';
+    var data; try{data=JSON.parse(raw);}catch(e){return;}
+    if(!data.length) return;
+    var dpr=Math.min(window.devicePixelRatio||1,2);
+    var w=96, h=28;
+    canvas.width=w*dpr; canvas.height=h*dpr; canvas.style.width=w+'px'; canvas.style.height=h+'px';
+    var ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+    var mn=Math.min.apply(null,data), mx=Math.max.apply(null,data); if(mx===mn) mx=mn+1;
+    ctx.beginPath();
+    for(var i=0;i<data.length;i++){
+      var x=i/(data.length-1||1)*(w-2)+1;
+      var y=h-3-((data[i]-mn)/(mx-mn))*(h-6);
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+    }
+    ctx.strokeStyle='rgba(130,167,255,0.85)'; ctx.lineWidth=1.5; ctx.lineJoin='round'; ctx.stroke();
+  }
+
+  var chart=null;
+  function bootChart(){
+    var host=document.getElementById('mainChart'); if(!host) return;
+    var data=parseData();
+    var series=data.series||[];
+    if(series.length && series[0].time<1e10){
+      var base=Date.now()-series.length*86400000;
+      series=series.map(function(p,i){return {time:base+i*86400000, value:p.value};});
+    }
+    if(!chart) chart=new Liveline(host,{window:1209600,color:'#82a7ff'});
+    else chart.resize();
+    chart.setData(series, 1209600);
+    document.querySelectorAll('.cv .wins .w').forEach(function(btn){
+      btn.onclick=function(){
+        document.querySelectorAll('.cv .wins .w').forEach(function(b){b.classList.remove('on');});
+        btn.classList.add('on');
+        var secs=+btn.getAttribute('data-secs');
+        chart.setData(series, secs);
+      };
+    });
+  }
+
+  function bootsparks(){document.querySelectorAll('.cv canvas.spark').forEach(spark);}
+
+  function animateSimple(){bootChart(); bootsparks();}
+  window.setView=function(v){
+    root.setAttribute('data-view',v);
     if(!isDemo){try{localStorage.setItem('fleetView',v);}catch(e){}}
-    if(v==='simple')animateSimple();window.scrollTo(0,0);};
-  if(!isDemo){var saved=null;try{saved=localStorage.getItem('fleetView');}catch(e){}if(saved)root.setAttribute('data-view',saved);}
-  if(root.getAttribute('data-view')==='simple'){window.addEventListener('load',animateSimple);}
+    if(v==='simple') animateSimple();
+    window.scrollTo(0,0);
+  };
+  if(!isDemo){var saved=null;try{saved=localStorage.getItem('fleetView');}catch(e){} if(saved) root.setAttribute('data-view',saved);}
+  if(root.getAttribute('data-view')==='simple'){ window.addEventListener('load', animateSimple); }
 })();
 </script>
+
+
 </body>
 </html>
 HTML
