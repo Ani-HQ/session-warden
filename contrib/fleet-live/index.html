@@ -583,13 +583,12 @@
       h += '<div class="roleline">' + escapeHtml(a.title || a.role || '') + '</div>';
       h += '</div>';
       if (a.wage != null) {
-        h += '<span class="wagechip" title="Share of this month’s flat payroll">' + money(a.wage) + '<small>/mo</small></span>';
+        h += '<span class="wagechip" title="Total cost so far this month' + (a.savedPct != null ? ' · ' + a.savedPct + '% saved by using flat subscriptions instead of the API' : '') + '">' + money(a.wage) + (a.savedPct != null ? '<small> · ' + a.savedPct + '% saved</small>' : '') + '</span>';
       }
       h += '</div>';
       h += '<p class="quest">' + escapeHtml(a.quest || 'Standing by for the next brief.') + '</p>';
       h += '<div class="cfoot">';
       h += '<span class="tag">model <b>' + escapeHtml(a.model || '—') + (a.fallback ? ' ↻' : '') + '</b></span>';
-      if (a.worth != null) h += '<span class="tag">worth <b>' + money(a.worth, 0) + '</b> @API</span>';
       h += '<span class="tag">' + escapeHtml(ago(a.ageMs)) + '</span>';
       h += '</div>';
 
@@ -597,9 +596,9 @@
       h += '<div>';
       h += '<p class="blurb">' + escapeHtml(a.blurb || a.role || '') + '</p>';
       h += '<div class="econ">';
-      h += '<div class="ecell"><div class="k">wage · this month</div><div class="v">' + (a.wage != null ? money(a.wage) : '—') + '</div><div class="s">share of the flat payroll</div></div>';
-      h += '<div class="ecell"><div class="k">worth · API value</div><div class="v">' + (a.worth != null ? money(a.worth) : '—') + '</div><div class="s">same work at list prices</div></div>';
-      h += '<div class="ecell"><div class="k">tokens</div><div class="v">' + compactTokens(a.tokens) + '</div><div class="s">' + escapeHtml(a.topModel || a.model || '') + '</div></div>';
+      h += '<div class="ecell"><div class="k">cost so far</div><div class="v">' + (a.wage != null ? money(a.wage) : '—') + '</div><div class="s">share of this month’s flat payroll</div></div>';
+      h += '<div class="ecell"><div class="k">at API prices</div><div class="v">' + (a.worth != null ? money(a.worth) : '—') + '</div><div class="s">' + compactTokens(a.tokens) + ' tokens at list rates</div></div>';
+      h += '<div class="ecell"><div class="k">saved vs API</div><div class="v">' + (a.savedPct != null ? a.savedPct + '%' : '—') + '</div><div class="s">' + (a.saved != null ? money(a.saved, 0) + ' kept in pocket' : 'runs on flat plans, not metered API') + '</div></div>';
       h += '</div>';
       h += '</div>';
       h += '<div class="dside">';

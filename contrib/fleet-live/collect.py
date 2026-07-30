@@ -348,6 +348,12 @@ def main() -> None:
         sessions_n = rev.get("sessions") or 0
         role = roles.get(aid) or title
         c = cost_by_agent.get(aid) or {}
+        wage = c.get("actualCost")
+        worth = c.get("wouldCost")
+        saved_pct = saved_amt = None
+        if isinstance(wage, (int, float)) and isinstance(worth, (int, float)) and worth > 0:
+            saved_pct = round(100 * (1 - wage / worth))
+            saved_amt = round(worth - wage, 2)
         agents.append(
             {
                 "id": aid,
@@ -366,8 +372,10 @@ def main() -> None:
                 "score": score,
                 "sessionsWeek": sessions_n,
                 "xp": int(score) if isinstance(score, (int, float)) else None,
-                "wage": c.get("actualCost"),
-                "worth": c.get("wouldCost"),
+                "wage": wage,
+                "worth": worth,
+                "savedPct": saved_pct,
+                "saved": saved_amt,
                 "tokens": c.get("tokens"),
                 "topModel": c.get("topModel"),
             }
