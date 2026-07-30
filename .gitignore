@@ -1,9 +1,15 @@
 # Runtime state (all transient)
 state/
 
-# User config (contains tokens, paths)
+# User config (contains tokens, paths, agent and job names)
 config/thresholds.env
 config/agent-paths.env
+config/fleet-roster.tsv
+config/timers-labels.json
+contrib/fleet-live/site.env
+
+# Operator-only internal dashboard (not part of the public project)
+contrib/health-dashboard/
 
 # Archives and transcripts
 *.log
@@ -11,6 +17,8 @@ config/agent-paths.env
 *.pre-rotate-*
 *.archived-*
 *.transcript
+*.bak-*
+*.bak-pre-*
 
 # Test artifacts
 /tmp/session-warden-test-*
@@ -24,4 +32,4 @@ config/agent-paths.env
 
 # Python bytecode
 __pycache__/
-demo/demo.html
+**/demo/demo.html
