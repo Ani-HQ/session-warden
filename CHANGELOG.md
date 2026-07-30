@@ -20,6 +20,20 @@ stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/
   `deploy/fleet-review.{service,timer}` (Sat 06:30 UTC).
 - `lib/notify.sh`: `notify_fleet` Telegram digest helper.
 
+### Fixed — prompt cache stability
+
+- `lib/memory.sh`: only rewrite a workspace `MEMORY.md` / `CONTEXT.md` when the
+  content actually changed. Both files are injected into the agent's system
+  prompt, and `bin/context-sync.sh` rewrote them on every pass with a fresh
+  `_Updated:` timestamp at the top of the block. Because a provider's prompt
+  cache is invalidated from the first differing byte onward, that one moving
+  line discarded the cached prefix every few minutes even when the summary was
+  identical — the failure mode predicted in #31. Writes now compare content
+  with the clock blanked, so an unchanged summary leaves the file untouched.
+  A changed summary, session id, or channel still rewrites as before.
+- `tests/test-memory.sh`: exercise the real `write_workspace_context` against
+  the sandbox instead of a hand-copied stub that had drifted from it.
+
 ### Changed — health dashboard information architecture
 
 - `contrib/health-dashboard/generate.sh` rewritten around a founder-first
