@@ -2,7 +2,7 @@
   "comment": "Fleet payroll rate card. wouldCost = what the same tokens would cost at public API list prices. actualCost = subscription allocation + real API spend. Prices are USD per 1M tokens; edit here, no code changes needed. Cache pricing defaults: cacheWrite = 1.25x input, cacheRead = cacheReadFactor x input (per provider).",
   "plans": {
     "claude": { "label": "Claude Max", "monthlyUsd": 200 },
-    "openai": { "label": "ChatGPT", "monthlyUsd": 50 },
+    "openai": { "label": "ChatGPT Plus", "monthlyUsd": 20 },
     "google": { "label": "Gemini API", "monthlyUsd": 0 }
   },
   "providers": {

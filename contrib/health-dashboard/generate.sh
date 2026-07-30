@@ -260,16 +260,16 @@ money() { python3 -c 'import sys; v=float(sys.argv[1] or 0); print(f"${v:,.0f}" 
 tokfmt() { python3 -c 'import sys; t=float(sys.argv[1] or 0); print(f"{t/1e9:.1f}B" if t>=1e9 else (f"{t/1e6:.1f}M" if t>=1e6 else (f"{t/1e3:.0f}k" if t>=1e3 else str(int(t)))))' "${1:-0}"; }
 if [ "$DEMO" = 1 ]; then
   have_pay=1
-  pay_label="Jul 2026"; pay_would=1240; pay_actual=250; pay_saved=990; pay_pct=80
-  pay_tokens=512000000; pay_bar=20
-  pay_plans="Claude Max \$200/mo · ChatGPT \$50/mo · Gemini API \$0.00 used"
-  pay_chips='<span class="pchip">Claude Max · <b>$200/mo</b></span><span class="pchip">ChatGPT · <b>$50/mo</b></span><span class="pchip">Gemini API · <b>$0.00 used</b></span>'
+  pay_label="Jul 2026"; pay_would=1240; pay_actual=220; pay_saved=1020; pay_pct=82
+  pay_tokens=512000000; pay_bar=18
+  pay_plans="Claude Max \$200/mo · ChatGPT Plus \$20/mo · Gemini API \$0.00 used"
+  pay_chips='<span class="pchip">Claude Max · <b>$200/mo</b></span><span class="pchip">ChatGPT Plus · <b>$20/mo</b></span><span class="pchip">Gemini API · <b>$0.00 used</b></span>'
   pay_rows="$(printf '%s\n' \
-    '<tr><td class="name">maya</td><td class="mono">claude-sonnet</td><td class="mono">184M</td><td class="mono">$412</td><td class="mono">$86.10</td><td class="mono">$325.90</td></tr>' \
-    '<tr><td class="name">leo</td><td class="mono">claude-sonnet</td><td class="mono">142M</td><td class="mono">$318</td><td class="mono">$62.40</td><td class="mono">$255.60</td></tr>' \
-    '<tr><td class="name">ava</td><td class="mono">claude-opus</td><td class="mono">96M</td><td class="mono">$264</td><td class="mono">$51.20</td><td class="mono">$212.80</td></tr>' \
-    '<tr><td class="name">iris</td><td class="mono">claude-sonnet</td><td class="mono">61M</td><td class="mono">$152</td><td class="mono">$31.90</td><td class="mono">$120.10</td></tr>' \
-    '<tr><td class="name">sam</td><td class="mono">gpt-5.6</td><td class="mono">29M</td><td class="mono">$94</td><td class="mono">$18.40</td><td class="mono">$75.60</td></tr>')"
+    '<tr><td class="name">maya</td><td class="mono">claude-sonnet</td><td class="mono">184M</td><td class="mono">$412</td><td class="mono">$75.90</td><td class="mono">$336.10</td></tr>' \
+    '<tr><td class="name">leo</td><td class="mono">claude-sonnet</td><td class="mono">142M</td><td class="mono">$318</td><td class="mono">$54.90</td><td class="mono">$263.10</td></tr>' \
+    '<tr><td class="name">ava</td><td class="mono">claude-opus</td><td class="mono">96M</td><td class="mono">$264</td><td class="mono">$45.10</td><td class="mono">$218.90</td></tr>' \
+    '<tr><td class="name">iris</td><td class="mono">claude-sonnet</td><td class="mono">61M</td><td class="mono">$152</td><td class="mono">$28.10</td><td class="mono">$123.90</td></tr>' \
+    '<tr><td class="name">sam</td><td class="mono">gpt-5.6</td><td class="mono">29M</td><td class="mono">$94</td><td class="mono">$16.00</td><td class="mono">$78.00</td></tr>')"
 else
   if [ -s "$COSTS_JSON" ]; then
     c_gen=$(jq -r '.generatedAt // 0' "$COSTS_JSON" 2>/dev/null)
@@ -574,25 +574,25 @@ render_client() {
     <div class="phead">
       <div>
         <div class="plabel">Payroll · Jul 2026</div>
-        <div class="pval">$250<span class="psuffix">/mo</span></div>
+        <div class="pval">$220<span class="psuffix">/mo</span></div>
         <div class="pmeta">flat subscriptions — the meter never runs</div>
       </div>
       <div class="paynums">
         <div class="pnum first"><span>work delivered</span><b>$1,240</b><i>at API list prices</i></div>
-        <div class="pnum"><span>kept in pocket</span><b>80%</b><i>saved $990</i></div>
+        <div class="pnum"><span>kept in pocket</span><b>82%</b><i>saved $1,020</i></div>
       </div>
     </div>
-    <div class="paybar" aria-hidden="true"><i style="width:20%"></i></div>
-    <div class="payplans"><span class="pchip">Claude Max · <b>$200/mo</b></span><span class="pchip">ChatGPT · <b>$50/mo</b></span><span class="pchip">Gemini API · <b>$0.00 used</b></span></div>
+    <div class="paybar" aria-hidden="true"><i style="width:18%"></i></div>
+    <div class="payplans"><span class="pchip">Claude Max · <b>$200/mo</b></span><span class="pchip">ChatGPT Plus · <b>$20/mo</b></span><span class="pchip">Gemini API · <b>$0.00 used</b></span></div>
   </section>
   <section class="rise" style="--d:.18s">
     <div class="shead"><h2>Team</h2><span class="scount">5</span></div>
     <div class="roster">
-      <div class="row"><div class="who"><span class="av">M</span><div><b>Maya</b><span>Content &amp; Social · wage $62/mo</span></div></div><canvas class="spark" data-spark="[3,4,5,4,6,5,7,6,5,8,7,6,8,9]" width="96" height="28"></canvas><div class="score"><b>94</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">L</span><div><b>Leo</b><span>Customer Support · wage $58/mo</span></div></div><canvas class="spark" data-spark="[8,7,9,8,10,9,8,11,10,9,12,11,10,9]" width="96" height="28"></canvas><div class="score"><b>88</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">A</span><div><b>Ava</b><span>Operations · wage $54/mo</span></div></div><canvas class="spark" data-spark="[2,3,2,4,3,5,4,3,4,5,4,6,5,4]" width="96" height="28"></canvas><div class="score"><b>92</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">S</span><div><b>Sam</b><span>Bookkeeping · wage $38/mo</span></div></div><canvas class="spark" data-spark="[1,2,1,2,3,2,2,3,2,3,4,3,3,2]" width="96" height="28"></canvas><div class="score"><b>85</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
-      <div class="row"><div class="who"><span class="av">I</span><div><b>Iris</b><span>Your Assistant · wage $38/mo</span></div></div><canvas class="spark" data-spark="[4,3,5,4,4,5,6,5,4,5,6,5,7,6]" width="96" height="28"></canvas><div class="score"><b>91</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">M</span><div><b>Maya</b><span>Content &amp; Social · wage $55/mo</span></div></div><canvas class="spark" data-spark="[3,4,5,4,6,5,7,6,5,8,7,6,8,9]" width="96" height="28"></canvas><div class="score"><b>94</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">L</span><div><b>Leo</b><span>Customer Support · wage $51/mo</span></div></div><canvas class="spark" data-spark="[8,7,9,8,10,9,8,11,10,9,12,11,10,9]" width="96" height="28"></canvas><div class="score"><b>88</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">A</span><div><b>Ava</b><span>Operations · wage $48/mo</span></div></div><canvas class="spark" data-spark="[2,3,2,4,3,5,4,3,4,5,4,6,5,4]" width="96" height="28"></canvas><div class="score"><b>92</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">S</span><div><b>Sam</b><span>Bookkeeping · wage $33/mo</span></div></div><canvas class="spark" data-spark="[1,2,1,2,3,2,2,3,2,3,4,3,3,2]" width="96" height="28"></canvas><div class="score"><b>85</b><span class="t-grt">Great</span></div><span class="st on">on</span></div>
+      <div class="row"><div class="who"><span class="av">I</span><div><b>Iris</b><span>Your Assistant · wage $33/mo</span></div></div><canvas class="spark" data-spark="[4,3,5,4,4,5,6,5,4,5,6,5,7,6]" width="96" height="28"></canvas><div class="score"><b>91</b><span class="t-exc">Excellent</span></div><span class="st on">on</span></div>
     </div>
   </section>
   <footer class="foot rise" style="--d:.22s">Fleet · Ember &amp; Oak Coffee · managed for you</footer>
