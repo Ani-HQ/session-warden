@@ -57,8 +57,16 @@ for d in "$WT_ROOT"/*/*/; do
   d="${d%/}"
   git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
 
-  common="$(git -C "$d" rev-parse --git-common-dir 2>/dev/null)" || continue
-  main_root="$(cd "$(dirname "$common")" 2>/dev/null && pwd -P)" || continue
+  # Resolve the primary checkout correctly for normal repos AND submodules.
+  # (dirname of --git-common-dir breaks on .git/modules/... paths.)
+  main_root="$(git -C "$d" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2; exit}')"
+  [[ -n "$main_root" ]] || continue
+  # If porcelain's first entry is a bare git dir (submodule quirk), prefer the
+  # registered repo path from the wt registry or the worktree's own toplevel of peers.
+  if [[ ! -d "$main_root/.git" && ! -f "$main_root/.git" ]]; then
+    # fall back: run remove from inside the linked worktree itself
+    main_root="$d"
+  fi
   branch="$(git -C "$d" branch --show-current 2>/dev/null)"
 
   # skip if an agent may be actively working in it
@@ -100,9 +108,23 @@ for d in "$WT_ROOT"/*/*/; do
     if (( DRY_RUN )); then
       log "WOULD REMOVE $d ($reason)"
     else
-      git -C "$main_root" worktree remove --force "$d" 2>>"$LOG_FILE" \
-        && { rm -f "$meta"; log "REMOVED $d ($reason)"; removed=$((removed+1)); pruned_repos["$main_root"]=1; } \
-        || log "REMOVE FAILED $d ($reason)"
+      if git -C "$main_root" worktree remove --force "$d" >>"$LOG_FILE" 2>&1 \
+         || git -C "$d" worktree remove --force "$d" >>"$LOG_FILE" 2>&1; then
+        rm -f "$meta"
+        log "REMOVED $d ($reason)"
+        removed=$((removed+1))
+        pruned_repos["$main_root"]=1
+      else
+        # Leftover dir that git no longer considers a worktree — scrub it.
+        if [[ ! -e "$d/.git" ]] || ! git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          rm -rf "$d"
+          rm -f "$meta"
+          log "SCRUBBED orphan dir $d ($reason; not a working tree)"
+          removed=$((removed+1))
+        else
+          log "REMOVE FAILED $d ($reason)"
+        fi
+      fi
     fi
     continue
   fi
@@ -120,6 +142,16 @@ done
 # prune stale worktree admin entries on every repo we touched, plus known repos
 for repo in "${!pruned_repos[@]}"; do
   git -C "$repo" worktree prune 2>>"$LOG_FILE" || true
+done
+
+# Drop registry entries whose worktree path no longer exists
+for meta in "$REGISTRY"/*.env; do
+  [[ -f "$meta" ]] || continue
+  p="$(sed -n 's/^path=//p' "$meta")"
+  if [[ -n "$p" && ! -e "$p" ]]; then
+    rm -f "$meta"
+    log "SCRUBBED stale registry $(basename "$meta") (path gone: $p)"
+  fi
 done
 
 (( removed || alerted )) && log "summary: removed=$removed alerted=$alerted kept=$kept"

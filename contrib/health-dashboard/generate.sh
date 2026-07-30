@@ -139,6 +139,64 @@ else
   done
 fi
 
+# ------------------------------------------------ RECURRING LOOPS (all sources)
+# systemd user timers + crontab, via contrib/timers/collect.py.
+# loops_tsv: label, agent, cadence, schedule, detail, last, next, public, missing
+loops_tsv=""
+if [ "$DEMO" = 1 ]; then
+  loops_tsv="support inbox sweep	leo	every 15 min	*/15 * * * *	aria-watch.mjs	9m ago	in 6m	1	0
+ledger sync	sam	nightly	30 2 * * *	ledger-sync.sh	7h ago	in 17h	1	0
+dream cycle	fleet	nightly	dream-cycle.timer	dream-cycle.service	6h ago	in 18h	1	0
+morning rundown	iris	daily	0 7 * * *	morning-rundown.sh	4h ago	in 20h	1	0
+content calendar	maya	weekdays	0 8 * * 1-5	content-cal.sh	1d ago	in 1d	1	0
+backup sweep	ops	every 6h	0 */6 * * *	backup.sh	2h ago	in 4h	0	0
+weekly scorecard	ava	mondays	0 6 * * 1	scorecard.sh	3d ago	in 4d	1	0"
+else
+  python3 "$WARDEN/contrib/timers/collect.py" >/dev/null 2>&1 || true
+  loops_tsv="$(python3 - "$STATE/timers/timers.json" <<'PYEOF' 2>/dev/null || true
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    for l in d.get("loops", []):
+        print("\t".join([
+            l.get("label") or l["id"],
+            l.get("agent") or "ops",
+            l.get("cadence") or "",
+            l.get("schedule") or "",
+            l.get("detail") or "",
+            ("never" if l.get("source") == "systemd" and not l.get("lastHuman")
+             else (l.get("lastHuman") or "—")),
+            l.get("nextHuman") or "—",
+            "1" if l.get("public") else "0",
+            "1" if l.get("missing") else "0",
+        ]))
+except Exception:
+    pass
+PYEOF
+)"
+fi
+
+loops_rows=""; loops_client_rows=""; loops_client_next=""
+if [ -n "$loops_tsv" ]; then
+  best_next_ms=999999999999; best_next_lab=""
+  while IFS=$'\t' read -r llab lag lcad lsched ldet llast lnext lpub lmiss; do
+    [ -z "$llab" ] && continue
+    if [ "$lmiss" = 1 ]; then
+      lp=$(pill amber inactive)
+    elif [ "$llast" = "never" ]; then
+      lp=$(pill amber "never ran")
+    else
+      lp=$(pill green "on loop")
+    fi
+    loops_rows+="<tr><td class=\"name\">$(hesc "$llab")</td><td>$(hesc "$lag")</td><td>$(hesc "$lcad")</td><td class=\"mono\">$(hesc "$lsched")</td><td class=\"mono\">$(hesc "$ldet")</td><td class=\"mono\">$(hesc "$llast")</td><td class=\"mono\">$(hesc "$lnext")</td><td>${lp}</td></tr>"
+    if [ "$lpub" = 1 ]; then
+      loops_client_rows+="<div class=\"looprow\"><b>$(hesc "$llab")</b><span class=\"lwho\">$(hesc "$lag")</span><span class=\"lcad\">$(hesc "$lcad")</span><span class=\"lwhen\">last $(hesc "$llast") · next $(hesc "$lnext")</span></div>"
+    fi
+  done <<< "$loops_tsv"
+  # soonest upcoming public loop for the band subtitle (TSV is pre-sorted by next)
+  loops_client_next="$(printf '%s\n' "$loops_tsv" | awk -F'\t' '$8 == 1 && $7 != "—" {printf "next: %s · %s", $1, $2; exit}')"
+fi
+
 # --------------------------------------------------------------- scan health
 rot_24h=0; backoff_24h=0; backoff_1h=0
 if [ "$DEMO" = 1 ]; then
@@ -585,6 +643,22 @@ render_client() {
     <div class="paybar" aria-hidden="true"><i style="width:18%"></i></div>
     <div class="payplans"><span class="pchip">Claude Max · <b>$200/mo</b></span><span class="pchip">ChatGPT Plus · <b>$20/mo</b></span><span class="pchip">Gemini API · <b>$0.00 used</b></span></div>
   </section>
+  <section class="panel rise loopsband" style="--d:.17s">
+    <div class="phead">
+      <div>
+        <div class="plabel">Scheduled loops</div>
+        <div class="pmeta">always-on recurring work · next: support inbox sweep · in 6m</div>
+      </div>
+    </div>
+    <div class="looprows">
+      <div class="looprow"><b>support inbox sweep</b><span class="lwho">leo</span><span class="lcad">every 15 min</span><span class="lwhen">last 9m ago · next in 6m</span></div>
+      <div class="looprow"><b>ledger sync</b><span class="lwho">sam</span><span class="lcad">nightly</span><span class="lwhen">last 7h ago · next in 17h</span></div>
+      <div class="looprow"><b>dream cycle</b><span class="lwho">fleet</span><span class="lcad">nightly</span><span class="lwhen">last 6h ago · next in 18h</span></div>
+      <div class="looprow"><b>morning rundown</b><span class="lwho">iris</span><span class="lcad">daily</span><span class="lwhen">last 4h ago · next in 20h</span></div>
+      <div class="looprow"><b>content calendar</b><span class="lwho">maya</span><span class="lcad">weekdays</span><span class="lwhen">last 1d ago · next in 1d</span></div>
+      <div class="looprow"><b>weekly scorecard</b><span class="lwho">ava</span><span class="lcad">mondays</span><span class="lwhen">last 3d ago · next in 4d</span></div>
+    </div>
+  </section>
   <section class="rise" style="--d:.18s">
     <div class="shead"><h2>Team</h2><span class="scount">5</span></div>
     <div class="roster">
@@ -709,6 +783,19 @@ $( [ "$have_pay" = 1 ] && cat <<PAYBAND
     <div class="payplans">${pay_chips}</div>
   </section>
 PAYBAND
+)
+
+$( [ -n "$loops_client_rows" ] && cat <<LOOPBAND
+  <section class="panel rise loopsband" style="--d:.17s">
+    <div class="phead">
+      <div>
+        <div class="plabel">Scheduled loops</div>
+        <div class="pmeta">always-on recurring work${loops_client_next:+ · ${loops_client_next}}</div>
+      </div>
+    </div>
+    <div class="looprows">${loops_client_rows}</div>
+  </section>
+LOOPBAND
 )
 
   <section class="rise" style="--d:.18s">
@@ -966,6 +1053,14 @@ cat > "$tmp" <<HTML
   .cv .payplans{display:flex;flex-wrap:wrap;gap:6px}
   .cv .pchip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
   .cv .pchip b{color:var(--ink);font-weight:550}
+  .cv .loopsband .phead{margin-bottom:4px}
+  .cv .looprows{display:flex;flex-direction:column}
+  .cv .looprow{display:grid;grid-template-columns:1.5fr .7fr .9fr 1.4fr;gap:10px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+  .cv .looprow:last-child{border-bottom:0}
+  .cv .looprow b{font-weight:550;color:var(--ink)}
+  .cv .looprow .lwho{color:var(--mut);font-size:11.5px}
+  .cv .looprow .lcad{font-family:var(--cv-mono);font-size:11px;color:var(--mut)}
+  .cv .looprow .lwhen{font-family:var(--cv-mono);font-size:11px;color:var(--faint);text-align:right;font-variant-numeric:tabular-nums}
 
   .cv .metrics{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:28px;background:var(--panel)}
   .cv .metric{padding:16px 18px;border-right:1px solid var(--line)}
@@ -1008,6 +1103,9 @@ cat > "$tmp" <<HTML
     .cv .metrics{grid-template-columns:repeat(2,1fr)}
     .cv .metric:nth-child(2){border-right:0}
     .cv .metric:nth-child(1),.cv .metric:nth-child(2){border-bottom:1px solid var(--line)}
+    .cv .looprow{grid-template-columns:1fr auto;row-gap:2px}
+    .cv .looprow .lcad{display:none}
+    .cv .looprow .lwhen{grid-column:2;grid-row:1}
     .cv .row{grid-template-columns:1fr 72px 40px;gap:10px}
     .cv .spark{display:none}
     .cv .score{display:none}
@@ -1132,6 +1230,7 @@ RESIL
     </table></div>
     <h4>Timers</h4>
     <div class="tw"><table><tr><th>timer</th><th>next fire</th><th></th></tr>${timers_rows}</table></div>
+    $( [ -n "$loops_rows" ] && printf '<h4>Recurring loops — every scheduled job</h4><div class="tw"><table><tr><th>loop</th><th>owner</th><th>cadence</th><th>schedule</th><th>runs</th><th>last</th><th>next</th><th></th></tr>%s</table></div>' "$loops_rows" )
     <h4>Scan health</h4>
     <p>${rot_24h} rotations / ${backoff_24h} backoffs in 24h · ${backoff_1h} backoff in last hour · doctor: ${doctor_ok:-0} ok, ${doctor_warn:-0} warn, ${doctor_fail:-0} fail</p>
     $( [ "$have_pay" = 1 ] && [ -n "$pay_detail_rows" ] && printf '<h4>Payroll detail — by provider, month to date</h4><div class="tw"><table><tr><th>agent</th><th>provider</th><th>tokens</th><th>would cost</th><th>actual</th></tr>%s</table></div>' "$pay_detail_rows" )

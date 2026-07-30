@@ -29,6 +29,8 @@ DISPLAY = [
 ]
 
 COSTS_JSON = Path(os.environ.get("COSTS_JSON", str(WARDEN / "state" / "costs" / "costs.json")))
+TIMERS_COLLECT = WARDEN / "contrib" / "timers" / "collect.py"
+TIMERS_JSON = Path(os.environ.get("TIMERS_JSON", str(WARDEN / "state" / "timers" / "timers.json")))
 
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d\-\s().]{7,}\d)")
@@ -138,6 +140,30 @@ def load_costs() -> dict:
     if abs(NOW - int(data.get("generatedAt", 0))) > 6 * 3600 * 1000:
         return {}
     return data
+
+
+def load_loops() -> list[dict]:
+    """Recurring scheduled loops (contrib/timers/collect.py), public entries only."""
+    if TIMERS_COLLECT.exists():
+        run(["/usr/bin/python3", str(TIMERS_COLLECT)], timeout=30)
+    try:
+        data = json.loads(TIMERS_JSON.read_text())
+    except Exception:
+        return []
+    if abs(NOW - int(data.get("generatedAt", 0))) > 6 * 3600 * 1000:
+        return []
+    loops = [l for l in data.get("loops", []) if l.get("public")]
+    loops.sort(key=lambda l: (l.get("next") is None, l.get("next") or 0))
+    return [
+        {
+            "agent": l.get("agent"),
+            "label": l.get("label"),
+            "cadence": l.get("cadence"),
+            "last": l.get("last"),
+            "next": l.get("next"),
+        }
+        for l in loops
+    ]
 
 
 def active_sessions() -> list[dict]:
@@ -298,6 +324,7 @@ def main() -> None:
     review = load_review()
     roles = load_roster_roles()
     costs = load_costs()
+    loops = load_loops()
     cost_by_agent = {a["id"]: a for a in costs.get("agents", [])}
 
     agents = []
@@ -398,6 +425,7 @@ def main() -> None:
         },
         "econ": econ,
         "agents": agents,
+        "loops": loops,
         "feed": feed[:24],
         "legend": {
             "questing": "Actively working a task right now",
