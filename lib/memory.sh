@@ -311,8 +311,18 @@ ${crash_buffer_content}
 "
   fi
 
-  local memory_content
-  memory_content="${crash_buffer_block}<!-- SESSION-WARDEN-START -->
+  # The injected block goes AFTER the agent's own memory, not before it. A
+  # prompt cache is invalidated from the first differing byte onward, so
+  # anything above this block survives a re-write and anything below it does
+  # not. This block is the only part that changes every few minutes, so it is
+  # the last thing in the file. Existing files migrate on their next write.
+  local memory_content=""
+  if [ -n "$existing" ]; then
+    memory_content="${existing}
+
+"
+  fi
+  memory_content="${memory_content}${crash_buffer_block}<!-- SESSION-WARDEN-START -->
 ## Previous Session Context (auto-injected by session-warden, do not edit this section)
 
 _Updated: ${ts} | Channel: ${channel_key}_
@@ -320,7 +330,6 @@ _Updated: ${ts} | Channel: ${channel_key}_
 ${summary}
 
 <!-- SESSION-WARDEN-END -->
-${existing}
 "
 
   if write_if_content_changed "$memory_file" "$memory_content"; then

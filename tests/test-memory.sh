@@ -211,3 +211,56 @@ assert_contains "$(cat "$cdir/MEMORY.md")" "telegram-dm" \
 
 assert_eq "1" "$(grep -c "SESSION-WARDEN-START" "$cdir/MEMORY.md")" \
   "still exactly one marker block after conditional rewrites"
+
+echo "  memory: injected block position"
+
+# ─── The volatile block must sit below the agent's own memory ────
+# A prompt cache is invalidated from the first differing byte onward, so the
+# only part that changes every few minutes has to be last — otherwise a
+# routine summary update throws away the whole file.
+
+pdir="$SANDBOX/openclaw/agents/pos-agent"
+mkdir -p "$pdir"
+cat > "$pdir/MEMORY.md" <<'OLDLAYOUT'
+<!-- SESSION-WARDEN-START -->
+## Previous Session Context (auto-injected by session-warden, do not edit this section)
+
+_Updated: 2026-01-01T00:00:00+00:00 | Channel: old_
+
+Stale summary from the old top-of-file layout.
+
+<!-- SESSION-WARDEN-END -->
+## General rules
+
+- Keep answers plain.
+
+## Lessons learned
+
+- 2026-01-02: check before replying.
+OLDLAYOUT
+
+write_workspace_context "pos-agent" "Fresh summary." "sess-pos-1" "discord-general"
+
+assert_eq "## General rules" "$(head -1 "$pdir/MEMORY.md")" \
+  "stable memory is first after migrating off the old layout"
+assert_contains "$(tail -1 "$pdir/MEMORY.md")" "SESSION-WARDEN-END" \
+  "volatile block is last in the file"
+assert_contains "$(cat "$pdir/MEMORY.md")" "Keep answers plain" \
+  "agent's own rules survive the move"
+assert_contains "$(cat "$pdir/MEMORY.md")" "check before replying" \
+  "agent's own lessons survive the move"
+assert_not_contains "$(cat "$pdir/MEMORY.md")" "Stale summary" \
+  "previous injected block is not left behind as stable content"
+assert_eq "1" "$(grep -c "SESSION-WARDEN-START" "$pdir/MEMORY.md")" \
+  "exactly one marker block after migration"
+
+# ─── and the prefix must survive a genuine summary change ────────
+
+prefix_before=$(sed -n '1,/<!-- SESSION-WARDEN-START -->/p' "$pdir/MEMORY.md" | head -n -1)
+write_workspace_context "pos-agent" "An entirely different and rather longer summary." "sess-pos-1" "discord-general"
+prefix_after=$(sed -n '1,/<!-- SESSION-WARDEN-START -->/p' "$pdir/MEMORY.md" | head -n -1)
+assert_eq "$prefix_before" "$prefix_after" \
+  "cached prefix is byte-identical across a real summary change"
+assert_contains "$(cat "$pdir/MEMORY.md")" "rather longer summary" \
+  "new summary still lands in the file"
+
