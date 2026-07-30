@@ -240,6 +240,16 @@
       width: 30px; text-align: center;
     }
     .glyph.dim { color: var(--mute); }
+    .glyph.patrol { animation: breathe 2.8s ease-in-out infinite; }
+    @keyframes breathe { 50% { opacity: 0.35; } }
+    .status-txt.working {
+      background: linear-gradient(100deg, var(--mute) 42%, var(--ink) 50%, var(--mute) 58%);
+      background-size: 220% 100%;
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent; color: transparent;
+      animation: sweep 2.4s linear infinite;
+    }
+    @keyframes sweep { from { background-position: 120% 0; } to { background-position: -120% 0; } }
     .card .who { min-width: 0; flex: 1; }
     .card .name {
       font-weight: 650; font-size: 14.5px; letter-spacing: -0.015em; line-height: 1.15;
@@ -341,8 +351,9 @@
       .card[aria-expanded="true"] .detail { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .rise, .live i, .cursor { animation: none !important; }
+      .rise, .live i, .cursor, .glyph.patrol { animation: none !important; }
       .track { animation: none !important; white-space: normal; flex-wrap: wrap; row-gap: 8px; }
+      .status-txt.working { animation: none !important; -webkit-text-fill-color: var(--mute); color: var(--mute); background: none; }
       .card, .chip, .btn { transition: none !important; }
       .rise { opacity: 1; transform: none; }
     }
@@ -577,9 +588,14 @@
     function cardHtml(a, isOpen) {
       var h = '';
       h += '<div class="chead">';
-      h += '<span class="glyph' + (a.status === 'dormant' || a.status === 'cooling' ? ' dim' : '') + '" aria-hidden="true">' + escapeHtml(STATUS_GLYPH[a.status] || '[?]') + '</span>';
+      var glyphCls = 'glyph' +
+        (a.status === 'dormant' || a.status === 'cooling' ? ' dim' : '') +
+        (a.status === 'patrol' ? ' patrol' : '') +
+        (a.status === 'questing' ? ' spin' : '');
+      var glyphTxt = a.status === 'questing' ? '[|]' : (STATUS_GLYPH[a.status] || '[?]');
+      h += '<span class="' + glyphCls + '" aria-hidden="true">' + escapeHtml(glyphTxt) + '</span>';
       h += '<div class="who">';
-      h += '<div class="name">' + escapeHtml(a.name) + ' <span class="status-txt">' + escapeHtml(STATUS_WORD[a.status] || a.status) + '</span></div>';
+      h += '<div class="name">' + escapeHtml(a.name) + ' <span class="status-txt' + (a.status === 'questing' ? ' working' : '') + '">' + escapeHtml(STATUS_WORD[a.status] || a.status) + '</span></div>';
       h += '<div class="roleline">' + escapeHtml(a.title || a.role || '') + '</div>';
       h += '</div>';
       if (a.wage != null) {
@@ -737,6 +753,17 @@
     setInterval(load, reduce ? 60000 : 20000);
     // keep the relative times in the loops ticker fresh between polls
     setInterval(function () { if (data) renderLoops(); }, 30000);
+
+    // ascii spinner for questing agents: [|] [/] [-] [\]
+    var SPIN = ['[|]', '[/]', '[-]', '[\\]'];
+    var spinIdx = 0;
+    if (!reduce) {
+      setInterval(function () {
+        spinIdx = (spinIdx + 1) % SPIN.length;
+        var els = document.querySelectorAll('.glyph.spin');
+        for (var i = 0; i < els.length; i++) els[i].textContent = SPIN[spinIdx];
+      }, 160);
+    }
   })();
   </script>
 </body>
