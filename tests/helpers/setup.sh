@@ -364,3 +364,20 @@ ago_ms() {
   local seconds="$1"
   echo "$(( $(date +%s) - seconds ))000"
 }
+
+# set_declared_agents <agent> [agent...] — write a sandbox openclaw.json
+# declaring these agents. Calling it with no arguments removes the config,
+# which is the "no opinion" case: warden supervises everything.
+set_declared_agents() {
+  local f="$WARDEN_OPENCLAW_HOME/openclaw.json"
+  if [ "$#" -eq 0 ]; then
+    rm -f "$f"
+    return
+  fi
+  local list="" a
+  for a in "$@"; do
+    list="${list}${list:+,}\"$a\""
+  done
+  mkdir -p "$(dirname "$f")"
+  printf '{"agents":{"list":[%s]}}\n' "$list" > "$f"
+}

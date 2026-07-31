@@ -215,3 +215,79 @@ done
 log_out=$(cat "$WARDEN_LOG_FILE")
 assert_contains "$log_out" "RECOVERY: sent to test-agent/agent:test-agent:main" "fresh recovery delivered"
 assert_file_exists "$WARDEN_HOME/state/cooldowns/test-agent-agent_test-agent_main.recovered" "recovered marker written after delivery"
+
+echo "  scan: openclaw registry is authoritative"
+
+# ─── A retired agent must not be supervised ──────────────
+# Session files on disk are not proof an agent still exists. Rotating one ends
+# in a recovery message that wakes it, so supervising a retired agent is what
+# keeps it alive — four of them ran for two days that way.
+
+mk_bloated() {  # $1=agent, $2=session id
+  create_sessions_json "$1" '{
+    "discord-general": {
+      "totalTokens": 5000000,
+      "numTurns": 50,
+      "compactionCount": 1,
+      "status": "idle",
+      "updatedAt": '"$(now_ms)"',
+      "cliSessionIds": {"claude-cli": "'"$2"'"}
+    }
+  }'
+  local j
+  j=$(create_mock_jsonl "$1" "$2")
+  touch_relative "10 minutes ago" "$j"
+}
+
+: > "$WARDEN_LOG_FILE"
+rm -f "$WARDEN_HOME/state/cooldowns/"*
+mk_bloated "live-agent" "sess-reg-live"
+mk_bloated "retired-agent" "sess-reg-retired"
+
+set_declared_agents live-agent
+export WARDEN_DRY_RUN=1
+"$WARDEN_HOME/bin/scan.sh" 2>/dev/null
+log_gated=$(cat "$WARDEN_LOG_FILE" 2>/dev/null)
+
+assert_contains "$log_gated" "sess-reg-live" "declared agent is still scanned"
+if echo "$log_gated" | grep -q "sess-reg-retired"; then
+  assert_eq "untouched" "rotated" "undeclared agent must not be touched by scan"
+else
+  assert_eq "untouched" "untouched" "undeclared agent must not be touched by scan"
+fi
+
+# ─── Session pools openclaw owns are left alone ──────────
+# claude/ and friends hold ephemeral subagent sessions, not agents. Warden has
+# never rotated one, and must not start.
+
+: > "$WARDEN_LOG_FILE"
+rm -f "$WARDEN_HOME/state/cooldowns/"*
+mk_bloated "claude" "sess-reg-pool"
+set_declared_agents live-agent claude
+"$WARDEN_HOME/bin/scan.sh" 2>/dev/null
+log_pool=$(cat "$WARDEN_LOG_FILE" 2>/dev/null)
+
+if echo "$log_pool" | grep -q "sess-reg-pool"; then
+  assert_eq "untouched" "rotated" "spawn pool is skipped even when declared"
+else
+  assert_eq "untouched" "untouched" "spawn pool is skipped even when declared"
+fi
+
+# ─── No config means "no opinion", not "nobody exists" ───
+# An unreadable or missing openclaw.json must never silently switch
+# supervision off for the whole fleet.
+
+: > "$WARDEN_LOG_FILE"
+rm -f "$WARDEN_HOME/state/cooldowns/"*
+mk_bloated "live-agent" "sess-reg-live2"
+mk_bloated "retired-agent" "sess-reg-retired2"
+
+set_declared_agents
+"$WARDEN_HOME/bin/scan.sh" 2>/dev/null
+log_open=$(cat "$WARDEN_LOG_FILE" 2>/dev/null)
+
+assert_contains "$log_open" "sess-reg-retired2" "missing registry scans everything (no silent opt-out)"
+assert_contains "$log_open" "sess-reg-live2" "missing registry still scans declared agents"
+
+export WARDEN_DRY_RUN=0
+
