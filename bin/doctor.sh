@@ -27,6 +27,7 @@ export WARDEN_HOME
 
 [ -f "${WARDEN_HOME}/config/thresholds.env" ] && source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
+source "${WARDEN_HOME}/lib/registry.sh"   # declared_agents / agent_is_managed
 source "${WARDEN_HOME}/lib/notify.sh"
 
 LOG_FILE="${WARDEN_LOG_FILE:-${WARDEN_HOME}/state/scan.log}"
@@ -36,6 +37,8 @@ MAX_SCAN_AGE="${WARDEN_DOCTOR_MAX_SCAN_AGE:-240}"        # scan runs every 30s; 
 MAX_REAP_AGE="${WARDEN_DOCTOR_MAX_REAP_AGE:-240}"
 LOG_WARN_BYTES="${WARDEN_DOCTOR_LOG_WARN_BYTES:-52428800}" # 50MB
 ALERT_COOLDOWN="${WARDEN_DOCTOR_ALERT_COOLDOWN_SECONDS:-3600}"
+# How recently an undeclared agent must have run to count as still alive.
+STRAY_ACTIVE_MAX_AGE="${WARDEN_STRAY_ACTIVE_MAX_AGE:-86400}"
 CHECK_PATCHES="${WARDEN_DOCTOR_CHECK_PATCHES:-0}"
 OPENCLAW_DIST="${WARDEN_OPENCLAW_DIST:-$HOME/.npm-global/lib/node_modules/openclaw/dist}"
 CRONTAB_CMD="${WARDEN_CRONTAB_CMD:-crontab}"             # overridable for tests
@@ -200,6 +203,37 @@ if [ -n "$disk_avail_kb" ] && [ "$disk_avail_kb" -lt 2097152 ]; then
   fail "less than 2GB disk free ($((disk_avail_kb / 1024))MB)"
 else
   ok "disk space OK"
+fi
+
+# ─── 7c. Undeclared agents that are still running ────────────
+# A retirement done halfway is invisible: the agent loses its channel binding
+# and looks gone, but its session files stay behind, so it goes on spending
+# tokens with nobody watching. Four agents sat in that state for two days.
+# Now that scan.sh ignores undeclared agents, this is also the check that keeps
+# that gate honest — an agent dropped from openclaw.json by mistake stops being
+# supervised, and the only thing standing between that and silence is this.
+declared_now="$(declared_agents)"
+if [ -n "$declared_now" ]; then
+  echo "agent registry:"
+  strays=""
+  for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
+    [ -f "$sjson" ] || continue
+    a=$(basename "$(dirname "$(dirname "$sjson")")")
+    # Pools belong to openclaw, so their presence says nothing about a botched
+    # retirement. Only an undeclared *agent* is worth waking someone over.
+    agent_is_pool "$a" && continue
+    agent_is_declared "$a" "$declared_now" && continue
+    age=$(file_age "$sjson")
+    [ -n "$age" ] || continue
+    if [ "$age" -lt "$STRAY_ACTIVE_MAX_AGE" ]; then
+      strays="${strays}${a} (active $((age / 3600))h ago) "
+    fi
+  done
+  if [ -n "$strays" ]; then
+    fail "agents not declared in openclaw.json but still running: ${strays}— finish retiring them (archive the workspace) or add them back to agents.list"
+  else
+    ok "no undeclared agents are active ($(echo $declared_now | wc -w) declared)"
+  fi
 fi
 
 # ─── 7b. Agent worktree hygiene ──────────────────────────

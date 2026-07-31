@@ -96,3 +96,40 @@ assert_eq "$ts_before" "$ts_after" "alert throttled within cooldown window"
 # ─── Reset env for subsequent test files ─────────────────
 touch "$WARDEN_HOME/state/.last-scan-ts" "$WARDEN_HOME/state/.last-reap-ts"
 unset WARDEN_CRONTAB_CMD WARDEN_DOCTOR_SKIP_GATEWAY WARDEN_DOCTOR_CHECK_PATCHES
+
+echo "  doctor: undeclared agents still running"
+
+# A retirement done halfway is invisible — the agent looks gone but keeps
+# burning tokens. This check is also what keeps scan.sh's gate honest, so it
+# has to fire.
+
+set_declared_agents live-agent
+for a in ghost-agent live-agent claude; do
+  mkdir -p "$WARDEN_OPENCLAW_HOME/agents/$a/sessions"
+  echo '{}' > "$WARDEN_OPENCLAW_HOME/agents/$a/sessions/sessions.json"
+done
+
+doctor_out=$(WARDEN_DOCTOR_SKIP_GATEWAY=1 bash "$WARDEN_HOME/bin/doctor.sh" 2>&1 || true)
+assert_contains "$doctor_out" "ghost-agent" "doctor names the undeclared agent that is still running"
+
+stray_line=$(echo "$doctor_out" | grep "not declared in openclaw.json" || true)
+if echo "$stray_line" | grep -q "live-agent"; then
+  assert_eq "absent" "present" "doctor must not flag a declared agent"
+else
+  assert_eq "absent" "absent" "doctor must not flag a declared agent"
+fi
+if echo "$stray_line" | grep -q "claude"; then
+  assert_eq "absent" "present" "doctor must not flag openclaw's own session pools"
+else
+  assert_eq "absent" "absent" "doctor must not flag openclaw's own session pools"
+fi
+
+# A long-idle stray is a cleanup chore, not a live leak.
+touch_relative "3 days ago" "$WARDEN_OPENCLAW_HOME/agents/ghost-agent/sessions/sessions.json"
+doctor_old=$(WARDEN_DOCTOR_SKIP_GATEWAY=1 bash "$WARDEN_HOME/bin/doctor.sh" 2>&1 || true)
+if echo "$doctor_old" | grep -q "not declared in openclaw.json"; then
+  assert_eq "quiet" "flagged" "a long-idle undeclared agent is not reported as running"
+else
+  assert_eq "quiet" "quiet" "a long-idle undeclared agent is not reported as running"
+fi
+

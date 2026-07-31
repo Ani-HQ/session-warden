@@ -13,6 +13,7 @@ source "${WARDEN_HOME}/config/thresholds.env"
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"
+source "${WARDEN_HOME}/lib/registry.sh"  # declared_agents / agent_is_managed
 source "${WARDEN_HOME}/lib/burn.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
@@ -38,6 +39,9 @@ touch "${WARDEN_HOME}/state/.last-scan-ts"
 
 rotated=0
 
+# Resolved once per scan rather than per agent in the loop below.
+declared_ids="$(declared_agents)"
+
 # Scan agents (allowlist or all)
 for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
   [ -f "$sjson" ] || continue
@@ -45,6 +49,16 @@ for sjson in "${WARDEN_OPENCLAW_HOME}"/agents/*/sessions/sessions.json; do
 
   if [ -n "${WARDEN_SCAN_AGENTS:-}" ]; then
     echo " ${WARDEN_SCAN_AGENTS} " | grep -q " ${agent} " || continue
+  fi
+
+  # openclaw.json is the authority on which agents exist. Session files on disk
+  # are not: a retired agent keeps its directory, and warden used to keep
+  # supervising it forever. That matters more than it sounds, because rotating
+  # a session ends in a recovery message that wakes the agent — so supervising
+  # a retired agent is precisely what keeps it alive. Skip anything openclaw
+  # doesn't declare and let doctor.sh report it.
+  if ! agent_is_managed "$agent" "$declared_ids"; then
+    continue
   fi
 
   # Burn firewall: sample this agent's token counters into the usage ledger,

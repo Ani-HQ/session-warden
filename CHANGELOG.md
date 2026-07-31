@@ -20,6 +20,26 @@ stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/
   `deploy/fleet-review.{service,timer}` (Sat 06:30 UTC).
 - `lib/notify.sh`: `notify_fleet` Telegram digest helper.
 
+### Fixed — retired agents kept themselves alive
+
+- `lib/registry.sh` (new), `bin/scan.sh`: warden now supervises only the agents
+  openclaw declares in `agents.list`, instead of every directory matching
+  `agents/*/sessions/sessions.json`. Discovery by glob made retirement
+  something warden could not observe — a retired agent keeps its session files,
+  so warden kept rotating it, and every rotation ends in a recovery message
+  that wakes the agent again. Four agents retired on 2026-07-29 stayed in that
+  loop for two days and were nearly as busy as the fleet's most active agent
+  (89, 86, 62 and 52 rotations against `ping`'s 100). A missing or unparseable
+  config means "no opinion" and everything is scanned as before, so a bad read
+  can never silently switch supervision off. Session pools openclaw owns
+  (`claude`, `claude-code`, `main` — override with `WARDEN_UNMANAGED_AGENTS`)
+  are left alone; warden has never rotated one.
+- `bin/doctor.sh`: report any undeclared agent whose sessions changed in the
+  last `WARDEN_STRAY_ACTIVE_MAX_AGE` seconds (default 24h) as a failure, which
+  also alerts. This is what makes the gate above safe to have: an agent dropped
+  from `agents.list` by mistake stops being supervised, and this check is the
+  only thing between that and silence.
+
 ### Fixed — prompt cache stability
 
 - `lib/memory.sh`: only rewrite a workspace `MEMORY.md` / `CONTEXT.md` when the

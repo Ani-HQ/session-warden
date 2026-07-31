@@ -582,6 +582,28 @@ check) and doctor pings it on every fully-healthy run. If the host dies or
 doctor itself gets unwired, the pings stop and the external service alerts you
 — covering the one failure no on-host check can report.
 
+### Agent registry gate
+
+Warden supervises the agents openclaw declares in `agents.list`, not every
+directory under `~/.openclaw/agents/`. This matters because supervising an
+agent is what keeps it running: a rotation ends in a recovery message that
+wakes it. Discovery by directory glob therefore made a retired agent
+self-perpetuating — it kept its session files, so warden kept rotating and
+recovering it long after it was meant to be gone.
+
+Retiring an agent is removing it from `agents.list`. Warden then leaves it
+alone, and `doctor.sh` fails if an undeclared agent is still running, so a
+half-finished retirement is loud rather than silent.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `WARDEN_UNMANAGED_AGENTS` | `claude claude-code main` | Session directories openclaw owns for subagent spawns. Never supervised, never reported. |
+| `WARDEN_STRAY_ACTIVE_MAX_AGE` | `86400` | How recently an undeclared agent must have run for doctor to call it a live leak rather than leftover files. |
+
+A missing or unreadable `openclaw.json` means "no opinion": warden scans
+everything, as it did before. A config that fails to parse must never switch
+supervision off for the whole fleet.
+
 ## Fleet board (contrib)
 
 A static, public-safe status board for the fleet — live example: **[fleet.ani.computer](https://fleet.ani.computer)**.
