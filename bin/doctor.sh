@@ -261,6 +261,58 @@ if [ -d "$WT_ROOT" ]; then
   fi
 fi
 
+# ─── 7d. Skills prompt budget ─────────────────────────────
+# OpenClaw renders every live skill's name + description into every prompt,
+# capped at maxSkillsPromptChars (default 18000 chars). Past the cap it
+# silently drops skills from the list — the agent just stops knowing they
+# exist. The weekly harvester grows this number, so warn well before the
+# cliff instead of discovering it from a confused agent.
+SKILLS_PROMPT_BUDGET="${WARDEN_SKILLS_PROMPT_BUDGET:-18000}"
+SKILLS_MAX_COUNT="${WARDEN_SKILLS_MAX_COUNT:-150}"
+oc_home="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}"
+if [ -d "$oc_home/agents" ] && command -v python3 >/dev/null 2>&1; then
+  skills_tsv=$(python3 - "$oc_home" $(declared_agents) <<'PYEOF' 2>/dev/null || true
+import glob, os, re, sys
+root = sys.argv[1]
+agents = sys.argv[2:] or [
+    os.path.basename(d) for d in sorted(glob.glob(os.path.join(root, "agents", "*")))
+]
+for a in agents:
+    total = n = 0
+    for f in glob.glob(os.path.join(root, "agents", a, "skills", "*", "SKILL.md")):
+        try:
+            head = open(f, encoding="utf-8", errors="replace").read(4000)
+        except OSError:
+            continue
+        m = re.search(r"^---\n(.*?)\n---", head, re.S)
+        fm = m.group(1) if m else ""
+        name = re.search(r"^name:\s*(.+)$", fm, re.M)
+        desc = re.search(r"^description:\s*(.+)$", fm, re.M)
+        total += len(name.group(1) if name else os.path.basename(os.path.dirname(f)))
+        total += len(desc.group(1) if desc else "") + 24
+        n += 1
+    if n:
+        print(f"{a}\t{n}\t{total}")
+PYEOF
+)
+  skills_over=0
+  while IFS=$'\t' read -r sa sn schars; do
+    [ -n "$sa" ] || continue
+    if [ "$schars" -gt "$SKILLS_PROMPT_BUDGET" ]; then
+      fail "agent '$sa': skills prompt ~${schars} chars exceeds budget ${SKILLS_PROMPT_BUDGET} — openclaw is silently dropping skills (prune or raise skillsLimits.maxSkillsPromptChars)"
+      skills_over=1
+    elif [ "$schars" -gt $((SKILLS_PROMPT_BUDGET * 8 / 10)) ]; then
+      warn "agent '$sa': skills prompt ~${schars} chars is over 80% of the ${SKILLS_PROMPT_BUDGET} budget (${sn} skills)"
+      skills_over=1
+    fi
+    if [ "$sn" -gt "$SKILLS_MAX_COUNT" ]; then
+      fail "agent '$sa': ${sn} skills exceeds maxSkillsInPrompt (${SKILLS_MAX_COUNT}) — excess skills never reach the prompt"
+      skills_over=1
+    fi
+  done <<< "$skills_tsv"
+  [ "$skills_over" -eq 0 ] && ok "skills prompt within budget for every agent"
+fi
+
 # ─── Verdict ─────────────────────────────────────────────
 echo ""
 if [ "${#failures[@]}" -eq 0 ]; then

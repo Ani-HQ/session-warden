@@ -185,11 +185,38 @@ def load_loops() -> list[dict]:
             "agent": l.get("agent"),
             "label": l.get("label"),
             "cadence": l.get("cadence"),
+            "desc": l.get("desc"),
             "last": l.get("last"),
             "next": l.get("next"),
         }
         for l in loops
     ]
+
+
+def load_skills() -> dict[str, dict]:
+    """What each agent has learned: live skills plus drafts the weekly harvest
+    staged for approval. Slug names only — never file contents — so the public
+    board can show capability growth without leaking how the sausage is made."""
+    out: dict[str, dict] = {}
+    pending_root = OPENCLAW / "skills-pending"
+    for adir in sorted((OPENCLAW / "agents").glob("*")):
+        aid = adir.name
+        live = []
+        for sk in sorted((adir / "skills").glob("*/SKILL.md")):
+            name = sk.parent.name.replace("-", " ").replace("_", " ")
+            try:
+                added = int(sk.stat().st_mtime * 1000)
+            except OSError:
+                continue
+            live.append({"name": redact(name), "added": added})
+        live.sort(key=lambda s: -s["added"])
+        pending = [
+            redact(p.parent.name.replace("-", " ").replace("_", " "))
+            for p in sorted((pending_root / aid).glob("*/SKILL.md"))
+        ]
+        if live or pending:
+            out[aid] = {"count": len(live), "live": live[:8], "pending": pending[:6]}
+    return out
 
 
 def active_sessions() -> list[dict]:
@@ -351,6 +378,7 @@ def main() -> None:
     roles = load_roster_roles()
     costs = load_costs()
     loops = load_loops()
+    skills = load_skills()
     board = load_board()
     if not board:
         print(
@@ -411,6 +439,7 @@ def main() -> None:
                 "saved": saved_amt,
                 "tokens": c.get("tokens"),
                 "topModel": c.get("topModel"),
+                "skills": skills.get(aid),
             }
         )
         if status in ("questing", "patrol") and quest:

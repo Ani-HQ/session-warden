@@ -53,7 +53,7 @@ The agent comes back online in under a second, knowing what it was doing.
 | Model scorecard | `bin/scorecard.sh` | weekly Sat 06:00 (`deploy/scorecard.timer`) | fixed benchmark across models, blind-judged |
 | Memory evals | `bin/eval-memory.sh` | monthly 1st 07:00 (`deploy/eval-memory.timer`) | replay fixed cases against current memory; pass-rate delta is the regression signal |
 | MCP supervisor | `bin/mcp-supervisor.sh` | manual / cron | keep heavy MCP servers alive across rotations |
-| Fleet board | `contrib/fleet-live/collect.py` | cron, 2 min (manual) | static public status board: live sessions, spend, recurring loops |
+| Fleet board | `contrib/fleet-live/collect.py` | cron, 2 min (manual) | static public status board: live sessions, spend, recurring loops, skills learned |
 
 `install.sh` wires the cron entries marked *(install.sh)*. Rows marked *(manual)* need a crontab line you add yourself (shown in each section below); the timer-based rows are systemd user units you copy from `deploy/` (see Quick start).
 
@@ -564,6 +564,12 @@ sudden log floods between weekly runs; `dateext` keeps the two schemes'
 filenames from colliding.
 
 ### Doctor (self-health + dead-man's switch)
+
+Doctor also guards the skills prompt budget: OpenClaw renders every live
+skill's name and description into every prompt, capped at
+`maxSkillsPromptChars` (default 18,000 chars) — past the cap it silently drops
+skills. Doctor warns at 80% of the budget and fails above it, per agent
+(`WARDEN_SKILLS_PROMPT_BUDGET` / `WARDEN_SKILLS_MAX_COUNT` to tune).
 
 The warden monitors agents; `doctor` monitors the warden. It derives the
 expected wiring and diffs it against reality — cron entries, loop heartbeats,
