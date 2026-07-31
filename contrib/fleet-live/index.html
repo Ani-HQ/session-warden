@@ -289,6 +289,11 @@
     .detail { display: none; border-top: 1px solid var(--line); padding-top: 14px; gap: 14px; }
     .card[aria-expanded="true"] .detail { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; animation: rise 0.3s var(--ease-out); }
     .detail .blurb { margin: 0; font-size: 13px; color: var(--fog); line-height: 1.6; max-width: 52ch; }
+    .skills { margin-top: 10px; }
+    .skills .lab { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); margin-bottom: 5px; }
+    .sklist { display: flex; flex-wrap: wrap; gap: 4px; }
+    .sklist .sk { border: 1px solid var(--line); padding: 2px 7px; font-size: 11px; color: var(--fog); border-radius: 3px; }
+    .skpending { margin-top: 6px; font-size: 11px; color: var(--mute); }
     .econ { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
     .ecell { border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px; background: var(--panel-2); }
     .ecell .k { font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--mute); margin-bottom: 6px; }
@@ -556,7 +561,7 @@
         : 'no upcoming runs';
       var html = loops.map(function (l) {
         var when = l.last != null ? rel(l.last) : (l.next != null ? rel(l.next) : '—');
-        return '<span class="litem"><b>' + escapeHtml(l.agent) + '</b>' +
+        return '<span class="litem"' + (l.desc ? ' title="' + escapeHtml(l.desc) + '"' : '') + '><b>' + escapeHtml(l.agent) + '</b>' +
           '<span>' + escapeHtml(l.label) + '</span>' +
           '<span class="ca">' + escapeHtml(l.cadence) + '</span>' +
           '<span class="la">' + escapeHtml(when) + '</span></span>';
@@ -629,6 +634,16 @@
       h += '<div class="kv"><span class="k">team</span><span class="v">' + escapeHtml(a.team || '—') + '</span></div>';
       if (typeof a.xp === 'number') {
         h += '<div class="xpline"><div class="lab"><span>weekly xp</span><span>' + a.xp + ' / 100</span></div><div class="abar">' + asciiBar(a.xp / 100, 18) + '</div></div>';
+      }
+      if (a.skills && (a.skills.count || (a.skills.pending || []).length)) {
+        h += '<div class="skills"><div class="lab"><span>skills learned</span><span>' + (a.skills.count || 0) + '</span></div>';
+        h += '<div class="sklist">' + (a.skills.live || []).slice(0, 4).map(function (s) {
+          return '<span class="sk">' + escapeHtml(s.name) + '</span>';
+        }).join('') + '</div>';
+        if ((a.skills.pending || []).length) {
+          h += '<div class="skpending">in review: ' + a.skills.pending.map(escapeHtml).join(' · ') + '</div>';
+        }
+        h += '</div>';
       }
       h += '</div>';
       h += '</div>';

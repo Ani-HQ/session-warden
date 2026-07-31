@@ -27,20 +27,34 @@ NOW_MS = int(NOW.timestamp() * 1000)
 # Anything else defaults to internal-only until named in config/timers-labels.json
 # (see config/timers-labels.json.example).
 WARDEN_LOOPS = {
-    "snapshot":              {"label": "state snapshot",   "agent": "warden", "cadence": "every 30 min", "public": True},
-    "dream-cycle":           {"label": "dream cycle",      "agent": "warden", "cadence": "nightly",      "public": True},
-    "reflect":               {"label": "reflection pass",  "agent": "warden", "cadence": "nightly",      "public": True},
-    "scorecard":             {"label": "model scorecard",  "agent": "warden", "cadence": "weekly",       "public": True},
-    "fleet-review":          {"label": "fleet review",     "agent": "warden", "cadence": "weekly",       "public": True},
-    "eval-memory":           {"label": "memory eval",      "agent": "warden", "cadence": "monthly",      "public": True},
-    "harvest":               {"label": "lesson harvest",   "agent": "warden", "cadence": "weekly",       "public": True},
-    "session-warden":        {"label": "session scan",     "agent": "warden", "cadence": "every 30s"},
-    "session-warden-reap":   {"label": "stall reaper",     "agent": "warden", "cadence": "every 30s"},
-    "session-warden-doctor": {"label": "warden doctor",    "agent": "warden", "cadence": "every 5 min"},
-    "warden-context-sync":   {"label": "context sync",     "agent": "warden", "cadence": "every 5 min"},
-    "warden-cleanup":        {"label": "archive cleanup",  "agent": "warden", "cadence": "daily"},
-    "warden-worktree-gc":    {"label": "worktree gc",      "agent": "warden", "cadence": "every 15 min"},
-    "mcp-supervisor":        {"label": "mcp supervisor",   "agent": "warden", "cadence": "every 5 min"},
+    "snapshot":              {"label": "state snapshot",   "agent": "warden", "cadence": "every 30 min", "public": True,
+                              "desc": "Saves every agent's working state each half hour, so a crash or restart loses nothing."},
+    "dream-cycle":           {"label": "dream cycle",      "agent": "warden", "cadence": "nightly",      "public": True,
+                              "desc": "Nightly maintenance of the fleet's shared memory — merging, pruning, and backing it up."},
+    "reflect":               {"label": "reflection pass",  "agent": "warden", "cadence": "nightly",      "public": True,
+                              "desc": "Each night, every agent's recent work is distilled into short lessons it applies going forward."},
+    "scorecard":             {"label": "model scorecard",  "agent": "warden", "cadence": "weekly",       "public": True,
+                              "desc": "Weekly benchmark comparing the fleet's AI models on real tasks, so the best one wins."},
+    "fleet-review":          {"label": "fleet review",     "agent": "warden", "cadence": "weekly",       "public": True,
+                              "desc": "Weekly quality review of each agent's actual work, scored with a plain-English insight and one action."},
+    "eval-memory":           {"label": "memory eval",      "agent": "warden", "cadence": "monthly",      "public": True,
+                              "desc": "Monthly regression test confirming agent memory is still accurate and hasn't drifted."},
+    "harvest":               {"label": "lesson harvest",   "agent": "warden", "cadence": "weekly",       "public": True,
+                              "desc": "Weekly mining of workflows each agent repeated — they become draft skills waiting for approval."},
+    "session-warden":        {"label": "session scan",     "agent": "warden", "cadence": "every 30s",
+                              "desc": "Scans every agent session for problems and rotates the unhealthy ones."},
+    "session-warden-reap":   {"label": "stall reaper",     "agent": "warden", "cadence": "every 30s",
+                              "desc": "Backstop that catches silently hung agent sessions and restarts them."},
+    "session-warden-doctor": {"label": "warden doctor",    "agent": "warden", "cadence": "every 5 min",
+                              "desc": "The warden's self-check: verifies its own wiring and raises an alert when something is unhooked."},
+    "warden-context-sync":   {"label": "context sync",     "agent": "warden", "cadence": "every 5 min",
+                              "desc": "Keeps each agent's workspace context files in step with its live sessions."},
+    "warden-cleanup":        {"label": "archive cleanup",  "agent": "warden", "cadence": "daily",
+                              "desc": "Daily sweep that clears old archives and logs."},
+    "warden-worktree-gc":    {"label": "worktree gc",      "agent": "warden", "cadence": "every 15 min",
+                              "desc": "Cleans up finished task worktrees so disk and git state stay tidy."},
+    "mcp-supervisor":        {"label": "mcp supervisor",   "agent": "warden", "cadence": "every 5 min",
+                              "desc": "Keeps agent tool servers alive and restarts any that died."},
 }
 
 
@@ -58,6 +72,65 @@ def load_labels() -> dict[str, dict]:
 
 
 LOOPS = load_labels()
+
+# ── loop descriptions ─────────────────────────────────────────────
+# Resolution order: labels/built-ins → cache → one `claude -p` call on a cheap
+# model, grounded in the loop's own schedule line so it cannot invent much.
+# Model calls ride the operator's existing subscription (warden's premise) and
+# happen once per loop ever; failures just leave the description blank.
+DESC_CACHE = WARDEN / "state" / "timers" / "loop-desc.json"
+DESC_MODEL = os.environ.get("WARDEN_LOOPDESC_MODEL", "haiku")
+DESC_ENABLED = os.environ.get("WARDEN_LOOPDESC", "1") == "1"
+
+
+def _load_desc_cache() -> dict:
+    try:
+        return json.loads(DESC_CACHE.read_text())
+    except Exception:
+        return {}
+
+
+_desc_cache = _load_desc_cache()
+
+
+def _generate_desc(loop: dict) -> str:
+    prompt = (
+        "One sentence, at most 18 words, plain English for a non-technical reader. "
+        "Say what this scheduled job does and what to expect from it. Describe ONLY "
+        "what is evident from the data below; if unsure, stay generic rather than "
+        "inventing specifics. No quotes, no markdown.\n"
+        f"Name: {loop.get('label') or loop.get('id')}\n"
+        f"Owner: {loop.get('agent') or 'ops'}\n"
+        f"Runs: {loop.get('cadence') or loop.get('schedule') or ''}\n"
+        f"Full schedule entry: {loop.get('detail') or ''} {loop.get('schedule') or ''}"
+    )
+    try:
+        out = subprocess.run(
+            ["claude", "-p", "--model", DESC_MODEL, prompt],
+            capture_output=True, text=True, timeout=45,
+        ).stdout.strip().replace("\n", " ")
+    except Exception:
+        return ""
+    return out if 0 < len(out) < 220 else ""
+
+
+def resolve_desc(lid: str, loop: dict) -> str:
+    d = (meta(lid).get("desc") or "").strip()
+    if d:
+        return d
+    if lid in _desc_cache:
+        return _desc_cache[lid]
+    if not (DESC_ENABLED and loop.get("public")):
+        return ""
+    d = _generate_desc(loop)
+    if d:
+        _desc_cache[lid] = d
+        try:
+            DESC_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            DESC_CACHE.write_text(json.dumps(_desc_cache, indent=1, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+    return d
 
 
 def systemd_units() -> list[str]:
@@ -317,6 +390,8 @@ def main() -> None:
     loops.sort(key=lambda l: (l["next"] is None, l["next"] or 0))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT.with_suffix(".tmp")
+    for l in loops:
+        l["desc"] = resolve_desc(l.get("id", ""), l)
     tmp.write_text(json.dumps({"generatedAt": NOW_MS, "loops": loops}, indent=1) + "\n")
     tmp.replace(OUT)
     print(f"wrote {OUT} loops={len(loops)} public={sum(1 for l in loops if l['public'])}")

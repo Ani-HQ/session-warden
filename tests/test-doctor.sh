@@ -133,3 +133,35 @@ else
   assert_eq "quiet" "quiet" "a long-idle undeclared agent is not reported as running"
 fi
 
+
+echo "  doctor: skills prompt budget"
+
+# Every live skill's name+description is rendered into every prompt; past the
+# budget openclaw silently drops skills. The harvester grows this number one
+# approval at a time, so doctor has to see the cliff before an agent walks
+# off it.
+
+set_declared_agents live-agent fat-agent slim-agent
+mkdir -p "$WARDEN_OPENCLAW_HOME/agents/slim-agent/skills/tidy-skill"
+printf -- '---\nname: tidy skill\ndescription: does one small thing\n---\nbody\n' \
+  > "$WARDEN_OPENCLAW_HOME/agents/slim-agent/skills/tidy-skill/SKILL.md"
+mkdir -p "$WARDEN_OPENCLAW_HOME/agents/fat-agent/skills/bloated-skill"
+{
+  printf -- '---\nname: bloated skill\ndescription: '
+  for i in $(seq 40); do printf 'an extremely long description that eats prompt budget '; done
+  printf -- '\n---\nbody\n'
+} > "$WARDEN_OPENCLAW_HOME/agents/fat-agent/skills/bloated-skill/SKILL.md"
+
+doctor_out=$(WARDEN_DOCTOR_SKIP_GATEWAY=1 WARDEN_SKILLS_PROMPT_BUDGET=400 bash "$WARDEN_HOME/bin/doctor.sh" 2>&1 || true)
+assert_contains "$doctor_out" "fat-agent" "doctor flags the agent whose skills prompt busts the budget"
+budget_lines=$(echo "$doctor_out" | grep "skills prompt" || true)
+if echo "$budget_lines" | grep -q "slim-agent"; then
+  assert_eq "quiet" "flagged" "an agent well inside the budget is not flagged"
+else
+  assert_eq "quiet" "quiet" "an agent well inside the budget is not flagged"
+fi
+
+doctor_ok_out=$(WARDEN_DOCTOR_SKIP_GATEWAY=1 bash "$WARDEN_HOME/bin/doctor.sh" 2>&1 || true)
+assert_contains "$doctor_ok_out" "skills prompt within budget" "default budget passes with room to spare"
+
+rm -rf "$WARDEN_OPENCLAW_HOME/agents/fat-agent" "$WARDEN_OPENCLAW_HOME/agents/slim-agent"
