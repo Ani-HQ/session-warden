@@ -17,6 +17,11 @@
     "  agent   who owns it — groups the rows (default: 'ops')",
     "  cadence human-readable schedule (default: the raw cron expression)",
     "  public  true to show it on the public fleet board (default: false)",
+    "  desc    one plain-English sentence shown under the loop on dashboards.",
+    "          Warden loops ship with one; without one here, public loops get a",
+    "          single grounded `claude -p` call (WARDEN_LOOPDESC_MODEL, default",
+    "          haiku), cached forever in state/timers/loop-desc.json. Set",
+    "          WARDEN_LOOPDESC=0 to never call a model.",
     "  script  basename that pins a crontab line to this id, e.g. 'watch.mjs'",
     "  log     file whose mtime is used as the last-run time; ~ is expanded",
     "  source  set to 'systemd' for a timer unit that lives outside deploy/"
