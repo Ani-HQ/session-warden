@@ -592,6 +592,9 @@
           : '<b>' + money(p.used || 0) + '</b> used · metered';
         return '<span class="pplan">' + escapeHtml(p.label || '') + ' · ' + body + '</span>';
       });
+      if (e.cacheHitPct != null) {
+        plans.push('<span class="pplan" title="Share of prompt tokens served from cache at ~10% of the fresh-input price. A falling rate means something is mutating the prompt prefix.">prompt cache · <b>' + Number(e.cacheHitPct).toFixed(1) + '% hit</b></span>');
+      }
       plans.push('<span class="pplan">window · <b>' + (e.daysElapsed != null ? e.daysElapsed : '—') + 'd elapsed</b></span>');
       $('p-plans').innerHTML = plans.join('');
     }
@@ -631,6 +634,9 @@
       h += '<div class="dside">';
       h += '<div class="kv"><span class="k">status</span><span class="v">' + escapeHtml(STATUS_WORD[a.status] || a.status) + ' · ' + escapeHtml(ago(a.ageMs)) + '</span></div>';
       h += '<div class="kv"><span class="k">sessions</span><span class="v">' + String(a.sessionsWeek || 0) + ' this week</span></div>';
+      if (a.hitPct != null) {
+        h += '<div class="kv" title="Share of this agent\'s prompt tokens served from cache at ~10% of the fresh-input price"><span class="k">cache hit</span><span class="v">' + Number(a.hitPct).toFixed(1) + '% this month</span></div>';
+      }
       h += '<div class="kv"><span class="k">team</span><span class="v">' + escapeHtml(a.team || '—') + '</span></div>';
       if (typeof a.xp === 'number') {
         h += '<div class="xpline"><div class="lab"><span>weekly xp</span><span>' + a.xp + ' / 100</span></div><div class="abar">' + asciiBar(a.xp / 100, 18) + '</div></div>';
