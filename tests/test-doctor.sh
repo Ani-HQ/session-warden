@@ -148,7 +148,7 @@ printf -- '---\nname: tidy skill\ndescription: does one small thing\n---\nbody\n
 mkdir -p "$WARDEN_OPENCLAW_HOME/agents/fat-agent/skills/bloated-skill"
 {
   printf -- '---\nname: bloated skill\ndescription: '
-  for i in $(seq 40); do printf 'an extremely long description that eats prompt budget '; done
+  for _ in $(seq 40); do printf 'an extremely long description that eats prompt budget '; done
   printf -- '\n---\nbody\n'
 } > "$WARDEN_OPENCLAW_HOME/agents/fat-agent/skills/bloated-skill/SKILL.md"
 

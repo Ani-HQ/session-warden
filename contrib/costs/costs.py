@@ -197,6 +197,7 @@ def main() -> None:
     for agent, buckets in sorted(agg.items()):
         a_tokens = 0
         a_would = 0.0
+        a_in = a_cr = a_cw = 0
         by_prov: dict[str, dict] = {}
         by_model_would: dict[str, float] = {}
         daily: dict[str, float] = {}
@@ -210,6 +211,9 @@ def main() -> None:
             prov = provider_of(model)
             a_tokens += toks
             a_would += would
+            a_in += i
+            a_cr += cr
+            a_cw += cw
             by_model_would[model] = by_model_would.get(model, 0.0) + would
             daily[day] = daily.get(day, 0.0) + would
             pb = by_prov.setdefault(prov, {"tokens": 0, "would": 0.0})
@@ -221,12 +225,22 @@ def main() -> None:
         for prov, pb in by_prov.items():
             pool_would[prov] = pool_would.get(prov, 0.0) + pb["would"]
         top_model = max(by_model_would.items(), key=lambda kv: kv[1])[0] if by_model_would else ""
+        # Prompt-cache hit rate: share of prompt tokens served from cache.
+        # A prefix mutation above the cache point (model swap, tool-list change,
+        # timestamp churn) shows up here long before it shows up on the bill.
+        a_prompt = a_in + a_cr + a_cw
         agents_out.append(
             {
                 "id": agent,
                 "tokens": a_tokens,
                 "wouldCost": a_would,
                 "topModel": top_model,
+                "cache": {
+                    "input": a_in,
+                    "read": a_cr,
+                    "write": a_cw,
+                    "hitPct": round(100.0 * a_cr / a_prompt, 1) if a_prompt else None,
+                },
                 "byProvider": by_prov,
                 "dailyWould": daily,
             }
@@ -236,6 +250,7 @@ def main() -> None:
     total_actual = 0.0
     total_would = 0.0
     total_tokens = 0
+    fleet_cache = {"input": 0, "read": 0, "write": 0}
     daily_totals: dict[str, float] = {}
     for a in agents_out:
         actual = 0.0
@@ -259,6 +274,8 @@ def main() -> None:
         total_actual += actual
         total_would += a["wouldCost"]
         total_tokens += a["tokens"]
+        for k in fleet_cache:
+            fleet_cache[k] += a["cache"][k]
         for day, w in a.pop("dailyWould").items():
             daily_totals[day] = daily_totals.get(day, 0.0) + w
 
@@ -291,6 +308,15 @@ def main() -> None:
             "actualCost": round(total_actual, 2),
             "savings": round(total_would - total_actual, 2),
             "savingsPct": round(100 * (1 - total_actual / total_would), 1) if total_would > 0 else 0.0,
+            "cache": {
+                **fleet_cache,
+                "hitPct": round(
+                    100.0 * fleet_cache["read"] / (fleet_cache["input"] + fleet_cache["read"] + fleet_cache["write"]),
+                    1,
+                )
+                if (fleet_cache["input"] + fleet_cache["read"] + fleet_cache["write"])
+                else None,
+            },
             "dailyWould": sorted(daily_totals.items()),
         },
         "agents": agents_out,

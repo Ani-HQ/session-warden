@@ -439,6 +439,7 @@ def main() -> None:
                 "saved": saved_amt,
                 "tokens": c.get("tokens"),
                 "topModel": c.get("topModel"),
+                "hitPct": (c.get("cache") or {}).get("hitPct"),
                 "skills": skills.get(aid),
             }
         )
@@ -467,6 +468,7 @@ def main() -> None:
             "windowLabel": window.get("label", ""),
             "daysElapsed": window.get("daysElapsed"),
             "tokens": visible_tokens,
+            "cacheHitPct": (totals.get("cache") or {}).get("hitPct"),
             "wouldCost": round(visible_would, 2),
             "actualCost": actual,
             "savings": round(visible_would - (actual or 0), 2) if actual is not None else None,
