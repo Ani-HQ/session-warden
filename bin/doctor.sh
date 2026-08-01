@@ -271,6 +271,7 @@ SKILLS_PROMPT_BUDGET="${WARDEN_SKILLS_PROMPT_BUDGET:-18000}"
 SKILLS_MAX_COUNT="${WARDEN_SKILLS_MAX_COUNT:-150}"
 oc_home="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}"
 if [ -d "$oc_home/agents" ] && command -v python3 >/dev/null 2>&1; then
+  # shellcheck disable=SC2046  # word splitting intended: one argv per declared agent
   skills_tsv=$(python3 - "$oc_home" $(declared_agents) <<'PYEOF' 2>/dev/null || true
 import glob, os, re, sys
 root = sys.argv[1]
