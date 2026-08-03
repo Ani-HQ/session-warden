@@ -168,10 +168,16 @@ def fmt_reset(ts: float | None) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def claude_limited() -> tuple[bool, float | None, str]:
+def claude_limited() -> tuple[bool | None, float | None, str]:
+    """Return (limited, resets_at, detail).
+
+    limited is True/False when usage is known, or None when the usage API
+    failed. Callers MUST NOT treat None as "healthy" — a blind restore on
+    fetch failure is what falsely brought Claude back while still exhausted.
+    """
     usage = fetch_claude_usage()
     if not usage:
-        return False, None, "usage_unavailable"
+        return None, None, "usage_unavailable"
     week = usage.get("seven_day") or {}
     util = float(week.get("utilization") or 0)
     resets_at = parse_reset(week.get("resets_at"))
@@ -246,6 +252,19 @@ def try_restore() -> dict | None:
     now = time.time()
     resets_at = active.get("resetsAt")
 
+    # Hard gate: never restore before the known resets_at (+ grace), even if
+    # a usage probe looks clear. Prevents early restores from stale/wrong
+    # utilization snapshots.
+    if resets_at and now < float(resets_at) + GRACE_SEC:
+        return {
+            "action": "noop",
+            "reason": "before_reset",
+            "provider": provider,
+            "resetsAt": resets_at,
+            "resetsAtLabel": fmt_reset(resets_at),
+            "detail": active.get("detail") or "",
+        }
+
     if provider == "claude":
         limited, fresh_reset, detail = claude_limited()
         if fresh_reset:
@@ -254,6 +273,15 @@ def try_restore() -> dict | None:
             active["detail"] = detail
             state["active"] = active
             save_json(STATE, state)
+        if limited is None:
+            return {
+                "action": "noop",
+                "reason": "usage_unavailable",
+                "provider": provider,
+                "resetsAt": resets_at,
+                "resetsAtLabel": fmt_reset(resets_at),
+                "detail": detail,
+            }
         if limited:
             return {
                 "action": "noop",
@@ -264,14 +292,6 @@ def try_restore() -> dict | None:
                 "detail": detail,
             }
     else:
-        if resets_at and now < float(resets_at) + GRACE_SEC:
-            return {
-                "action": "noop",
-                "reason": "before_reset",
-                "provider": provider,
-                "resetsAt": resets_at,
-                "resetsAtLabel": fmt_reset(resets_at),
-            }
         if not resets_at:
             return {
                 "action": "noop",
@@ -289,7 +309,11 @@ def try_restore() -> dict | None:
     restore_models(cfg, snap)
     save_cfg(cfg)
     restart_gateway()
-    state["lastRestored"] = {"provider": provider, "at": now}
+    state["lastRestored"] = {
+        "provider": provider,
+        "at": now,
+        "resetsAt": resets_at,
+    }
     state["active"] = {}
     save_json(STATE, state)
     return {
@@ -310,6 +334,7 @@ def status() -> dict:
         "claudeResetsAt": resets_at,
         "claudeResetsAtLabel": fmt_reset(resets_at),
         "active": active,
+        "lastRestored": state.get("lastRestored") or {},
         "baselinePresent": BASELINE.is_file(),
         "utilThreshold": UTIL_THRESHOLD,
     }
@@ -322,8 +347,29 @@ def run_once() -> dict:
         return restored
 
     limited, resets_at, detail = claude_limited()
-    if limited:
+    if limited is True:
         return apply_demotion("claude", resets_at, detail)
+
+    if limited is None:
+        # Usage probe failed. If we previously restored but wall-clock is
+        # still before the known resets_at, re-demote — do not trust a
+        # missing probe as "healthy".
+        state = load_json(STATE, {}) or {}
+        lr = state.get("lastRestored") or {}
+        lr_reset = lr.get("resetsAt")
+        if (
+            lr.get("provider") == "claude"
+            and lr_reset
+            and time.time() < float(lr_reset) + GRACE_SEC
+        ):
+            return apply_demotion(
+                "claude",
+                float(lr_reset),
+                detail or "usage_unavailable; re-demoting before known reset",
+            )
+        if restored:
+            return restored
+        return {"action": "noop", "reason": "usage_unavailable", "detail": detail}
 
     if restored:
         return restored
