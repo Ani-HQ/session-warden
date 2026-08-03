@@ -192,14 +192,14 @@ def main() -> None:
 
     agents_out = []
     pool_would: dict[str, float] = {}
-    per_agent_prov: dict[str, dict[str, dict]] = {}
+    fleet_by_model: dict[str, dict] = {}  # model -> {tokens, would, provider}
 
     for agent, buckets in sorted(agg.items()):
         a_tokens = 0
         a_would = 0.0
         a_in = a_cr = a_cw = 0
         by_prov: dict[str, dict] = {}
-        by_model_would: dict[str, float] = {}
+        by_model: dict[str, dict] = {}
         daily: dict[str, float] = {}
         for key, (i, ot, cr, cw) in buckets.items():
             day, model = key.split("|", 1)
@@ -214,17 +214,21 @@ def main() -> None:
             a_in += i
             a_cr += cr
             a_cw += cw
-            by_model_would[model] = by_model_would.get(model, 0.0) + would
+            mb = by_model.setdefault(model, {"tokens": 0, "would": 0.0, "provider": prov})
+            mb["tokens"] += toks
+            mb["would"] += would
             daily[day] = daily.get(day, 0.0) + would
             pb = by_prov.setdefault(prov, {"tokens": 0, "would": 0.0})
             pb["tokens"] += toks
             pb["would"] += would
+            fb = fleet_by_model.setdefault(model, {"tokens": 0, "would": 0.0, "provider": prov})
+            fb["tokens"] += toks
+            fb["would"] += would
         if a_tokens == 0:
             continue
-        per_agent_prov[agent] = by_prov
         for prov, pb in by_prov.items():
             pool_would[prov] = pool_would.get(prov, 0.0) + pb["would"]
-        top_model = max(by_model_would.items(), key=lambda kv: kv[1])[0] if by_model_would else ""
+        top_model = max(by_model.items(), key=lambda kv: kv[1]["would"])[0] if by_model else ""
         # Prompt-cache hit rate: share of prompt tokens served from cache.
         # A prefix mutation above the cache point (model swap, tool-list change,
         # timestamp churn) shows up here long before it shows up on the bill.
@@ -242,6 +246,10 @@ def main() -> None:
                     "hitPct": round(100.0 * a_cr / a_prompt, 1) if a_prompt else None,
                 },
                 "byProvider": by_prov,
+                "byModel": {
+                    m: {"tokens": v["tokens"], "would": round(v["would"], 4), "provider": v["provider"]}
+                    for m, v in sorted(by_model.items(), key=lambda kv: -kv[1]["would"])
+                },
                 "dailyWould": daily,
             }
         )
@@ -292,6 +300,31 @@ def main() -> None:
             "poolWould": round(pool_would.get(prov, 0.0), 2),
         }
 
+    # Fleet rollups for the health/payroll split bars.
+    by_provider_out: dict[str, dict] = {}
+    for a in agents_out:
+        for prov, pb in a["byProvider"].items():
+            dest = by_provider_out.setdefault(
+                prov, {"tokens": 0, "would": 0.0, "actual": 0.0, "label": plans_out.get(prov, {}).get("label", prov)}
+            )
+            dest["tokens"] += pb["tokens"]
+            dest["would"] += pb["would"]
+            dest["actual"] += pb["actual"]
+    for prov, dest in by_provider_out.items():
+        dest["would"] = round(dest["would"], 2)
+        dest["actual"] = round(dest["actual"], 2)
+
+    by_model_out = []
+    for model, v in sorted(fleet_by_model.items(), key=lambda kv: -kv[1]["would"]):
+        by_model_out.append(
+            {
+                "model": model,
+                "provider": v["provider"],
+                "tokens": v["tokens"],
+                "would": round(v["would"], 2),
+            }
+        )
+
     payload = {
         "generatedAt": int(now * 1000),
         "generatedAtIso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
@@ -319,6 +352,8 @@ def main() -> None:
             },
             "dailyWould": sorted(daily_totals.items()),
         },
+        "byProvider": by_provider_out,
+        "byModel": by_model_out,
         "agents": agents_out,
     }
 
