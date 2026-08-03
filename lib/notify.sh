@@ -272,3 +272,49 @@ ${summary}"
     --data-urlencode "text=${msg}" 2>/dev/null)
   echo "$resp" | grep -q "\"ok\":true"
 }
+
+notify_rate_limit() {
+  # One-shot when rate-guard demotes a provider (bin/rate-guard.sh).
+  # Plain text: provider/detail strings can break Telegram Markdown.
+  # Time-bounded — the timer must never stall on a blackholed api.telegram.org.
+  local provider="$1" detail="${2:-}" until="${3:-unknown}"
+
+  [ "${WARDEN_RATE_GUARD_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg
+  msg="⚠️ session-warden rate guard
+
+${provider} hit a limit${detail:+ (${detail})}.
+Demoted fleet-wide until ${until}.
+Team channels stay quiet — this is the only alert."
+
+  curl -s --connect-timeout 5 --max-time 15 \
+    -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    --data-urlencode "text=${msg}" \
+    > /dev/null 2>&1 || true
+}
+
+notify_rate_limit_cleared() {
+  # One-shot when rate-guard restores baseline chains after resets_at.
+  local provider="$1"
+
+  [ "${WARDEN_RATE_GUARD_NOTIFY:-1}" = "1" ] || return 0
+
+  [ -z "${WARDEN_TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_TELEGRAM_CHAT_ID:-}" ] && return 0
+
+  local msg
+  msg="✅ session-warden rate guard
+
+${provider} is back. Restored baseline model chains."
+
+  curl -s --connect-timeout 5 --max-time 15 \
+    -X POST "https://api.telegram.org/bot${WARDEN_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${WARDEN_TELEGRAM_CHAT_ID}" \
+    --data-urlencode "text=${msg}" \
+    > /dev/null 2>&1 || true
+}

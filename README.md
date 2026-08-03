@@ -52,6 +52,7 @@ The agent comes back online in under a second, knowing what it was doing.
 | Skill harvester | `bin/harvest-skills.sh` | weekly Sun 05:00 (`deploy/harvest.timer`) | mine repeated workflows into staged SKILL.md drafts |
 | Model scorecard | `bin/scorecard.sh` | weekly Sat 06:00 (`deploy/scorecard.timer`) | fixed benchmark across models, blind-judged |
 | Memory evals | `bin/eval-memory.sh` | monthly 1st 07:00 (`deploy/eval-memory.timer`) | replay fixed cases against current memory; pass-rate delta is the regression signal |
+| Rate guard | `bin/rate-guard.sh` | every 2 min (`deploy/rate-guard.timer`) | demote rate-limited providers fleet-wide until reset; one Telegram alert; OpenClaw plugin silences team notices |
 | MCP supervisor | `bin/mcp-supervisor.sh` | manual / cron | keep heavy MCP servers alive across rotations |
 | Fleet board | `contrib/fleet-live/collect.py` | cron, 2 min (manual) | static public status board: live sessions, spend, recurring loops, skills learned |
 
@@ -357,10 +358,10 @@ The nightly/weekly modules (dream cycle, reflector, harvester, scorecard, evals)
 ```bash
 cp deploy/*.service deploy/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now dream-cycle.timer reflect.timer harvest.timer scorecard.timer eval-memory.timer
+systemctl --user enable --now dream-cycle.timer reflect.timer harvest.timer scorecard.timer eval-memory.timer rate-guard.timer
 ```
 
-Only enable the timers whose modules you actually use (the dream cycle requires GBrain; the others mirror into GBrain when it's available).
+Only enable the timers whose modules you actually use (the dream cycle requires GBrain; the others mirror into GBrain when it's available). Rate guard needs the Anthropic OAuth usage signal (`~/.claude/.credentials.json`) and pairs with `contrib/openclaw-plugins/fleet-rate-guard` enabled in `openclaw.json`.
 
 ### CLI
 
