@@ -1,0 +1,29 @@
+{
+  "id": "error-humanizer",
+  "name": "Error Humanizer",
+  "description": "Rewrites raw agent error messages into short, human-readable replies (with the actual cause kept) using Gemini Flash before they reach the channel.",
+  "version": "1.0.0",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Google AI Studio API key. Falls back to models.providers.google.apiKey from openclaw.json, then GEMINI_API_KEY."
+      },
+      "model": {
+        "type": "string",
+        "description": "Gemini model used for rewrites.",
+        "default": "gemini-3-flash-preview"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Budget for the rewrite call; on timeout the original text is delivered.",
+        "default": 8000
+      }
+    }
+  }
+}
