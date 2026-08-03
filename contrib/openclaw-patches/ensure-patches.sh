@@ -24,7 +24,10 @@ LOG_PREFIX="[ensure-patches]"
 # Detect native support by its resolver function and skip patching entirely —
 # the patches are retired, not just incompatible.
 DIST="${OPENCLAW_DIST:-$HOME/.npm-global/lib/node_modules/openclaw/dist}"
-if grep -lq "resolveClaudeLiveOutputLimits" "$DIST"/claude-live-session-*.js 2>/dev/null; then
+# Detect by the public config key (stable across releases) rather than an
+# internal function name: 2026.7.x renamed resolveClaudeLiveOutputLimits but
+# still resolves configured?.maxTurnRawChars from reliability.outputLimits.
+if grep -lqE "resolveClaudeLiveOutputLimits|maxTurnRawChars" "$DIST"/claude-live-session-*.js 2>/dev/null; then
   echo "$LOG_PREFIX native reliability config detected (openclaw >= 2026.6.5) — patches retired, nothing to do"
   exit 0
 fi
