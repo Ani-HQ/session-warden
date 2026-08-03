@@ -29,6 +29,7 @@ export WARDEN_HOME
 source "${WARDEN_HOME}/lib/portable.sh"   # stat_mtime / stat_size
 source "${WARDEN_HOME}/lib/registry.sh"   # declared_agents / agent_is_managed
 source "${WARDEN_HOME}/lib/notify.sh"
+source "${WARDEN_HOME}/lib/rate-guard.sh" # rate_guard_doctor_note
 
 LOG_FILE="${WARDEN_LOG_FILE:-${WARDEN_HOME}/state/scan.log}"
 STATE_DIR="${WARDEN_HOME}/state"
@@ -312,6 +313,25 @@ PYEOF
     fi
   done <<< "$skills_tsv"
   [ "$skills_over" -eq 0 ] && ok "skills prompt within budget for every agent"
+fi
+
+# ─── Rate guard ──────────────────────────────────────────
+# Surfaces active demotions (info) and overdue restores (warn) without
+# failing the doctor run — team chats stay quiet; this is the ops signal.
+if [ "${WARDEN_RATE_GUARD:-1}" = "1" ]; then
+  echo "rate-guard:"
+  rate_guard_doctor_note
+  case "${RATE_GUARD_DOCTOR_LEVEL:-ok}" in
+    warn)
+      warn "${RATE_GUARD_DOCTOR_NOTE:-rate-guard demotion overdue}"
+      ;;
+    info)
+      ok "${RATE_GUARD_DOCTOR_NOTE:-rate-guard demotion active}"
+      ;;
+    *)
+      ok "no active demotion"
+      ;;
+  esac
 fi
 
 # ─── Verdict ─────────────────────────────────────────────

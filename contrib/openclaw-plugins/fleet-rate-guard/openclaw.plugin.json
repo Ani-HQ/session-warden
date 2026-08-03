@@ -1,0 +1,12 @@
+{
+  "id": "fleet-rate-guard",
+  "name": "Fleet Rate Guard",
+  "description": "Suppresses outbound rate-limit / model-fallback operational notices so team channels stay clean. Companion warden module (bin/rate-guard.sh) demotes rate-limited providers fleet-wide and notifies the operator once via Telegram.",
+  "version": "1.0.0",
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -1,0 +1,8 @@
+[Unit]
+Description=session-warden rate guard (demote rate-limited providers until reset)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/session-warden/bin/rate-guard.sh --once
+Environment=HOME=%h

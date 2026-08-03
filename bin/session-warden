@@ -86,6 +86,10 @@ cmd_burn() {
   exec "$WARDEN_HOME/bin/burn-report.sh" "$@"
 }
 
+cmd_rate_guard() {
+  exec "$WARDEN_HOME/bin/rate-guard.sh" "$@"
+}
+
 cmd_install() {
   exec "$WARDEN_HOME/install.sh"
 }
@@ -159,6 +163,11 @@ Commands:
       What ate my usage: tokens consumed per agent/channel inside the
       current subscription window (default 5h). Reads the burn ledger.
 
+  rate-guard [--once | --status]
+      Detect Claude rate limits, demote the provider fleet-wide until
+      reset, restore baseline chains, and notify once via Telegram.
+      --status prints JSON (limited?, active demotion, resets_at).
+
   install
       Install cron entries and create config file.
 
@@ -182,6 +191,7 @@ case "${1:-help}" in
   rotate)    shift; cmd_rotate "$@" ;;
   doctor)    shift; cmd_doctor "$@" ;;
   burn)      shift; cmd_burn "$@" ;;
+  rate-guard|rateguard) shift; cmd_rate_guard "$@" ;;
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;

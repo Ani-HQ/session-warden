@@ -1,7 +1,22 @@
 # Changelog
 
-Notable changes to session-warden. The sections below cover the current PR
-stack in merge order: #16 ← #17 ← #18 ← `feat/warden-hardening` ← `feat/scorecard-evals` ← `feat/burn-solo`.
+Notable changes to session-warden.
+
+## [Unreleased] — rate guard
+
+### Added — fleet rate-limit demotion
+
+- `bin/rate-guard.sh` + `lib/rate-guard.py`: detect Claude Max weekly exhaustion
+  via Anthropic OAuth usage, snapshot baseline model chains, demote Claude to
+  the end of every agent chain until `resets_at`, then restore. One Telegram
+  alert on demote / restore via `notify_rate_limit` / `notify_rate_limit_cleared`
+  (same `WARDEN_TELEGRAM_*` path as other warden alerts). State under
+  `state/rate-guard/`. Timer: `deploy/rate-guard.{service,timer}` (every 2 min).
+- `contrib/openclaw-plugins/fleet-rate-guard`: cancels outbound ops notices
+  (model fallback / rate-limit / switched-over spam) so Discord and team chats
+  stay clean. Enable alongside the error-humanizer plugin path.
+- `bin/doctor.sh`: surfaces active demotions; WARNs if still demoted past
+  `resets_at + WARDEN_RATE_GUARD_RESTORE_GRACE_SEC`.
 
 ## [Unreleased] — fleet performance + dashboard redesign
 
