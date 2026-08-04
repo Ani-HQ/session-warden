@@ -5,6 +5,12 @@ Invoked by bin/rate-guard.sh. Prints a single JSON object on stdout for the
 shell wrapper to drive Telegram notify:
 
   {"action":"noop"|"demoted"|"restored"|"status", ...}
+
+Demotion window rules:
+  - `active.resetsAt` is frozen at demote time (when THIS outage ends).
+  - Never overwrite it with the next weekly window from a healthy usage payload.
+  - `lastRestored.demotionResetsAt` records that same frozen stamp so a usage
+    probe failure only re-demotes if we restored *before* that window ended.
 """
 from __future__ import annotations
 
@@ -172,8 +178,10 @@ def claude_limited() -> tuple[bool | None, float | None, str]:
     """Return (limited, resets_at, detail).
 
     limited is True/False when usage is known, or None when the usage API
-    failed. Callers MUST NOT treat None as "healthy" — a blind restore on
-    fetch failure is what falsely brought Claude back while still exhausted.
+    failed. Callers MUST NOT treat None as "healthy".
+
+    When healthy (not limited), resets_at is the *next* weekly window from
+    Anthropic — do not treat that as the end of an active demotion.
     """
     usage = fetch_claude_usage()
     if not usage:
@@ -198,10 +206,9 @@ def apply_demotion(provider: str, resets_at: float | None, detail: str) -> dict:
     state = load_json(STATE, {}) or {}
     active = state.get("active") or {}
     if active.get("provider") == provider and active.get("demoted"):
-        if resets_at and (
-            not active.get("resetsAt") or float(resets_at) != float(active.get("resetsAt") or 0)
-        ):
-            active["resetsAt"] = resets_at
+        # Freeze demotion resetsAt once set. Refreshing from a healthy usage
+        # payload would advance it to next week's window and lock restore out.
+        if detail and detail != active.get("detail"):
             active["detail"] = detail
             state["active"] = active
             save_json(STATE, state)
@@ -211,7 +218,7 @@ def apply_demotion(provider: str, resets_at: float | None, detail: str) -> dict:
             "provider": provider,
             "resetsAt": active.get("resetsAt"),
             "resetsAtLabel": fmt_reset(active.get("resetsAt")),
-            "detail": detail,
+            "detail": active.get("detail") or detail,
         }
 
     cfg = load_cfg()
@@ -250,49 +257,47 @@ def try_restore() -> dict | None:
 
     provider = active.get("provider") or "claude"
     now = time.time()
-    resets_at = active.get("resetsAt")
+    # Frozen stamp for THIS demotion window — never replace with next week's.
+    demotion_resets_at = active.get("resetsAt")
 
-    # Hard gate: never restore before the known resets_at (+ grace), even if
-    # a usage probe looks clear. Prevents early restores from stale/wrong
-    # utilization snapshots.
-    if resets_at and now < float(resets_at) + GRACE_SEC:
+    if demotion_resets_at and now < float(demotion_resets_at) + GRACE_SEC:
         return {
             "action": "noop",
             "reason": "before_reset",
             "provider": provider,
-            "resetsAt": resets_at,
-            "resetsAtLabel": fmt_reset(resets_at),
+            "resetsAt": demotion_resets_at,
+            "resetsAtLabel": fmt_reset(demotion_resets_at),
             "detail": active.get("detail") or "",
         }
 
     if provider == "claude":
-        limited, fresh_reset, detail = claude_limited()
-        if fresh_reset:
-            resets_at = fresh_reset
-            active["resetsAt"] = fresh_reset
-            active["detail"] = detail
-            state["active"] = active
-            save_json(STATE, state)
+        limited, _fresh_reset, detail = claude_limited()
         if limited is None:
             return {
                 "action": "noop",
                 "reason": "usage_unavailable",
                 "provider": provider,
-                "resetsAt": resets_at,
-                "resetsAtLabel": fmt_reset(resets_at),
+                "resetsAt": demotion_resets_at,
+                "resetsAtLabel": fmt_reset(demotion_resets_at),
                 "detail": detail,
             }
         if limited:
+            # Still exhausted after the expected window — keep waiting; do not
+            # adopt a newer resets_at here (demote path handles fresh demotions).
+            if detail and detail != active.get("detail"):
+                active["detail"] = detail
+                state["active"] = active
+                save_json(STATE, state)
             return {
                 "action": "noop",
                 "reason": "still_limited",
                 "provider": provider,
-                "resetsAt": resets_at,
-                "resetsAtLabel": fmt_reset(resets_at),
+                "resetsAt": demotion_resets_at,
+                "resetsAtLabel": fmt_reset(demotion_resets_at),
                 "detail": detail,
             }
     else:
-        if not resets_at:
+        if not demotion_resets_at:
             return {
                 "action": "noop",
                 "reason": "no_reset_time",
@@ -312,14 +317,15 @@ def try_restore() -> dict | None:
     state["lastRestored"] = {
         "provider": provider,
         "at": now,
-        "resetsAt": resets_at,
+        # Window we were waiting on — NOT Anthropic's next weekly resets_at.
+        "demotionResetsAt": demotion_resets_at,
     }
     state["active"] = {}
     save_json(STATE, state)
     return {
         "action": "restored",
         "provider": provider,
-        "resetsAtLabel": fmt_reset(resets_at),
+        "resetsAtLabel": fmt_reset(demotion_resets_at),
     }
 
 
@@ -340,6 +346,32 @@ def status() -> dict:
     }
 
 
+def _premature_restore(lr: dict, now: float) -> float | None:
+    """If last restore happened before its demotion window ended, return that window."""
+    if lr.get("provider") != "claude":
+        return None
+    demotion_reset = lr.get("demotionResetsAt")
+    if demotion_reset is None:
+        # Legacy key from the broken fail-safe — only trust it if restore
+        # itself looks premature (at < resetsAt). Otherwise ignore: a healthy
+        # restore used to store next week's resets_at here.
+        demotion_reset = lr.get("resetsAt")
+        restored_at = lr.get("at")
+        if not demotion_reset or not restored_at:
+            return None
+        if float(restored_at) >= float(demotion_reset):
+            return None
+    else:
+        restored_at = lr.get("at")
+        if not restored_at:
+            return None
+        if float(restored_at) >= float(demotion_reset):
+            return None
+    if now < float(demotion_reset) + GRACE_SEC:
+        return float(demotion_reset)
+    return None
+
+
 def run_once() -> dict:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     restored = try_restore()
@@ -351,20 +383,15 @@ def run_once() -> dict:
         return apply_demotion("claude", resets_at, detail)
 
     if limited is None:
-        # Usage probe failed. If we previously restored but wall-clock is
-        # still before the known resets_at, re-demote — do not trust a
-        # missing probe as "healthy".
+        # Usage probe failed. Only re-demote if a prior restore was premature
+        # relative to the demotion window that was in force — not merely
+        # because next week's resets_at is still in the future.
         state = load_json(STATE, {}) or {}
-        lr = state.get("lastRestored") or {}
-        lr_reset = lr.get("resetsAt")
-        if (
-            lr.get("provider") == "claude"
-            and lr_reset
-            and time.time() < float(lr_reset) + GRACE_SEC
-        ):
+        premature = _premature_restore(state.get("lastRestored") or {}, time.time())
+        if premature is not None:
             return apply_demotion(
                 "claude",
-                float(lr_reset),
+                premature,
                 detail or "usage_unavailable; re-demoting before known reset",
             )
         if restored:
