@@ -2,6 +2,15 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — rate guard no gateway restart
+
+### Fixed — demote/restore no longer kills live chats
+
+- `lib/rate-guard.py`: stop restarting `openclaw-gateway` after rewriting model
+  chains. OpenClaw hot-reloads `agents.defaults.model` / `agents.list`. Full
+  restarts were wiping Claude CLI live sessions mid-DM (Ping forgot prior turns
+  after a restore restart). Opt back in with `WARDEN_RATE_GUARD_RESTART_GATEWAY=1`.
+
 ## [Unreleased] — rate guard demotion window
 
 ### Fixed — stuck demotion after real weekly reset
