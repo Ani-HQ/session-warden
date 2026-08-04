@@ -70,7 +70,15 @@ def save_cfg(cfg: dict) -> None:
         old.unlink(missing_ok=True)
 
 
-def restart_gateway() -> None:
+def maybe_restart_gateway() -> None:
+    """Model chain edits hot-reload in OpenClaw — do NOT restart by default.
+
+    A full gateway restart kills Claude CLI live sessions mid-chat and the next
+    turn looks like a brand-new conversation even though the session jsonl is
+    intact. Opt in only with WARDEN_RATE_GUARD_RESTART_GATEWAY=1.
+    """
+    if os.environ.get("WARDEN_RATE_GUARD_RESTART_GATEWAY", "0") != "1":
+        return
     subprocess.run(
         ["systemctl", "--user", "restart", "openclaw-gateway.service"],
         capture_output=True,
@@ -228,7 +236,7 @@ def apply_demotion(provider: str, resets_at: float | None, detail: str) -> dict:
     n = demote_provider(cfg, provider)
     if n > 0:
         save_cfg(cfg)
-        restart_gateway()
+        maybe_restart_gateway()
 
     state["active"] = {
         "provider": provider,
@@ -313,7 +321,7 @@ def try_restore() -> dict | None:
     cfg = load_cfg()
     restore_models(cfg, snap)
     save_cfg(cfg)
-    restart_gateway()
+    maybe_restart_gateway()
     state["lastRestored"] = {
         "provider": provider,
         "at": now,
