@@ -100,6 +100,29 @@ OBJECTS_FILE="${RUN_DIR}/.objects.jsonl"   # one JSON object per agent, assemble
 
 log "run starting (roster: ${ROSTER_FILE}, judge: ${JUDGE_MODEL}, window: ${WINDOW_DAYS}d, dry_run: ${DRY_RUN})"
 
+# ---- fleet-operations context for the judge -----------------------------------
+# The judge reviews transcripts with no knowledge of fleet operations, which
+# produces false verdicts: an agent truthfully answering "I'm on GPT" during a
+# provider demotion was scored as a trust-destroying hallucination, and
+# externally-imposed standby (halted pipelines, waiting on human feedback) was
+# scored as laziness. Give it the standing rules plus the window's actual
+# demotion/restore timeline from rate-guard.
+RG_LOG="${WARDEN_HOME}/state/rate-guard/rate-guard.log"
+RG_EVENTS=""
+if [ -f "$RG_LOG" ]; then
+  _cutoff="$(date -u -d "${WINDOW_DAYS} days ago" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo '')"
+  [ -n "$_cutoff" ] && RG_EVENTS="$(awk -v c="$_cutoff" \
+    '$1 >= c && (/"action": "demoted"/ || /"action": "restored"/ || /manual_restore/)' \
+    "$RG_LOG" 2>/dev/null | tail -10)"
+fi
+FLEET_CONTEXT="- Agents run on a provider-fallback system: when the primary Claude provider is rate-limited, the whole fleet is temporarily switched to fallback models (OpenAI GPT-5-family / Gemini) and switched back after reset. An agent truthfully reporting a non-Claude model during such a window is CORRECT, not hallucinating — check the timeline below before judging model-identity answers. Do NOT judge model-name plausibility against your own training knowledge: model generations newer than your cutoff exist and this fleet runs some of them. Quality dips inside demotion windows reflect the fallback model, not the agent.
+- Standby can be externally imposed: outbound pipelines get halted by safety circuit-breakers, and design/ops work often waits on human feedback. A quiet week of heartbeat-only turns is not by itself a failure — judge how the agent handled being blocked (kept state straight, escalated appropriately, responded promptly when pinged). Reserve low scores for bad work or dropped balls, not for absence of assigned work; if the sample is too thin to judge quality, say so in the insight instead of assuming underperformance."
+if [ -n "$RG_EVENTS" ]; then
+  FLEET_CONTEXT="${FLEET_CONTEXT}
+- Provider demotion/restore events during this review window (UTC):
+${RG_EVENTS}"
+fi
+
 reviewed=0
 # Roster gained board/title/blurb columns for the public board (contrib/fleet-live);
 # capture them into _extra so they stop bleeding into the role text fed to the judge.
@@ -151,6 +174,9 @@ while IFS=$'\t' read -r agent team channel role _extra; do
 TEAMMATE: ${agent}
 ROLE: ${role}
 MODEL IT RUNS ON: ${model}
+
+FLEET CONTEXT (essential for fair judging):
+${FLEET_CONTEXT}
 
 Below is a representative, lightly-trimmed sample of the real work this teammate produced this week (its own session outputs — the prompts it got and what it did). Runs of routine no-op turns are collapsed into a single counted line; an agent correctly deciding NOT to act (e.g. ignoring marketing email, returning NO_REPLY) is GOOD judgment, never counted against it.
 
