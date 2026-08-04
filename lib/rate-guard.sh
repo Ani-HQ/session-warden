@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # lib/rate-guard.sh — sourced helpers for doctor / status surfaces.
 # Heavy lifting lives in lib/rate-guard.py; this file exposes shell checks.
+#
+# RATE_GUARD_DOCTOR_LEVEL / RATE_GUARD_DOCTOR_NOTE are set here and consumed
+# by bin/doctor.sh (which sources this file) — shellcheck can't see across
+# files, so SC2034 is a false positive for this lib.
+# shellcheck disable=SC2034
 
 rate_guard_state_file() {
   echo "${WARDEN_HOME}/state/rate-guard/state.json"
