@@ -2,6 +2,17 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — rate guard demotion window
+
+### Fixed — stuck demotion after real weekly reset
+
+- `lib/rate-guard.py`: freeze `active.resetsAt` at demote time; never overwrite
+  it with Anthropic's *next* weekly `resets_at` from a healthy usage payload.
+  Fail-safe re-demote on usage probe failure only when a restore was premature
+  relative to that frozen window (`lastRestored.demotionResetsAt`), not merely
+  because next week's reset is still in the future. Prevents the Aug 3→4 stuck
+  state where Claude was healthy but fleet stayed on OpenAI until Aug 10.
+
 ## [Unreleased] — rate guard
 
 ### Added — fleet rate-limit demotion
