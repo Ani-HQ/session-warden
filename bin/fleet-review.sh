@@ -101,12 +101,24 @@ OBJECTS_FILE="${RUN_DIR}/.objects.jsonl"   # one JSON object per agent, assemble
 log "run starting (roster: ${ROSTER_FILE}, judge: ${JUDGE_MODEL}, window: ${WINDOW_DAYS}d, dry_run: ${DRY_RUN})"
 
 reviewed=0
-while IFS=$'\t' read -r agent team channel role; do
+# Roster gained board/title/blurb columns for the public board (contrib/fleet-live);
+# capture them into _extra so they stop bleeding into the role text fed to the judge.
+# shellcheck disable=SC2034
+while IFS=$'\t' read -r agent team channel role _extra; do
   # skip comments/blank/header
   [ -z "${agent:-}" ] && continue
   case "$agent" in \#*) continue ;; esac
   [ "$agent" = "agent" ] && continue
   [ -n "$ONLY_AGENT" ] && [ "$agent" != "$ONLY_AGENT" ] && continue
+
+  # Worker agents (channel=internal, e.g. codex) are spawned by other agents:
+  # their real output lands in the SPAWNING agent's sessions, and their own
+  # session dir holds only runtime traces. Judging that as "no output" produces
+  # a false failing score — skip them; the spawner's review carries the work.
+  if [ "$channel" = "internal" ]; then
+    log "${agent}: worker agent (channel=internal) — skipped, not separately reviewed"
+    continue
+  fi
 
   sessions_dir="${OPENCLAW_BASE}/agents/${agent}/sessions"
   model="$(resolve_model "$agent")"
