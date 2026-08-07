@@ -253,10 +253,17 @@ ${desc}"
       presentation='{"blocks":[]}'
     fi
 
+    local target="${WARDEN_HARVEST_DISCORD_CHANNEL_ID}"
+    # openclaw requires channel:<id> / user:<id>; bare snowflakes are ambiguous.
+    case "$target" in
+      channel:*|user:*|<@*) ;;
+      *) target="channel:${target}" ;;
+    esac
+
     "$openclaw_bin" message send \
       --channel discord \
       --account "${WARDEN_HARVEST_DISCORD_ACCOUNT}" \
-      --target "${WARDEN_HARVEST_DISCORD_CHANNEL_ID}" \
+      --target "$target" \
       --message "$content" \
       --presentation "$presentation" \
       --json >/dev/null 2>&1
