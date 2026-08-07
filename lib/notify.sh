@@ -255,10 +255,9 @@ ${desc}"
 
     local target="${WARDEN_HARVEST_DISCORD_CHANNEL_ID}"
     # openclaw requires channel:<id> / user:<id>; bare snowflakes are ambiguous.
-    case "$target" in
-      channel:*|user:*|<@*) ;;
-      *) target="channel:${target}" ;;
-    esac
+    if [[ "$target" =~ ^[0-9]+$ ]]; then
+      target="channel:${target}"
+    fi
 
     "$openclaw_bin" message send \
       --channel discord \
