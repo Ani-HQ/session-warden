@@ -2,6 +2,19 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — OpenClaw-native harvest Discord buttons
+
+### Added — fleet path that reuses the existing Discord gateway
+
+- `contrib/openclaw-plugins/harvest-skill-actions`: OpenClaw interactive
+  handler for `harvest:*` button callbacks (Promote / Promote shared /
+  Reject / View draft). No second Discord bot or gateway — posts via
+  `openclaw message send --presentation` when
+  `WARDEN_HARVEST_DISCORD_ACCOUNT` is set.
+- `lib/notify.sh` `notify_harvest_skill_discord`: prefers the OpenClaw
+  path when an account is configured; falls back to the dedicated-bot REST
+  path from #48.
+
 ## [Unreleased] — interactive skill-harvest proposals in Discord
 
 ### Added — act on skill proposals with buttons instead of copy-pasting commands

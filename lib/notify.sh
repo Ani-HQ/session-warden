@@ -206,16 +206,22 @@ ${summary}"
 
 notify_harvest_skill_discord() {
   # One interactive Discord message per staged skill proposal
-  # (bin/harvest-skills.sh): Promote / Promote shared / Reject / View draft
-  # buttons, handled by the harvest-actions listener
-  # (contrib/discord-harvest-actions, run via bin/harvest-actions.sh).
+  # (bin/harvest-skills.sh): Promote / Promote shared / Reject / View draft.
+  #
+  # Two delivery paths (first match wins):
+  #   1. OpenClaw presentation — when WARDEN_HARVEST_DISCORD_ACCOUNT is set
+  #      (preferred on fleets that already run Discord via OpenClaw). Posts via
+  #      `openclaw message send --presentation`; clicks are handled by the
+  #      harvest-skill-actions OpenClaw plugin (no second Discord gateway).
+  #   2. Raw Discord bot REST — when WARDEN_DISCORD_BOT_TOKEN is set. Clicks
+  #      are handled by contrib/discord-harvest-actions (bin/harvest-actions.sh).
+  #
   # Silently no-ops when Discord isn't configured (returns 0 — "skipped" is
   # not a failure); returns non-zero only on a failed send so the harvester
   # can log it.
   local agent="$1" skill="$2" desc="${3:-}"
 
   [ "${WARDEN_HARVEST_NOTIFY_DISCORD:-1}" = "1" ] || return 0
-  [ -z "${WARDEN_DISCORD_BOT_TOKEN:-}" ] && return 0
   [ -z "${WARDEN_HARVEST_DISCORD_CHANNEL_ID:-}" ] && return 0
   command -v jq >/dev/null 2>&1 || return 1
 
@@ -223,10 +229,43 @@ notify_harvest_skill_discord() {
   [ -n "$desc" ] && content="${content}
 ${desc}"
 
-  # Discord caps custom_id at 100 chars; the longest prefix is
-  # "harvest:promote-shared:" (23) plus the separating colon. Slugs are
-  # already capped at 64 chars by the harvester, but guard anyway: post
-  # without buttons rather than get a 400 and lose the notification.
+  # --- Path 1: OpenClaw presentation (fleet-native) ------------------------
+  if [ -n "${WARDEN_HARVEST_DISCORD_ACCOUNT:-}" ]; then
+    local openclaw_bin presentation
+    openclaw_bin=$(command -v openclaw 2>/dev/null || true)
+    [ -z "$openclaw_bin" ] && [ -x "${HOME}/.npm-global/bin/openclaw" ] \
+      && openclaw_bin="${HOME}/.npm-global/bin/openclaw"
+    [ -n "$openclaw_bin" ] || return 1
+
+    if [ $((${#agent} + ${#skill} + 24)) -le 100 ]; then
+      presentation=$(jq -n --arg a "$agent" --arg s "$skill" '{
+        blocks: [{
+          type: "buttons",
+          buttons: [
+            {label: "Promote",        style: "success", action: {type: "callback", value: ("harvest:promote:" + $a + ":" + $s)}},
+            {label: "Promote shared", style: "primary", action: {type: "callback", value: ("harvest:promote-shared:" + $a + ":" + $s)}},
+            {label: "Reject",         style: "danger",  action: {type: "callback", value: ("harvest:reject:" + $a + ":" + $s)}},
+            {label: "View draft",     style: "secondary", action: {type: "callback", value: ("harvest:view:" + $a + ":" + $s)}}
+          ]
+        }]
+      }')
+    else
+      presentation='{"blocks":[]}'
+    fi
+
+    "$openclaw_bin" message send \
+      --channel discord \
+      --account "${WARDEN_HARVEST_DISCORD_ACCOUNT}" \
+      --target "${WARDEN_HARVEST_DISCORD_CHANNEL_ID}" \
+      --message "$content" \
+      --presentation "$presentation" \
+      --json >/dev/null 2>&1
+    return $?
+  fi
+
+  # --- Path 2: dedicated Discord bot REST ----------------------------------
+  [ -z "${WARDEN_DISCORD_BOT_TOKEN:-}" ] && return 0
+
   local payload
   if [ $((${#agent} + ${#skill} + 24)) -le 100 ]; then
     payload=$(jq -n --arg content "$content" --arg a "$agent" --arg s "$skill" '{
