@@ -2,6 +2,23 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — interactive skill-harvest proposals in Discord
+
+### Added — act on skill proposals with buttons instead of copy-pasting commands
+
+- `lib/notify.sh` `notify_harvest_skill_discord`: the harvester posts one
+  Discord card per staged skill (bot token + channel from
+  `WARDEN_DISCORD_BOT_TOKEN` / `WARDEN_HARVEST_DISCORD_CHANNEL_ID`) with
+  Promote / Promote shared / Reject / View draft buttons. Telegram digest
+  unchanged; Discord cards are additive and off unless configured.
+- `contrib/discord-harvest-actions` + `bin/harvest-actions.sh` +
+  `deploy/harvest-actions.service`: gateway listener (no public endpoint
+  needed) that turns clicks into `promote-skill.sh` runs, moves rejected
+  drafts to `~/.openclaw/skills-rejected/` (never deletes), and edits the
+  card in place so a handled proposal can't be double-actioned. Clicks are
+  gated to `WARDEN_DISCORD_ALLOWED_USER_IDS` (empty = refuse all — agents
+  live in these channels too).
+
 ## [Unreleased] — rate guard no gateway restart
 
 ### Fixed — demote/restore no longer kills live chats

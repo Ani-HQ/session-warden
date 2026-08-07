@@ -31,6 +31,42 @@ type notify_test &>/dev/null
 exit_code=$?
 assert_eq "0" "$exit_code" "notify_test function is defined"
 
+echo "  notify: harvest discord card skips when unconfigured"
+
+# ─── Discord harvest card: silent no-op without credentials ───
+
+export WARDEN_DISCORD_BOT_TOKEN=""
+export WARDEN_HARVEST_DISCORD_CHANNEL_ID=""
+
+output=$(notify_harvest_skill_discord "test-agent" "test-skill" "A test skill." 2>&1)
+exit_code=$?
+assert_empty "$output" "no output when discord credentials missing"
+assert_eq "0" "$exit_code" "skip (not failure) when discord credentials missing"
+
+export WARDEN_DISCORD_BOT_TOKEN="fake-token"
+export WARDEN_HARVEST_DISCORD_CHANNEL_ID=""
+
+output=$(notify_harvest_skill_discord "test-agent" "test-skill" "A test skill." 2>&1)
+exit_code=$?
+assert_empty "$output" "no output when discord channel missing"
+assert_eq "0" "$exit_code" "skip (not failure) when discord channel missing"
+
+echo "  notify: harvest discord card respects opt-out"
+
+# ─── WARDEN_HARVEST_NOTIFY_DISCORD=0 short-circuits before any send ───
+
+export WARDEN_DISCORD_BOT_TOKEN="fake-token"
+export WARDEN_HARVEST_DISCORD_CHANNEL_ID="123456789"
+export WARDEN_HARVEST_NOTIFY_DISCORD=0
+
+output=$(notify_harvest_skill_discord "test-agent" "test-skill" "A test skill." 2>&1)
+exit_code=$?
+assert_empty "$output" "no output when discord cards disabled"
+assert_eq "0" "$exit_code" "skip (not failure) when discord cards disabled"
+
 # Reset
 export WARDEN_TELEGRAM_BOT_TOKEN=""
 export WARDEN_TELEGRAM_CHAT_ID=""
+export WARDEN_DISCORD_BOT_TOKEN=""
+export WARDEN_HARVEST_DISCORD_CHANNEL_ID=""
+unset WARDEN_HARVEST_NOTIFY_DISCORD

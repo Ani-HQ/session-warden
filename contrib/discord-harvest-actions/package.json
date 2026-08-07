@@ -1,0 +1,16 @@
+{
+  "name": "@session-warden/discord-harvest-actions",
+  "version": "1.0.0",
+  "description": "Discord button handler for session-warden skill-harvest proposals (promote / reject / view)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}
