@@ -1,0 +1,17 @@
+{
+  "name": "@session-warden/openclaw-harvest-skill-actions",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "OpenClaw plugin: Discord buttons for skill-harvest proposals",
+  "license": "MIT",
+  "peerDependencies": {
+    "openclaw": ">=2026.7.0"
+  },
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": {
+      "pluginApi": ">=2026.7.0",
+      "minGatewayVersion": "2026.7.0"
+    }
+  }
+}

@@ -64,9 +64,24 @@ exit_code=$?
 assert_empty "$output" "no output when discord cards disabled"
 assert_eq "0" "$exit_code" "skip (not failure) when discord cards disabled"
 
+echo "  notify: harvest discord openclaw path needs channel"
+
+# ─── OpenClaw path: account set but no channel → skip ───
+
+unset WARDEN_HARVEST_NOTIFY_DISCORD
+export WARDEN_HARVEST_DISCORD_ACCOUNT="isaac"
+export WARDEN_HARVEST_DISCORD_CHANNEL_ID=""
+export WARDEN_DISCORD_BOT_TOKEN=""
+
+output=$(notify_harvest_skill_discord "test-agent" "test-skill" "A test skill." 2>&1)
+exit_code=$?
+assert_empty "$output" "no output when openclaw channel missing"
+assert_eq "0" "$exit_code" "skip (not failure) when openclaw channel missing"
+
 # Reset
 export WARDEN_TELEGRAM_BOT_TOKEN=""
 export WARDEN_TELEGRAM_CHAT_ID=""
 export WARDEN_DISCORD_BOT_TOKEN=""
 export WARDEN_HARVEST_DISCORD_CHANNEL_ID=""
 unset WARDEN_HARVEST_NOTIFY_DISCORD
+unset WARDEN_HARVEST_DISCORD_ACCOUNT

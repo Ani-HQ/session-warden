@@ -162,16 +162,21 @@ Runs weekly, Sunday 05:00 UTC, via `deploy/harvest.{service,timer}` — after th
 | `WARDEN_HARVEST_WINDOW_DAYS` | `7` | lookback window for material |
 | `WARDEN_HARVEST_MODEL` | `claude-sonnet-4-6` | skill-mining model |
 | `WARDEN_HARVEST_NOTIFY` | `1` | one Telegram digest per run |
-| `WARDEN_DISCORD_BOT_TOKEN` | (unset) | Discord bot for interactive proposal cards |
+| `WARDEN_DISCORD_BOT_TOKEN` | (unset) | Discord bot for interactive proposal cards (dedicated-bot path) |
+| `WARDEN_HARVEST_DISCORD_ACCOUNT` | (unset) | OpenClaw Discord account that posts cards (fleet-native path) |
 | `WARDEN_HARVEST_DISCORD_CHANNEL_ID` | (unset) | channel the cards are posted to |
 | `WARDEN_DISCORD_ALLOWED_USER_IDS` | (unset) | who may click the buttons — empty = nobody |
 | `WARDEN_HARVEST_NOTIFY_DISCORD` | `1` | `0` = skip Discord cards even when configured |
 
 ### Interactive Discord proposals
 
-Instead of copy-pasting `promote-skill.sh` commands from a text digest, you can act on proposals directly in Discord. When `WARDEN_DISCORD_BOT_TOKEN` and `WARDEN_HARVEST_DISCORD_CHANNEL_ID` are set, the harvester posts one card per staged skill with **Promote**, **Promote shared**, **Reject**, and **View draft** buttons.
+Instead of copy-pasting `promote-skill.sh` commands from a text digest, you can act on proposals directly in Discord. When `WARDEN_HARVEST_DISCORD_CHANNEL_ID` is set along with either `WARDEN_HARVEST_DISCORD_ACCOUNT` (OpenClaw path) or `WARDEN_DISCORD_BOT_TOKEN` (dedicated-bot path), the harvester posts one card per staged skill with **Promote**, **Promote shared**, **Reject**, and **View draft** buttons.
 
-Clicks are handled by a small gateway listener, [`contrib/discord-harvest-actions`](contrib/discord-harvest-actions) (run via `bin/harvest-actions.sh`, deployed with `deploy/harvest-actions.service`) — no public HTTPS endpoint or open port on the fleet host. Promote runs `promote-skill.sh` (with `--shared` for the fleet-wide variant), Reject moves the draft to `~/.openclaw/skills-rejected/` (never deletes), View replies ephemerally with the `SKILL.md`. Handled cards are edited in place — outcome plus who clicked, buttons removed — so a proposal can't be double-actioned. Clicks are gated to the `WARDEN_DISCORD_ALLOWED_USER_IDS` allowlist and refused otherwise (default-deny: your agents live in these channels too). See the [contrib README](contrib/discord-harvest-actions/README.md) for setup.
+**OpenClaw path (preferred on fleets that already run Discord via OpenClaw):** set `WARDEN_HARVEST_DISCORD_ACCOUNT` (e.g. `isaac`). Cards are posted with `openclaw message send --presentation`; clicks are handled by the [`harvest-skill-actions`](contrib/openclaw-plugins/harvest-skill-actions) OpenClaw plugin — no second Discord bot or gateway.
+
+**Dedicated-bot path:** set `WARDEN_DISCORD_BOT_TOKEN` and run [`contrib/discord-harvest-actions`](contrib/discord-harvest-actions) via `bin/harvest-actions.sh` / `deploy/harvest-actions.service`.
+
+Promote runs `promote-skill.sh` (with `--shared` for the fleet-wide variant), Reject moves the draft to `~/.openclaw/skills-rejected/` (never deletes), View replies ephemerally with the `SKILL.md`. Handled cards drop their buttons. Clicks are gated to the `WARDEN_DISCORD_ALLOWED_USER_IDS` allowlist and refused otherwise (default-deny: your agents live in these channels too).
 
 ## Model scorecard (weekly A/B benchmark)
 

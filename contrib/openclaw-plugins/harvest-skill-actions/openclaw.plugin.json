@@ -1,0 +1,18 @@
+{
+  "id": "harvest-skill-actions",
+  "name": "Harvest Skill Actions",
+  "description": "Handles Promote / Promote shared / Reject / View draft buttons on skill-harvester proposal cards in Discord. Companion to lib/notify.sh notify_harvest_skill_discord (openclaw presentation path).",
+  "version": "1.0.0",
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "allowedUserIds": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Discord user IDs allowed to click harvest buttons. Empty = refuse all (default-deny). Overrides WARDEN_DISCORD_ALLOWED_USER_IDS when set."
+      }
+    }
+  }
+}
