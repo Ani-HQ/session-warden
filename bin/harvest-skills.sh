@@ -224,6 +224,14 @@ Output ONLY the skill blocks (or NO_SKILLS). No preamble, no commentary, no code
       mkdir -p "$stage_dir"
       cp "${parse_dir}/${i}.skill" "${stage_dir}/SKILL.md"
       log "$agent: staged '${skill_name}' → ${stage_dir}/SKILL.md"
+      # Interactive Discord card (Promote / Reject / View buttons) — no-op
+      # unless WARDEN_DISCORD_BOT_TOKEN + WARDEN_HARVEST_DISCORD_CHANNEL_ID
+      # are set. The Telegram digest below is unaffected.
+      if type notify_harvest_skill_discord &>/dev/null; then
+        skill_desc=$(awk '/^description:/ {sub(/^description:[[:space:]]*/, ""); print; exit}' "${stage_dir}/SKILL.md")
+        notify_harvest_skill_discord "$agent" "$skill_name" "$skill_desc" \
+          || log "$agent: discord proposal card FAILED for '${skill_name}' (non-fatal)"
+      fi
     fi
     agent_names="${agent_names}${agent_names:+, }\`${skill_name}\`"
     n_staged=$((n_staged + 1))

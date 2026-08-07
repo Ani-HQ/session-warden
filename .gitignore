@@ -30,6 +30,10 @@ contrib/health-dashboard/
 .vscode/
 .idea/
 
+# Node dependencies (contrib/discord-harvest-actions)
+node_modules/
+package-lock.json
+
 # Python bytecode
 __pycache__/
 **/demo/demo.html

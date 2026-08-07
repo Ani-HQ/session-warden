@@ -1,0 +1,13 @@
+[Unit]
+Description=session-warden discord harvest actions (skill proposal buttons)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/session-warden/bin/harvest-actions.sh
+Environment=HOME=%h
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

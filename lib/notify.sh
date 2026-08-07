@@ -204,6 +204,56 @@ ${summary}"
   echo "$resp" | grep -q "\"ok\":true"
 }
 
+notify_harvest_skill_discord() {
+  # One interactive Discord message per staged skill proposal
+  # (bin/harvest-skills.sh): Promote / Promote shared / Reject / View draft
+  # buttons, handled by the harvest-actions listener
+  # (contrib/discord-harvest-actions, run via bin/harvest-actions.sh).
+  # Silently no-ops when Discord isn't configured (returns 0 — "skipped" is
+  # not a failure); returns non-zero only on a failed send so the harvester
+  # can log it.
+  local agent="$1" skill="$2" desc="${3:-}"
+
+  [ "${WARDEN_HARVEST_NOTIFY_DISCORD:-1}" = "1" ] || return 0
+  [ -z "${WARDEN_DISCORD_BOT_TOKEN:-}" ] && return 0
+  [ -z "${WARDEN_HARVEST_DISCORD_CHANNEL_ID:-}" ] && return 0
+  command -v jq >/dev/null 2>&1 || return 1
+
+  local content="🧰 **skill proposal** — \`${agent}\`: \`${skill}\`"
+  [ -n "$desc" ] && content="${content}
+${desc}"
+
+  # Discord caps custom_id at 100 chars; the longest prefix is
+  # "harvest:promote-shared:" (23) plus the separating colon. Slugs are
+  # already capped at 64 chars by the harvester, but guard anyway: post
+  # without buttons rather than get a 400 and lose the notification.
+  local payload
+  if [ $((${#agent} + ${#skill} + 24)) -le 100 ]; then
+    payload=$(jq -n --arg content "$content" --arg a "$agent" --arg s "$skill" '{
+      content: $content,
+      components: [{
+        type: 1,
+        components: [
+          {type: 2, style: 3, label: "Promote",        custom_id: ("harvest:promote:" + $a + ":" + $s)},
+          {type: 2, style: 1, label: "Promote shared", custom_id: ("harvest:promote-shared:" + $a + ":" + $s)},
+          {type: 2, style: 4, label: "Reject",         custom_id: ("harvest:reject:" + $a + ":" + $s)},
+          {type: 2, style: 2, label: "View draft",     custom_id: ("harvest:view:" + $a + ":" + $s)}
+        ]
+      }]
+    }')
+  else
+    payload=$(jq -n --arg content "$content" '{content: $content}')
+  fi
+
+  local resp
+  resp=$(curl -s --connect-timeout 5 --max-time 15 \
+    -X POST "https://discord.com/api/v10/channels/${WARDEN_HARVEST_DISCORD_CHANNEL_ID}/messages" \
+    -H "Authorization: Bot ${WARDEN_DISCORD_BOT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "$payload" 2>/dev/null)
+  echo "$resp" | jq -e '.id' >/dev/null 2>&1
+}
+
 notify_scorecard() {
   # Weekly model-scorecard digest (bin/scorecard.sh). Informational, one per run.
   # Returns non-zero if the send fails so the scorecard can log it.
