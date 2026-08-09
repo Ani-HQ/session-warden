@@ -60,35 +60,43 @@ def tool_line(tool_calls_raw: str | None, tool_name: str | None) -> list[str]:
 
 
 def pick_session(con: sqlite3.Connection, session_id: str | None, all_active: bool) -> list[str]:
+    """Prefer the open session with the newest message activity / most turns.
+
+    Hermes cron / scorecard wakes create many short open sessions; ordering by
+    started_at alone often hands off a 2-message stub instead of the live chat.
+    """
     cur = con.cursor()
     if session_id:
         return [session_id]
+    # Substantive sessions (>=5 msgs) beat short cron/scorecard stubs even when
+    # the stub started more recently. Among peers, prefer newest activity.
+    order = """
+            ORDER BY CASE WHEN COALESCE(m.n, 0) >= 5 THEN 1 ELSE 0 END DESC,
+                     COALESCE(m.last_ts, 0) DESC,
+                     COALESCE(m.n, 0) DESC,
+                     COALESCE(s.message_count, 0) DESC,
+                     COALESCE(s.started_at, 0) DESC
+    """
+    join = """
+            FROM sessions s
+            LEFT JOIN (
+              SELECT session_id, MAX(timestamp) AS last_ts, COUNT(*) AS n
+              FROM messages
+              WHERE COALESCE(active, 1) = 1
+              GROUP BY session_id
+            ) m ON m.session_id = s.id
+    """
     if all_active:
         rows = cur.execute(
-            """
-            SELECT id FROM sessions
-            WHERE COALESCE(archived, 0) = 0 AND ended_at IS NULL
-            ORDER BY COALESCE(started_at, 0) DESC
-            """
+            f"SELECT s.id {join} WHERE COALESCE(s.archived, 0) = 0 AND s.ended_at IS NULL {order}"
         ).fetchall()
         return [r[0] for r in rows]
     row = cur.execute(
-        """
-        SELECT id FROM sessions
-        WHERE COALESCE(archived, 0) = 0 AND ended_at IS NULL
-        ORDER BY COALESCE(started_at, 0) DESC
-        LIMIT 1
-        """
+        f"SELECT s.id {join} WHERE COALESCE(s.archived, 0) = 0 AND s.ended_at IS NULL {order} LIMIT 1"
     ).fetchone()
     if row:
         return [row[0]]
-    row = cur.execute(
-        """
-        SELECT id FROM sessions
-        ORDER BY COALESCE(started_at, 0) DESC
-        LIMIT 1
-        """
-    ).fetchone()
+    row = cur.execute(f"SELECT s.id {join} {order} LIMIT 1").fetchone()
     return [row[0]] if row else []
 
 
