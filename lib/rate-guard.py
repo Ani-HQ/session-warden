@@ -15,6 +15,7 @@ Demotion window rules:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import shutil
@@ -32,8 +33,10 @@ STATE_DIR = WARDEN_HOME / "state" / "rate-guard"
 STATE = STATE_DIR / "state.json"
 BASELINE = STATE_DIR / "baseline-models.json"
 CLAUDE_CRED = Path.home() / ".claude" / ".credentials.json"
+HANDOFF_BIN = WARDEN_HOME / "bin" / "handoff.sh"
 UTIL_THRESHOLD = float(os.environ.get("WARDEN_RATE_GUARD_UTIL_PCT", "95"))
 GRACE_SEC = int(os.environ.get("WARDEN_RATE_GUARD_RESTORE_GRACE_SEC", "120"))
+HANDOFF_TIMEOUT = int(os.environ.get("WARDEN_HANDOFF_TIMEOUT", "120"))
 
 
 def emit(obj: dict) -> None:
@@ -105,6 +108,73 @@ def restore_models(cfg: dict, snap: dict) -> None:
     for aid, model in (snap.get("agents") or {}).items():
         if aid in by_id:
             by_id[aid]["model"] = model
+
+
+def primary_of(model_obj) -> str | None:
+    if isinstance(model_obj, dict):
+        return model_obj.get("primary")
+    if isinstance(model_obj, str):
+        return model_obj
+    return None
+
+
+def agent_ids(cfg: dict) -> list[str]:
+    return [a["id"] for a in cfg.get("agents", {}).get("list", []) if a.get("id")]
+
+
+def resolve_primary(cfg: dict, agent_id: str) -> str | None:
+    for a in cfg.get("agents", {}).get("list", []):
+        if a.get("id") == agent_id and a.get("model"):
+            return primary_of(a.get("model"))
+    return primary_of(cfg.get("agents", {}).get("defaults", {}).get("model"))
+
+
+def agents_with_primary_change(before: dict, after: dict) -> list[str]:
+    changed = []
+    for aid in agent_ids(after):
+        if resolve_primary(before, aid) != resolve_primary(after, aid):
+            changed.append(aid)
+    return changed
+
+
+def restore_one_agent_model(target: dict, source: dict, agent_id: str) -> None:
+    """Copy one agent's model object from source cfg into target cfg."""
+    src_by = {a.get("id"): a for a in source.get("agents", {}).get("list", [])}
+    tgt_by = {a.get("id"): a for a in target.get("agents", {}).get("list", [])}
+    if agent_id not in tgt_by or agent_id not in src_by:
+        return
+    if "model" in src_by[agent_id]:
+        tgt_by[agent_id]["model"] = copy.deepcopy(src_by[agent_id]["model"])
+    elif "model" in tgt_by[agent_id]:
+        del tgt_by[agent_id]["model"]
+
+
+def handoff_agents(agent_ids_: list[str], reason: str) -> tuple[list[str], list[str]]:
+    """Run bin/handoff.sh for each agent. Returns (ok, failed)."""
+    ok: list[str] = []
+    failed: list[str] = []
+    if not agent_ids_:
+        return ok, failed
+    if not HANDOFF_BIN.is_file():
+        # Missing handoff binary — fail closed so we don't rewrite without checkpoint.
+        return [], list(agent_ids_)
+    for aid in agent_ids_:
+        try:
+            r = subprocess.run(
+                [str(HANDOFF_BIN), aid, reason],
+                capture_output=True,
+                text=True,
+                timeout=HANDOFF_TIMEOUT,
+                check=False,
+                env={**os.environ, "WARDEN_HOME": str(WARDEN_HOME)},
+            )
+            if r.returncode == 0:
+                ok.append(aid)
+            else:
+                failed.append(aid)
+        except Exception:
+            failed.append(aid)
+    return ok, failed
 
 
 def is_provider(model: str, provider: str) -> bool:
@@ -233,10 +303,49 @@ def apply_demotion(provider: str, resets_at: float | None, detail: str) -> dict:
     if not BASELINE.is_file():
         save_json(BASELINE, snapshot_models(cfg))
 
-    n = demote_provider(cfg, provider)
-    if n > 0:
-        save_cfg(cfg)
-        maybe_restart_gateway()
+    proposed = copy.deepcopy(cfg)
+    n = demote_provider(proposed, provider)
+    changed = agents_with_primary_change(cfg, proposed)
+    ok, failed = handoff_agents(changed, "rate-guard-demote")
+    for aid in failed:
+        restore_one_agent_model(proposed, cfg, aid)
+    # If defaults primary would change but any inheriting agent failed handoff,
+    # keep defaults stable (agents with explicit models already restored above).
+    if primary_of(cfg.get("agents", {}).get("defaults", {}).get("model")) != primary_of(
+        proposed.get("agents", {}).get("defaults", {}).get("model")
+    ):
+        inheritors = [
+            aid
+            for aid in agent_ids(cfg)
+            if not any(
+                a.get("id") == aid and a.get("model")
+                for a in cfg.get("agents", {}).get("list", [])
+            )
+        ]
+        if any(aid in failed for aid in inheritors):
+            restore_models_defaults = cfg.get("agents", {}).get("defaults", {}).get("model")
+            if restore_models_defaults is not None:
+                proposed.setdefault("agents", {}).setdefault("defaults", {})[
+                    "model"
+                ] = copy.deepcopy(restore_models_defaults)
+
+    applied = agents_with_primary_change(cfg, proposed)
+    if not applied:
+        return {
+            "action": "noop",
+            "reason": "handoff_blocked" if changed else "no_chain_change",
+            "provider": provider,
+            "resetsAt": resets_at,
+            "resetsAtLabel": fmt_reset(resets_at),
+            "detail": detail,
+            "chainsChanged": 0,
+            "handoffOk": ok,
+            "handoffFailed": failed,
+        }
+
+    save_cfg(proposed)
+    maybe_restart_gateway()
+    n = len(applied)
 
     state["active"] = {
         "provider": provider,
@@ -245,6 +354,8 @@ def apply_demotion(provider: str, resets_at: float | None, detail: str) -> dict:
         "resetsAt": resets_at,
         "detail": detail,
         "chainsChanged": n,
+        "handoffOk": ok,
+        "handoffFailed": failed,
     }
     save_json(STATE, state)
     return {
@@ -254,6 +365,8 @@ def apply_demotion(provider: str, resets_at: float | None, detail: str) -> dict:
         "resetsAtLabel": fmt_reset(resets_at),
         "detail": detail,
         "chainsChanged": n,
+        "handoffOk": ok,
+        "handoffFailed": failed,
     }
 
 
@@ -319,21 +432,69 @@ def try_restore() -> dict | None:
 
     snap = load_json(BASELINE)
     cfg = load_cfg()
-    restore_models(cfg, snap)
-    save_cfg(cfg)
+    proposed = copy.deepcopy(cfg)
+    restore_models(proposed, snap)
+    changed = agents_with_primary_change(cfg, proposed)
+    ok, failed = handoff_agents(changed, "rate-guard-restore")
+    for aid in failed:
+        restore_one_agent_model(proposed, cfg, aid)
+    if primary_of(cfg.get("agents", {}).get("defaults", {}).get("model")) != primary_of(
+        proposed.get("agents", {}).get("defaults", {}).get("model")
+    ):
+        inheritors = [
+            aid
+            for aid in agent_ids(cfg)
+            if not any(
+                a.get("id") == aid and a.get("model")
+                for a in cfg.get("agents", {}).get("list", [])
+            )
+        ]
+        if any(aid in failed for aid in inheritors):
+            d = cfg.get("agents", {}).get("defaults", {}).get("model")
+            if d is not None:
+                proposed.setdefault("agents", {}).setdefault("defaults", {})[
+                    "model"
+                ] = copy.deepcopy(d)
+
+    applied = agents_with_primary_change(cfg, proposed)
+    if not applied:
+        return {
+            "action": "noop",
+            "reason": "handoff_blocked",
+            "provider": provider,
+            "resetsAt": demotion_resets_at,
+            "resetsAtLabel": fmt_reset(demotion_resets_at),
+            "handoffFailed": failed,
+        }
+
+    save_cfg(proposed)
     maybe_restart_gateway()
     state["lastRestored"] = {
         "provider": provider,
         "at": now,
         # Window we were waiting on — NOT Anthropic's next weekly resets_at.
         "demotionResetsAt": demotion_resets_at,
+        "handoffOk": ok,
+        "handoffFailed": failed,
     }
-    state["active"] = {}
+    # Only clear demotion if every changed agent handed off; else keep demoted
+    # so the next tick can retry remaining agents.
+    if failed:
+        state["active"] = {
+            **active,
+            "partialRestore": True,
+            "handoffFailed": failed,
+            "handoffOk": ok,
+        }
+    else:
+        state["active"] = {}
     save_json(STATE, state)
     return {
         "action": "restored",
         "provider": provider,
         "resetsAtLabel": fmt_reset(demotion_resets_at),
+        "handoffOk": ok,
+        "handoffFailed": failed,
     }
 
 

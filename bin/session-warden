@@ -90,6 +90,31 @@ cmd_rate_guard() {
   exec "$WARDEN_HOME/bin/rate-guard.sh" "$@"
 }
 
+cmd_handoff() {
+  if [ $# -lt 1 ]; then
+    echo "Usage: session-warden handoff <agent> [--reason model-switch|rate-guard-demote|rate-guard-restore|manual] [--force]"
+    exit 1
+  fi
+  local agent="$1"
+  shift
+  local reason="manual"
+  local extra=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reason) reason="$2"; shift 2 ;;
+      --force) extra+=(--force); shift ;;
+      model-switch|rate-guard-demote|rate-guard-restore|manual)
+        reason="$1"; shift ;;
+      *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+  done
+  exec "$WARDEN_HOME/bin/handoff.sh" "$agent" "$reason" "${extra[@]}"
+}
+
+cmd_model_switch() {
+  exec "$WARDEN_HOME/bin/model-switch.sh" "$@"
+}
+
 cmd_install() {
   exec "$WARDEN_HOME/install.sh"
 }
@@ -168,6 +193,15 @@ Commands:
       reset, restore baseline chains, and notify once via Telegram.
       --status prints JSON (limited?, active demotion, resets_at).
 
+  handoff <agent> [--reason REASON] [--force]
+      Checkpoint live work to memory + GBrain without changing models.
+      Use before manual restarts. Reasons: model-switch, rate-guard-demote,
+      rate-guard-restore, manual.
+
+  model-switch <agent> <model> [--restart] [--force]
+      Handoff then set primary model (OpenClaw hot-reload; Hermes restarts
+      its gateway). Prefer this over editing openclaw.json / config.yaml by hand.
+
   install
       Install cron entries and create config file.
 
@@ -192,6 +226,8 @@ case "${1:-help}" in
   doctor)    shift; cmd_doctor "$@" ;;
   burn)      shift; cmd_burn "$@" ;;
   rate-guard|rateguard) shift; cmd_rate_guard "$@" ;;
+  handoff)   shift; cmd_handoff "$@" ;;
+  model-switch|modelswitch) shift; cmd_model_switch "$@" ;;
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;

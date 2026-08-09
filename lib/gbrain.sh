@@ -118,22 +118,28 @@ _gbrain_type_for() {
 
 # Ingest one session into GBrain as a typed, linked page.
 # Args: $1=agent  $2=channel_key  $3=cli_session_id  $4=memory_file  [$5=slug_prefix]
-# slug_prefix defaults to a dated rotation slug; context-sync passes "live".
+# slug_prefix defaults to a dated rotation slug; context-sync passes "live";
+# model-switch / rate-guard pass "handoff".
 gbrain_ingest_session() {
   local agent="$1" channel_key="$2" cli_session_id="$3" memory_file="$4" mode="${5:-rotation}"
   gbrain_available || { echo "GBRAIN: cli not found — skipping"; return 0; }
   [ -f "$memory_file" ] || { echo "GBRAIN: memory file missing ($memory_file)"; return 0; }
 
   local short_id="${cli_session_id:0:8}"
-  local date_str safe_channel slug agent_slug title
+  local date_str safe_channel slug agent_slug title live_slug
   date_str=$(date +%Y-%m-%d)
   safe_channel=$(gbrain_slugify "$channel_key")
   agent_slug="agent/$(gbrain_slugify "$agent")"
+  live_slug="session-warden/live/${agent}-${safe_channel}"
 
   if [ "$mode" = "live" ]; then
     # One living page per session, upserted in place — current state, no history churn.
-    slug="session-warden/live/${agent}-${safe_channel}"
+    slug="$live_slug"
     title="${agent} — live session (${channel_key})"
+  elif [ "$mode" = "handoff" ]; then
+    # Durable mid-work checkpoint before model switch / rate-guard rewrite.
+    slug="session-warden/handoff/${agent}-${safe_channel}"
+    title="${agent} — handoff (${channel_key})"
   else
     slug="session-warden/${date_str}/${agent}-${short_id}"
     title="${agent} session ${short_id} — ${date_str}"
@@ -158,7 +164,9 @@ gbrain_ingest_session() {
 
   _gb tag "$slug" "session-warden" >/dev/null 2>&1
   _gb tag "$slug" "$agent" >/dev/null 2>&1
+  [ "$mode" = "handoff" ] && _gb tag "$slug" "handoff" >/dev/null 2>&1
   [ "$mode" = "rotation" ] && _gb timeline-add "$slug" "$date_str" "Session rotated: ${agent} (${channel_key})" >/dev/null 2>&1
+  [ "$mode" = "handoff" ] && _gb timeline-add "$slug" "$date_str" "Handoff checkpoint: ${agent} (${channel_key})" >/dev/null 2>&1
 
   # --- Build the graph ---------------------------------------------------
   # 1. Every session is performed_by its agent. Anchor + link.
@@ -176,7 +184,17 @@ gbrain_ingest_session() {
   done < <(grep -oE '\[\[[a-zA-Z0-9/_-]+\]\]' "$memory_file" 2>/dev/null \
             | sed -E 's/^\[\[//; s/\]\]$//' | sort -u | head -12)
 
+  # 3. Handoff pages point the live page at the durable checkpoint.
+  if [ "$mode" = "handoff" ]; then
+    printf -- '---\ntype: note\ntitle: %s — live session (%s)\nagent: %s\nchannel: %s\ntags:\n  - session-warden\n  - %s\n  - live\n---\n\n_Latest handoff: [[%s]] at %s_\n\nRead the handoff page before resuming mid-work after a model switch or rate-guard rewrite.\n' \
+      "$agent" "$channel_key" "$agent" "$channel_key" "$agent" "$slug" "$(date -Iseconds)" \
+      | _gb_put "$live_slug" >/dev/null 2>&1 || true
+    _gb link "$live_slug" "$slug" --type related_to >/dev/null 2>&1 || true
+  fi
+
   echo "GBRAIN: ingested $slug (typed=note, linked to ${agent_slug})"
+  # Echo slug on a machine-readable line for callers (handoff CLI / recovery).
+  echo "GBRAIN_SLUG=$slug"
   return 0
 }
 
