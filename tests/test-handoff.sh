@@ -124,22 +124,26 @@ sid = "20260809_test_hermes"
 now = time.time()
 con.execute(
     "INSERT INTO sessions (id, started_at, ended_at, archived, message_count, title) VALUES (?,?,?,?,?,?)",
-    (sid, now, None, 0, 2, "test"),
+    (sid, now, None, 0, 6, "test"),
 )
-con.execute(
-    "INSERT INTO messages (session_id, role, content, timestamp, active, compacted) VALUES (?,?,?,?,1,0)",
-    (sid, "user", "Please plan dinner macros for the neck injury downtime and track lunch.", now),
-)
-con.execute(
-    "INSERT INTO messages (session_id, role, content, tool_calls, timestamp, active, compacted) VALUES (?,?,?,?,?,1,0)",
+msgs = [
+    ("user", "Please plan dinner macros for the neck injury downtime and track lunch.", None, now),
     (
-        sid,
         "assistant",
         "Calibrated a low-carb high-protein protocol. Pending: confirm dinner.",
         '[{"function":{"name":"terminal","arguments":"{\\"command\\":\\"ls\\"}"}}]',
         now + 1,
     ),
-)
+    ("user", "Also skip chapati tonight.", None, now + 2),
+    ("assistant", "Noted — chana masala without chapati.", None, now + 3),
+    ("user", "What about whey timing?", None, now + 4),
+    ("assistant", "Whey isolate with lunch is fine.", None, now + 5),
+]
+for role, content, tools, ts in msgs:
+    con.execute(
+        "INSERT INTO messages (session_id, role, content, tool_calls, timestamp, active, compacted) VALUES (?,?,?,?,?,1,0)",
+        (sid, role, content, tools, ts),
+    )
 con.commit()
 con.close()
 print(sid)
@@ -147,11 +151,34 @@ PY
 
 assert_eq "hermes" "$(handoff_detect_runtime baymax)" "detects hermes agent"
 
+# Prefer the busy session over a newer empty stub
+python3 - <<'PY'
+import sqlite3, time
+from pathlib import Path
+db = Path.home() / ".hermes-baymax" / "state.db"
+con = sqlite3.connect(db)
+now = time.time()
+# newer stub with almost no messages
+con.execute(
+    "INSERT INTO sessions (id, started_at, ended_at, archived, message_count, title) VALUES (?,?,?,?,?,?)",
+    ("20260809_stub_newer", now + 100, None, 0, 1, "stub"),
+)
+con.execute(
+    "INSERT INTO messages (session_id, role, content, timestamp, active, compacted) VALUES (?,?,?,?,1,0)",
+    ("20260809_stub_newer", "user", "ping", now + 100),
+)
+con.commit()
+con.close()
+PY
+sid=$(python3 "$WARDEN_HOME/lib/extract-hermes.py" "$HOME/.hermes-baymax" --print-session-id 2>&1 >/dev/null)
+assert_eq "20260809_test_hermes" "$sid" "hermes extract prefers active busy session over newer stub"
+
 # Extract unit check
 out=$(python3 "$WARDEN_HOME/lib/extract-hermes.py" "$HOME/.hermes-baymax")
 assert_contains "$out" "USER:" "hermes extract has USER"
 assert_contains "$out" "ASSISTANT:" "hermes extract has ASSISTANT"
 assert_contains "$out" "→ terminal" "hermes extract has tool action"
+assert_contains "$out" "neck injury" "hermes extract uses the busy session transcript"
 
 handoff_agent "baymax" "model-switch"
 rc=$?
