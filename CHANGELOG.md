@@ -2,6 +2,25 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — model-switch handoff (OpenClaw + Hermes)
+
+### Added — checkpoint mid-work before model changes
+
+- `lib/handoff.sh` + `bin/handoff.sh`: shared primitive that extracts live
+  session context, summarizes into agent memory, and upserts GBrain
+  `session-warden/handoff/<agent>-…` pages. Supports OpenClaw (JSONL) and
+  Hermes (`state.db` via `lib/extract-hermes.py`).
+- `bin/model-switch.sh` / `session-warden model-switch`: handoff then set
+  primary model. OpenClaw hot-reloads; Hermes restarts
+  `hermes-<agent>-gateway` and best-effort wakes Telegram.
+- `session-warden handoff`: checkpoint without mutating models (manual restart
+  preflight).
+- `lib/rate-guard.py`: demote/restore runs handoff for agents whose primary
+  would change; failed handoffs skip that agent's rewrite (partial demotion)
+  and alert via Telegram.
+- `lib/gbrain.sh`: `mode=handoff` slug + live-page pointer.
+- `lib/memory.sh` `write_hermes_memory`: Hermes `HANDOFF.md` / CONTEXT.md.
+
 ## [Unreleased] — OpenClaw-native harvest Discord buttons
 
 ### Added — fleet path that reuses the existing Discord gateway

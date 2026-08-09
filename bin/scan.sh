@@ -148,6 +148,7 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
         ragent=$(jq -r '.agent' "$rfile")
         rchannel=$(jq -r '.channel_key' "$rfile")
         rreason=$(jq -r '.reason // ""' "$rfile")
+        rslug=$(jq -r '.gbrain_slug // empty' "$rfile")
 
         # A recovery prompt is only valuable fresh, once, and to a session
         # that needs it. Enforce all three here, at delivery time — the queue
@@ -218,6 +219,14 @@ Execute these immediately without asking anyone to repeat themselves. Send one s
           else
             recovery_msg="You just came back from a session restart. Check the recent messages in this channel to find what you were working on. Your MEMORY.md may have older context but the channel messages are the source of truth for your current task. Send a short message saying you're back, then resume work."
           fi
+        fi
+
+        # Model-switch handoffs: point at the durable GBrain checkpoint first.
+        if [ "$rreason" = "model-switch" ]; then
+          recovery_msg="${recovery_msg}
+
+## Model-switch handoff
+Your model just changed. Read CONTEXT.md / MEMORY.md handoff sections first${rslug:+ (gbrain get ${rslug})}. Resume pending work from the handoff — do not ask what you were doing."
         fi
 
         # Append GBrain cross-session synthesis to whichever message was built.

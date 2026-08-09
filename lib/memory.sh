@@ -339,3 +339,135 @@ ${summary}
   fi
   return 0
 }
+
+# Summarize a transcript for Hermes agents into memories/HANDOFF.md + CONTEXT.md.
+# Args: $1=agent  $2=channel-key  $3=session-id  $4=transcript-file  $5=hermes-home
+write_hermes_memory() {
+  local agent="$1" channel_key="$2" session_id="$3" transcript_file="$4" hermes_home="$5"
+  local mem_dir handoff_file context_file ts safe_channel
+  mem_dir="${hermes_home}/memories"
+  mkdir -p "$mem_dir"
+  handoff_file="${mem_dir}/HANDOFF.md"
+  context_file="${hermes_home}/CONTEXT.md"
+  ts=$(date -Iseconds)
+  safe_channel=$(echo "$channel_key" | sed 's/[^a-zA-Z0-9_-]/_/g')
+
+  [ -f "$transcript_file" ] || {
+    log "MEMORY: no hermes transcript at $transcript_file"
+    return 1
+  }
+
+  local transcript
+  transcript=$(cat "$transcript_file")
+  [ -z "$transcript" ] && {
+    log "MEMORY: empty hermes transcript — skipping"
+    return 1
+  }
+
+  local existing_context=""
+  if [ -f "$handoff_file" ]; then
+    existing_context=$(cat "$handoff_file")
+  fi
+
+  local carry_forward_block=""
+  if [ -n "$existing_context" ]; then
+    carry_forward_block="
+PREVIOUS HANDOFF (carry forward any unresolved pending items):
+${existing_context}
+"
+  fi
+
+  local summary
+  summary=$(timeout 60 claude -p --model "$MEMORY_MODEL" "You are a memory system. Extract a structured summary from the transcript below for an AI agent named '${agent}' so it can resume work seamlessly after a model switch or gateway restart.
+
+RULES:
+- Output ONLY the structured sections below. No preamble, no commentary, no code fences, no frontmatter.
+- Write in second person ('you were...').
+- Be specific: file paths, decisions, pending items.
+- Under 300 words total.
+
+${carry_forward_block}
+Output exactly these sections:
+
+## What was happening
+(1-3 sentences: the main task or thread)
+
+## Actions taken
+(bullet list)
+
+## Decisions made
+(bullet list)
+
+## Pending / unfinished
+(bullet list — carry forward unresolved items)
+
+## Context for next session
+(anything needed to resume without amnesia)
+
+## Entities
+(wikilinks [[type/slug]], max 8, or omit)
+
+TRANSCRIPT:
+${transcript}" 2>/dev/null)
+
+  if [ -n "$summary" ]; then
+    summary=$(echo "$summary" | sed '/^```/d' | sed '/^---$/d')
+  fi
+
+  local word_count=0
+  if [ -n "$summary" ]; then
+    word_count=$(echo "$summary" | wc -w)
+  fi
+  if [ -z "$summary" ] || [ "$word_count" -lt 20 ]; then
+    log "MEMORY: hermes summarization weak (${word_count} words) — writing fallback"
+    summary=$(build_fallback_memory "$transcript" "$existing_context")
+  fi
+
+  [ -n "$summary" ] || {
+    log "MEMORY: hermes fallback empty — no memory written"
+    return 1
+  }
+
+  cat > "$handoff_file" << EOF
+---
+name: handoff-${safe_channel}
+description: Mid-work handoff for ${agent} before model switch / restart
+type: project
+---
+
+_Captured by session-warden handoff at ${ts}_
+_Session: ${session_id}_
+_Channel: ${channel_key}_
+
+${summary}
+EOF
+
+  # Inject resume block into CONTEXT.md (Hermes reads workspace files).
+  local context_content
+  context_content="_Last updated: ${ts} | Session: ${session_id} | Channel: ${channel_key}_
+
+<!-- SESSION-WARDEN-START -->
+## Handoff context (auto-injected by session-warden — read this first after a model switch)
+
+${summary}
+
+<!-- SESSION-WARDEN-END -->
+"
+  printf '%s' "$context_content" > "$context_file"
+
+  # Append a short resume pointer to USER.md between markers (do not clobber profile).
+  local user_file="${mem_dir}/USER.md"
+  if [ -f "$user_file" ]; then
+    local user_body
+    user_body=$(awk '
+      /^<!-- SESSION-WARDEN-HANDOFF-START -->/{skip=1; next}
+      /^<!-- SESSION-WARDEN-HANDOFF-END -->/{skip=0; next}
+      !skip{print}
+    ' "$user_file")
+    printf '%s\n\n<!-- SESSION-WARDEN-HANDOFF-START -->\n## Latest handoff\n\nRead `memories/HANDOFF.md` and `CONTEXT.md` before resuming. Captured %s (session %s).\n<!-- SESSION-WARDEN-HANDOFF-END -->\n' \
+      "$user_body" "$ts" "$session_id" > "$user_file"
+  fi
+
+  log "MEMORY: hermes handoff written ${handoff_file} ($(stat_size "$handoff_file") bytes)"
+  return 0
+}

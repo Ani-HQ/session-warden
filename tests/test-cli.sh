@@ -15,6 +15,8 @@ assert_contains "$output" "rotate" "help lists rotate command"
 assert_contains "$output" "install" "help lists install command"
 assert_contains "$output" "logs" "help lists logs command"
 assert_contains "$output" "version" "help lists version command"
+assert_contains "$output" "handoff" "help lists handoff command"
+assert_contains "$output" "model-switch" "help lists model-switch command"
 
 echo "  cli: help flags"
 
