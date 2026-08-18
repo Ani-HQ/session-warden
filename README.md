@@ -47,7 +47,7 @@ The agent comes back online in under a second, knowing what it was doing.
 | Context sync | `bin/context-sync.sh` | cron, 5 min (manual) | refresh MEMORY.md/CONTEXT.md from *live* sessions so restarts are always fresh |
 | Archive cleanup | `bin/cleanup-archives.sh` | cron, daily (manual) | bounded growth for archives, logs, queues, cooldowns |
 | Worktree GC | `bin/reap-worktrees.sh` + `bin/wt` | cron, 15 min (manual) | ephemeral per-task git worktrees for agents, garbage-collected |
-| Dream cycle | `bin/dream-cycle.sh` | nightly 03:30 (`deploy/dream-cycle.timer`) | GBrain maintenance: embed stale pages, doctor, daily digest |
+| Dream cycle | `bin/dream-cycle.sh` | nightly 03:30 (`deploy/dream-cycle.timer`) | GBrain maintenance: ingest OpenClaw/Hermes transcripts, embed stale pages, doctor, daily digest |
 | Reflector | `bin/reflect.sh` | nightly 04:10 (`deploy/reflect.timer`) | distill verified lessons per agent, staged for human review |
 | Skill harvester | `bin/harvest-skills.sh` | weekly Sun 05:00 (`deploy/harvest.timer`) | mine repeated workflows into staged SKILL.md drafts |
 | Model scorecard | `bin/scorecard.sh` | weekly Sat 06:00 (`deploy/scorecard.timer`) | fixed benchmark across models, blind-judged |
@@ -91,9 +91,10 @@ Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cr
 
 GBrain's value compounds only if the graph is maintained while idle. The **dream cycle** (`bin/dream-cycle.sh`) does the maintenance the warden's per-rotation writes intentionally skip, nightly at 03:30 via `deploy/dream-cycle.{service,timer}`:
 
-1. **`gbrain embed --stale`** — `gbrain put` does not embed inline, so without this pass embedding coverage decays toward zero and search quality with it
-2. **`gbrain doctor`** — graph health check; Telegram alert on warn/error
-3. **Daily digest** — synthesizes the day's session pages into a single `daily-digest` page linking them, so the graph gains a queryable per-day rollup
+1. **`gbrain transcripts ingest --since last`** — import new OpenClaw agent sessions and `~/.hermes*` homes as redacted conversation pages (GBrain 0.46+; skipped on older CLIs). Does **not** pass `--all`, which would also vacuum every Claude Code session on the host
+2. **`gbrain embed --stale`** — `gbrain put` does not embed inline, so without this pass embedding coverage decays toward zero and search quality with it
+3. **`gbrain doctor`** — graph health check; Telegram alert on warn/error
+4. **Daily digest** — synthesizes the day's session pages into a single `daily-digest` page linking them, so the graph gains a queryable per-day rollup
 
 It runs *before* the reflector (04:10) on purpose: by the time lessons are distilled, the day's pages are already embedded and searchable. Requires the `gbrain` CLI; a lock file prevents overlapping runs.
 

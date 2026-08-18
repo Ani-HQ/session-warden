@@ -2,6 +2,16 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — GBrain transcript ingest in dream-cycle
+
+### Added — nightly OpenClaw + Hermes transcript backfill
+
+- `bin/dream-cycle.sh` runs `gbrain transcripts ingest --since last` for
+  OpenClaw agent session trees and `~/.hermes*` homes before `embed --stale`.
+  Embedding stays deferred (GBrain's default). Older CLIs without the
+  `transcripts` command are skipped. Never calls `ingest --all`, which also
+  discovers host-wide Claude Code history. Disable with `WARDEN_GBRAIN_INGEST=0`.
+
 ## [Unreleased] — OpenClaw-native harvest Discord buttons
 
 ### Added — fleet path that reuses the existing Discord gateway
