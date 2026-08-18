@@ -4,11 +4,16 @@
 # GBrain's value compounds only if the brain is maintained while idle. This job
 # does the maintenance the warden's per-rotation writes intentionally skip:
 #
-#   1. embed --stale   — `gbrain put` does NOT embed inline, so without this
+#   1. transcripts ingest — GBrain 0.46+ pulls dead OpenClaw + Hermes session
+#                        logs into conversation pages (secrets redacted,
+#                        embed deferred). Incremental via `--since last`.
+#                        Never `ingest --all`: that also vacuums every Claude
+#                        Code session on the host.
+#   2. embed --stale   — `gbrain put` does NOT embed inline, so without this
 #                        coverage decays toward zero (it was at 17%). This is
 #                        the durable fix that keeps the brain searchable.
-#   2. doctor          — health check; Telegram alert on warn/error.
-#   3. daily digest     — synthesize the day's session activity into a single
+#   3. doctor          — health check; Telegram alert on warn/error.
+#   4. daily digest     — synthesize the day's session activity into a single
 #                        `daily-digest` page that links the day's sessions, so
 #                        the graph gains a queryable rollup per day.
 #
@@ -41,19 +46,65 @@ gbrain_healthy || { log "GBRAIN UNAVAILABLE — skipping gbrain work"; exit 0; }
 MODEL="${WARDEN_SUMMARY_MODEL:-claude-haiku-4-5-20251001}"
 date_str=$(date +%Y-%m-%d)
 
-# --- 1. Refresh stale embeddings ------------------------------------------
+# Run a long gbrain job. `timeout` is Linux; macOS test hosts may lack it.
+# Never use lib/gbrain.sh `_gb` here — its 25s cap is for rotation, not bulk.
+_dream_gbrain() {
+  local secs="${1:-1800}"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" gbrain "$@"
+  else
+    gbrain "$@"
+  fi
+}
+
+# OpenClaw + Hermes only. `gbrain transcripts ingest --all` also discovers
+# every Claude Code session on the host (often tens of thousands).
+_ingest_transcripts() {
+  [ "${WARDEN_GBRAIN_INGEST:-1}" = "1" ] || { log "transcripts ingest disabled"; return 0; }
+  local t="${WARDEN_GBRAIN_INGEST_TIMEOUT:-1800}"
+  local out oc_root hermes_homes=() d
+
+  if ! gbrain transcripts status >/dev/null 2>&1; then
+    log "transcripts ingest unavailable — skipping (need gbrain >= 0.46)"
+    return 0
+  fi
+
+  oc_root="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}/agents"
+  if [ -d "$oc_root" ]; then
+    log "ingesting OpenClaw transcripts"
+    out=$(_dream_gbrain "$t" transcripts ingest --format openclaw --since last "$oc_root" 2>&1) || true
+    log "transcripts openclaw: $(echo "$out" | tail -1)"
+  fi
+
+  [ -d "$HOME/.hermes" ] && hermes_homes+=("$HOME/.hermes")
+  for d in "$HOME"/.hermes-*; do
+    [ -d "$d" ] || continue
+    hermes_homes+=("$d")
+  done
+  if [ "${#hermes_homes[@]}" -gt 0 ]; then
+    log "ingesting Hermes transcripts (${#hermes_homes[@]} homes)"
+    out=$(_dream_gbrain "$t" transcripts ingest --format hermes --since last "${hermes_homes[@]}" 2>&1) || true
+    log "transcripts hermes: $(echo "$out" | tail -1)"
+  fi
+}
+
+# --- 1. Ingest new harness transcripts ------------------------------------
+_ingest_transcripts
+
+# --- 2. Refresh stale embeddings ------------------------------------------
 log "refreshing stale embeddings"
-embed_out=$(timeout 1800 gbrain embed --stale 2>&1)
+embed_out=$(_dream_gbrain 1800 embed --stale 2>&1)
 log "embed --stale: $(echo "$embed_out" | tail -1)"
 
-# --- 2. Health check ------------------------------------------------------
+# --- 3. Health check ------------------------------------------------------
 health=$(gbrain doctor --json 2>/dev/null)
 log "doctor: $health"
 if echo "$health" | grep -q '"status":"error"'; then
   type send_telegram &>/dev/null && send_telegram "🧠 GBrain dream-cycle: doctor reports ERRORS — $(echo "$health" | head -c 300)"
 fi
 
-# --- 3. Synthesize the daily digest ---------------------------------------
+# --- 4. Synthesize the daily digest ---------------------------------------
 # Collect today's session pages from BOTH producers — rotation/live pages
 # (session-warden/<date>/) and snapshot pages (sessions/<date>/) — and roll them
 # up into one digest page that links to each session.
