@@ -52,7 +52,8 @@ The agent comes back online in under a second, knowing what it was doing.
 | Skill harvester | `bin/harvest-skills.sh` | weekly Sun 05:00 (`deploy/harvest.timer`) | mine repeated workflows into staged SKILL.md drafts |
 | Model scorecard | `bin/scorecard.sh` | weekly Sat 06:00 (`deploy/scorecard.timer`) | fixed benchmark across models, blind-judged |
 | Memory evals | `bin/eval-memory.sh` | monthly 1st 07:00 (`deploy/eval-memory.timer`) | replay fixed cases against current memory; pass-rate delta is the regression signal |
-| Rate guard | `bin/rate-guard.sh` | every 2 min (`deploy/rate-guard.timer`) | demote rate-limited providers fleet-wide until reset; one Telegram alert; OpenClaw plugin silences team notices |
+| Rate guard | `bin/rate-guard.sh` | every 2 min (`deploy/rate-guard.timer`) | demote rate-limited providers fleet-wide until reset; handoff before rewrite; one Telegram alert; OpenClaw plugin silences team notices |
+| Model-switch handoff | `bin/handoff.sh`, `bin/model-switch.sh` | on demand | checkpoint OpenClaw + Hermes live work to memory + GBrain before changing models; rate-guard uses the same primitive |
 | MCP supervisor | `bin/mcp-supervisor.sh` | manual / cron | keep heavy MCP servers alive across rotations |
 | Fleet board | `contrib/fleet-live/collect.py` | cron, 2 min (manual) | static public status board: live sessions, spend, recurring loops, skills learned |
 
@@ -69,6 +70,31 @@ Rotation without memory means the agent starts from scratch. The warden solves t
 **Layer 3: Agent-side discipline.** Agents are instructed via `CLAUDE.md` to proactively write important context to memory during the session. If the session dies unexpectedly, the critical context is already persisted.
 
 Session boundaries become invisible.
+
+## Model-switch handoff
+
+Changing an agent's model (or rate-guard demoting a provider) used to kill mid-work working memory: the transcript often survived on disk, but nothing durable said what the agent was doing. Use the warden — do not edit `openclaw.json` / Hermes `config.yaml` by hand.
+
+```bash
+# Checkpoint only (safe before a manual restart)
+session-warden handoff baymax
+session-warden handoff zara --reason model-switch
+
+# Checkpoint then change primary model
+session-warden model-switch zara google/gemini-3.6-flash
+session-warden model-switch baymax gemini-3.6-flash
+```
+
+What it does:
+
+1. Detects OpenClaw (`~/.openclaw/agents/<id>`) or Hermes (`~/.hermes-<id>`)
+2. Waits out mid-turn / active Hermes work (best-effort)
+3. OpenClaw: graceful flush + transcript extract → Claude memory + CONTEXT.md
+4. Hermes: extract from `state.db` → `memories/HANDOFF.md` + CONTEXT.md
+5. Upserts GBrain `session-warden/handoff/<agent>-<channel>` and points the live page at it
+6. `model-switch` applies the new primary (OpenClaw hot-reloads; Hermes restarts its gateway) and queues a wake/recovery that tells the agent to read the handoff first
+
+Rate-guard demote/restore calls the same handoff for every agent whose **primary** model would change. If handoff fails for an agent, that agent's chain is left unchanged (partial demotion) and Telegram gets an alert — no silent amnesia.
 
 ## Snapshot (standalone Claude Code sessions)
 

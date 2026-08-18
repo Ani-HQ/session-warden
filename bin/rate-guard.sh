@@ -77,15 +77,29 @@ case "$ACTION" in
     until="$(printf '%s' "$RESULT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("resetsAtLabel","unknown"))')"
     pretty="$(pretty_provider "$provider")"
     notify_rate_limit "$pretty" "$detail" "$until"
+    failed="$(printf '%s' "$RESULT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin).get("handoffFailed") or []))')"
+    if [ -n "$failed" ]; then
+      notify_alert "rate-guard demoted with partial handoff failure" "skipped agents: ${failed}"
+    fi
     log "notified demotion provider=$provider until=$until"
     ;;
   restored)
     provider="$(printf '%s' "$RESULT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("provider",""))')"
     pretty="$(pretty_provider "$provider")"
     notify_rate_limit_cleared "$pretty"
+    failed="$(printf '%s' "$RESULT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin).get("handoffFailed") or []))')"
+    if [ -n "$failed" ]; then
+      notify_alert "rate-guard restore partial — handoff failed" "still on demoted chain: ${failed}"
+    fi
     log "notified restore provider=$provider"
     ;;
   noop|status|"")
+    reason="$(printf '%s' "$RESULT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("reason",""))' 2>/dev/null || true)"
+    if [ "$reason" = "handoff_blocked" ]; then
+      failed="$(printf '%s' "$RESULT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin).get("handoffFailed") or []))')"
+      notify_alert "rate-guard blocked — handoff failed" "no model rewrite applied. agents: ${failed:-unknown}"
+      log "notified handoff_blocked failed=$failed"
+    fi
     ;;
   *)
     log "unknown action=$ACTION"
