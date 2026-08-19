@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# scorecard.sh — weekly model A/B benchmark across the experimental Hermes agents.
+# scorecard.sh — weekly model A/B benchmark across experimental Hermes agents.
 #
-# Three Hermes agents run the same fleet role on different models (carolyn:
-# gemini-3.5-flash, midi: llama-3.3-70b on groq, baymax:
-# gemini-3.1-pro-preview). Nothing measures which model is actually better at
+# When several Hermes agents run the same fleet role on different models
+# (homes at ~/.hermes-<name>, listed in WARDEN_SCORECARD_AGENTS), nothing
+# measures which model is actually better at
 # THIS fleet's work. This job closes that loop weekly: it runs a fixed task
 # set (config/scorecard-tasks.jsonl — factual reasoning, summarization,
 # structured extraction, style, planning, grounded tool use, judgment, logic)
@@ -34,7 +34,7 @@ source "${WARDEN_HOME}/lib/gbrain.sh"
 [ -f "${WARDEN_HOME}/lib/notify.sh" ] && source "${WARDEN_HOME}/lib/notify.sh"
 
 # Defaults (override in config/thresholds.env)
-SCORECARD_AGENTS="${WARDEN_SCORECARD_AGENTS:-carolyn midi baymax}"
+SCORECARD_AGENTS="${WARDEN_SCORECARD_AGENTS:-}"
 JUDGE_MODEL="${WARDEN_SCORECARD_JUDGE_MODEL:-claude-sonnet-4-6}"
 TURN_TIMEOUT="${WARDEN_SCORECARD_TURN_TIMEOUT:-180}"
 TASKS_FILE="${WARDEN_SCORECARD_TASKS:-${WARDEN_HOME}/config/scorecard-tasks.jsonl}"
@@ -57,6 +57,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$ONLY_AGENT" ] && SCORECARD_AGENTS="$ONLY_AGENT"
+
+if [ -z "$SCORECARD_AGENTS" ]; then
+  log "WARDEN_SCORECARD_AGENTS not set — nothing to benchmark"
+  echo "scorecard: set WARDEN_SCORECARD_AGENTS to the Hermes agents to benchmark (homes at ~/.hermes-<name>)" >&2
+  exit 1
+fi
 
 LOCKFILE="${WARDEN_HOME}/state/scorecard.lock"
 exec 197>"$LOCKFILE"
@@ -84,14 +90,16 @@ mkdir -p "$RUN_DIR"
 
 # The experimental Hermes homes and their model labels (labels are for the
 # REPORT only — the judge never sees them; see judge blindness below).
+# The label is read live from each agent's Hermes config (model.default).
 hermes_home_for() { echo "$HOME/.hermes-$1"; }
 model_for() {
-  case "$1" in
-    carolyn) echo "gemini-3.5-flash" ;;
-    midi)    echo "llama-3.3-70b (groq)" ;;
-    baymax)  echo "gemini-3.1-pro-preview" ;;
-    *)       echo "unknown" ;;
-  esac
+  local cfg label=""
+  cfg="$(hermes_home_for "$1")/config.yaml"
+  if [ -f "$cfg" ]; then
+    label=$(awk '/^model:/{m=1;next} m && /^  default:/{sub(/^  default:[ \t]*/,""); print; exit}' "$cfg")
+    [ -n "$label" ] || label=$(awk '/^  default:/{sub(/^  default:[ \t]*/,""); print; exit}' "$cfg")
+  fi
+  echo "${label:-unknown}"
 }
 
 log "run starting (agents: ${SCORECARD_AGENTS}, judge: ${JUDGE_MODEL}, task: ${ONLY_TASK:-all}, dry_run: ${DRY_RUN})"

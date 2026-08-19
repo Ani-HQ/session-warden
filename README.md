@@ -1,5 +1,8 @@
 # session-warden
 
+[![CI](https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Session supervisor and self-improvement loop for always-on Claude Code agent fleets.
 
 The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, weekly real-work reviews, and monthly memory evals.
@@ -228,7 +231,7 @@ Runs weekly, Sunday 05:00 UTC, via `deploy/harvest.{service,timer}` — after th
 
 Instead of copy-pasting `promote-skill.sh` commands from a text digest, you can act on proposals directly in Discord. When `WARDEN_HARVEST_DISCORD_CHANNEL_ID` is set along with either `WARDEN_HARVEST_DISCORD_ACCOUNT` (OpenClaw path) or `WARDEN_DISCORD_BOT_TOKEN` (dedicated-bot path), the harvester posts one card per staged skill with **Promote**, **Promote shared**, **Reject**, and **View draft** buttons.
 
-**OpenClaw path (preferred on fleets that already run Discord via OpenClaw):** set `WARDEN_HARVEST_DISCORD_ACCOUNT` (e.g. `isaac`). Cards are posted with `openclaw message send --presentation`; clicks are handled by the [`harvest-skill-actions`](contrib/openclaw-plugins/harvest-skill-actions) OpenClaw plugin — no second Discord bot or gateway.
+**OpenClaw path (preferred on fleets that already run Discord via OpenClaw):** set `WARDEN_HARVEST_DISCORD_ACCOUNT` (the OpenClaw Discord account name). Cards are posted with `openclaw message send --presentation`; clicks are handled by the [`harvest-skill-actions`](contrib/openclaw-plugins/harvest-skill-actions) OpenClaw plugin — no second Discord bot or gateway.
 
 **Dedicated-bot path:** set `WARDEN_DISCORD_BOT_TOKEN` and run [`contrib/discord-harvest-actions`](contrib/discord-harvest-actions) via `bin/harvest-actions.sh` / `deploy/harvest-actions.service`.
 

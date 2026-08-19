@@ -2,6 +2,17 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — open-source readiness
+
+### Changed — scorecard agents must be configured
+
+- `bin/scorecard.sh` no longer ships a default agent list (previously a
+  hard-coded personal fleet) and reads each agent's model label live from
+  `~/.hermes-<name>/config.yaml` (`model.default`) instead of a hard-coded
+  map. **Breaking for existing installs:** set `WARDEN_SCORECARD_AGENTS` in
+  `config/thresholds.env` or the weekly scorecard exits with an error.
+- Issue templates added; CI and license badges on the README.
+
 ## [Unreleased] — documentation: runtime-agnostic positioning
 
 ### Changed — docs only, no behavior change
