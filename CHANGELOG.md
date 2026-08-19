@@ -2,6 +2,29 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — documentation: runtime-agnostic positioning
+
+### Changed — docs only, no behavior change
+
+- README rewritten around the fleet stack (interface → runtime → Claude Code →
+  warden) with an explicit runtime-support matrix: OpenClaw turnkey, Hermes
+  partial (handoff, model-switch, scorecard, dream-cycle ingest), standalone
+  Claude Code runtime-free (snapshot, solo burn). States plainly that there is
+  no Codex CLI session support and that memory carry-over is workspace-level
+  (survives model switches).
+- New `docs/integrations.md`: the exact contract a new runtime integration
+  needs (session state, transcript paths, restart/delivery, memory injection
+  point, kill-safety markers), what's already gateway-free, and the Hermes
+  integration as the worked example.
+- Accuracy fixes: snapshot degrades gracefully without GBrain (logs
+  `GBRAIN UNAVAILABLE`, exits 0) rather than erroring; reflector/harvester/eval
+  agent lists default to the fleet roster, not example names; documented the
+  previously unlisted `bin/fleet-review.sh`, `bin/burn-report.sh`, and
+  `bin/burn-solo-sample.sh`; completed the architecture tree (handoff,
+  model-switch, rate-guard, openclaw-plugins, discord-harvest-actions, and the
+  full `lib/`); quick start now includes `fleet-review.timer` and the
+  snapshot systemd alternative; Linux-first platform expectations called out.
+
 ## [Unreleased] — GBrain transcript ingest in dream-cycle
 
 ### Added — nightly OpenClaw + Hermes transcript backfill
@@ -163,7 +186,8 @@ Notable changes to session-warden.
 
 ### Changed — health dashboard information architecture
 
-- `contrib/health-dashboard/generate.sh` rewritten around a founder-first
+- `contrib/health-dashboard/generate.sh` (operator-only, not shipped in this
+  repo) rewritten around a founder-first
   layout: a plain-English verdict (written each run by a cheap model, with a
   deterministic fallback so the page never blanks), a ranked "needs attention"
   list computed from live signals, a unified fleet-performance panel (work /

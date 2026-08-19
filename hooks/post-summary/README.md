@@ -15,6 +15,7 @@ Scripts run in alphabetical order. Failures are logged but don't block other hoo
 
 ## Examples
 
-- `01-gbrain.sh` — ingest into GBrain for cross-agent memory
-- `02-slack.sh` — post rotation summary to a Slack channel
-- `03-notion.sh` — write to a Notion database
+- `01-gbrain.sh` (included) — ingest into GBrain for cross-agent memory
+
+Hooks you could write: post the rotation summary to Slack or Discord, write to
+a Notion database, archive transcripts to S3.

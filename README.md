@@ -1,29 +1,53 @@
 # session-warden
 
-Session supervisor and self-improvement loop for persistent [OpenClaw](https://github.com/openclaw/openclaw) agent fleets.
+Session supervisor and self-improvement loop for always-on Claude Code agent fleets.
 
-The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, and monthly memory evals.
+The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, weekly real-work reviews, and monthly memory evals.
 
-## Who this is for
+## Where it sits
 
-Anyone running Claude Code as a persistent agent fleet. If your sessions accumulate tokens until they die, and you lose context every time, this fixes that.
+A persistent agent fleet is a stack, and the warden is the layer under it:
 
-The rotation core (and `install.sh`) assumes OpenClaw — it reads OpenClaw's on-disk session state and restarts the OpenClaw gateway. If you run a custom wrapper or manual `--resume` workflows instead, the building blocks (`lib/extract.sh`, `lib/memory.sh`, `bin/snapshot.sh`) are reusable, but you'll be adapting scripts rather than installing a turnkey tool.
+```
+you  ←→  interface        (Telegram, Discord, your own bot UI, ...)
+         agent runtime    (the gateway that owns sessions: OpenClaw, Hermes, a custom wrapper)
+         Claude Code CLI  (the long-running sessions doing the actual work)
+         session-warden   (supervises those sessions; carries memory across them)
+```
+
+The warden doesn't care which interface you chat through — it supervises the Claude Code sessions underneath and writes memory at the agent-workspace level. That has a useful consequence: memory continuity survives not just session rotations but model switches too, because the workspace memory files are injected into whatever model the runtime boots next.
+
+## Runtime support
+
+The supervision layer talks to the agent runtime (reading its session state, restarting its gateway, delivering recovery messages), so each runtime needs explicit support. Today:
+
+| Runtime | Support | What works |
+|---|---|---|
+| **OpenClaw** | Turnkey (`install.sh`) | Everything: rotation, stall reaper, burn firewall, handoff, model-switch, registry gate, channel parity, the full learning loop |
+| **Hermes** | Partial | Handoff (`state.db` → `memories/HANDOFF.md` + `CONTEXT.md`), model-switch (edits `config.yaml`, restarts the gateway), weekly scorecard turns, nightly dream-cycle transcript ingest |
+| **Standalone Claude Code** | Runtime-free | Snapshot (sessions → GBrain) and solo burn metering read `~/.claude/projects` directly — no gateway involved |
+| **Anything else** | Building blocks | `lib/extract.sh`, the generic halves of `lib/memory.sh`, `bin/snapshot.sh`, `lib/gbrain.sh`, `lib/notify.sh` are gateway-free; see [docs/integrations.md](docs/integrations.md) for the exact contract a new runtime adapter needs |
+
+There is no Codex CLI session support — the warden rotates and summarizes Claude Code sessions only. (Memory still survives a switch *to* an OpenAI model via a runtime's model chain, because the carry-over is workspace-level, not transcript-level.)
+
+Want a simpler interface than a full gateway in front of your agents? That's the intended shape: the interface layer is yours to swap. [docs/integrations.md](docs/integrations.md) spells out what the warden needs from whatever sits above it.
 
 ## What you need
 
-- **[OpenClaw](https://github.com/openclaw/openclaw) gateway** (required) — the warden manages the sessions OpenClaw stores in `~/.openclaw/agents/` and restarts its gateway after rotations
-- **`claude` CLI** (required) — post-rotation summarization, reflector/harvester/eval model calls
+- **An agent runtime** — the turnkey install path requires [OpenClaw](https://github.com/openclaw/openclaw) (`install.sh` exits without it); Hermes homes (`~/.hermes-<name>`) are picked up by the modules that support them
+- **`claude` CLI** (required) — post-rotation summarization, reflector/harvester/scorecard/eval/review model calls
 - **`jq`** (required) and **`curl`** (required for alerts)
-- **GBrain** (optional) — a knowledge-graph CLI; hard dependency only for the snapshot module, dream cycle, and the GBrain mirrors of lessons/skills/scorecards. Everything else degrades gracefully without it
+- **GBrain** (optional) — a knowledge-graph CLI; needed for the dream cycle and the snapshot module's output (snapshot logs `GBRAIN UNAVAILABLE` and skips cleanly without it). Every other module mirrors into GBrain when available and degrades gracefully when not
 - **Telegram bot** (optional) — token + chat ID for alerts and digests; leave unset to disable
-- **python3** (optional) — crash buffer detection for Discord crash recovery
+- **python3** (optional) — crash-buffer detection, fleet review's work harvester, rate guard, the contrib collectors
+
+**Platform:** Linux-first. The rotation core leans on `/proc`, systemd user timers, and cron; the test suite targets Linux. On macOS, the solo burn sampler (launchd template) and the read-only CLI commands work; the supervision core does not.
 
 ## The problem
 
 Claude Code sessions accumulate tokens, turns, and JSONL file size over time. Eventually they hit limits — token bloat, context overflow, compaction loops — and the session dies. You're left with a dead session and no memory of what was happening.
 
-For OpenClaw users specifically: when a session fails, OpenClaw keeps the dead session ID pinned and resumes it on every new message, creating an infinite error loop. It's not a rate limit. It's a stale pointer.
+Runtimes can make this worse. OpenClaw, for example, keeps a dead session ID pinned and resumes it on every new message, creating an infinite error loop. It's not a rate limit. It's a stale pointer.
 
 ## How it works
 
@@ -31,8 +55,8 @@ A cron job runs every 30 seconds. When it finds a session that's failed or excee
 
 1. **Detect** — scan session state for bloat, failures, or zombies (dead CLI process with stale JSONL)
 2. **Rotate** — backup state, archive the JSONL (never deleted), clean up the stale session reference
-3. **Summarize** — extract the full conversation (text + tool actions), summarize with a fast model (Haiku), write to Claude Code's native memory system
-4. **Restart** — restart the agent gateway so agents boot with full context already loaded
+3. **Summarize** — extract the full conversation (text + tool actions), summarize with a fast model (Haiku), write it into the agent's memory files
+4. **Restart** — restart the runtime gateway so agents boot with full context already loaded
 
 The agent comes back online in under a second, knowing what it was doing.
 
@@ -45,15 +69,18 @@ The agent comes back online in under a second, knowing what it was doing.
 | Doctor | `bin/doctor.sh` | cron, 5 min (install.sh) | warden self-health + dead-man's switch |
 | Snapshot | `bin/snapshot.sh` | cron, 30 min (install.sh) | capture standalone Claude Code sessions into GBrain |
 | Context sync | `bin/context-sync.sh` | cron, 5 min (manual) | refresh MEMORY.md/CONTEXT.md from *live* sessions so restarts are always fresh |
-| Archive cleanup | `bin/cleanup-archives.sh` | cron, daily (manual) | bounded growth for archives, logs, queues, cooldowns |
+| Archive cleanup | `bin/cleanup-archives.sh` | cron, daily (manual) | bounded growth for archives, logs, queues, cooldowns, burn ledgers |
 | Worktree GC | `bin/reap-worktrees.sh` + `bin/wt` | cron, 15 min (manual) | ephemeral per-task git worktrees for agents, garbage-collected |
-| Dream cycle | `bin/dream-cycle.sh` | nightly 03:30 (`deploy/dream-cycle.timer`) | GBrain maintenance: ingest OpenClaw/Hermes transcripts, embed stale pages, doctor, daily digest |
+| Burn firewall | `lib/burn.sh` (in scan) + `bin/burn-report.sh` | with scan / on demand | meter per-agent token burn; alert or enforce on spikes, budgets, retry loops |
+| Burn solo | `bin/burn-solo-sample.sh` | launchd/cron (manual) | meter standalone Claude Code usage outside any gateway |
+| Dream cycle | `bin/dream-cycle.sh` | nightly 03:30 (`deploy/dream-cycle.timer`) | GBrain maintenance: ingest runtime transcripts, embed stale pages, doctor, daily digest |
 | Reflector | `bin/reflect.sh` | nightly 04:10 (`deploy/reflect.timer`) | distill verified lessons per agent, staged for human review |
 | Skill harvester | `bin/harvest-skills.sh` | weekly Sun 05:00 (`deploy/harvest.timer`) | mine repeated workflows into staged SKILL.md drafts |
 | Model scorecard | `bin/scorecard.sh` | weekly Sat 06:00 (`deploy/scorecard.timer`) | fixed benchmark across models, blind-judged |
+| Fleet review | `bin/fleet-review.sh` | weekly Sat 06:30 (`deploy/fleet-review.timer`) | judge each roster agent's *real* week of work: 0-100 role-fit score + insight |
 | Memory evals | `bin/eval-memory.sh` | monthly 1st 07:00 (`deploy/eval-memory.timer`) | replay fixed cases against current memory; pass-rate delta is the regression signal |
-| Rate guard | `bin/rate-guard.sh` | every 2 min (`deploy/rate-guard.timer`) | demote rate-limited providers fleet-wide until reset; handoff before rewrite; one Telegram alert; OpenClaw plugin silences team notices |
-| Model-switch handoff | `bin/handoff.sh`, `bin/model-switch.sh` | on demand | checkpoint OpenClaw + Hermes live work to memory + GBrain before changing models; rate-guard uses the same primitive |
+| Rate guard | `bin/rate-guard.sh` | every 2 min (`deploy/rate-guard.timer`) | demote rate-limited providers fleet-wide until reset; handoff before rewrite; one Telegram alert |
+| Model-switch handoff | `bin/handoff.sh`, `bin/model-switch.sh` | on demand | checkpoint live work to memory + GBrain before changing models; rate-guard uses the same primitive |
 | MCP supervisor | `bin/mcp-supervisor.sh` | manual / cron | keep heavy MCP servers alive across rotations |
 | Fleet board | `contrib/fleet-live/collect.py` | cron, 2 min (manual) | static public status board: live sessions, spend, recurring loops, skills learned |
 
@@ -61,19 +88,21 @@ The agent comes back online in under a second, knowing what it was doing.
 
 ## Session memory
 
-Rotation without memory means the agent starts from scratch. The warden solves this in three layers:
+Rotation without memory means the agent starts from scratch. The warden writes memory at two levels on every rotation (and every 5 minutes for live sessions, via context-sync):
 
-**Layer 1: Post-rotation summarization.** The warden extracts the full conversation — not just text messages, but every tool action (files edited, commands run, branches created) — from the archived JSONL. A fast model (Haiku) summarizes this into a structured memory entry written to Claude Code's native memory system (`~/.claude/projects/.../memory/`). The agent reads this automatically on its next session start.
+**Claude Code project memory.** The full conversation — not just text messages, but every tool action (files edited, commands run, branches created) — is extracted from the archived JSONL and summarized by a fast model (`WARDEN_SUMMARY_MODEL`, default Haiku) into a structured entry: what was happening, actions taken, decisions made, pending work, lesson candidates, and entity wikilinks. It lands as a per-channel file under the agent's Claude Code project memory dir (`~/.claude/projects/<agent-project>/memory/session_<channel>.md`), indexed in that dir's `MEMORY.md`. Each channel's file is *replaced* on rotation — no unbounded growth — and compacted by a second model call if it exceeds `WARDEN_MEMORY_MAX_BYTES`.
 
-**Layer 2: Per-channel memory.** Each channel/context gets its own memory file. If an agent is active in 5 channels, each channel's context stays separate. On the next rotation, the file is replaced — no unbounded growth.
+**Workspace injection — the load-bearing layer.** The same summary is written into the agent's workspace: `CONTEXT.md`, and a marker-delimited block in the workspace `MEMORY.md` (`<!-- SESSION-WARDEN-START/END -->`). The runtime injects workspace memory into the agent's prompt at boot — context is *injected*, not voluntarily loaded — which is why continuity survives model switches. The warden's block is deliberately placed after the agent's own content so the prompt-cache prefix stays warm, and writes are skipped when content is unchanged so the file stays byte-identical.
 
-**Layer 3: Agent-side discipline.** Agents are instructed via `CLAUDE.md` to proactively write important context to memory during the session. If the session dies unexpectedly, the critical context is already persisted.
+Carry-over is explicit: the previous memory is fed back into each new summarization with instructions to carry forward unresolved pending items, so a task survives any number of rotations. The recovery message that wakes the agent additionally inlines `CONTEXT.md`, a GBrain cross-session briefing, and any crash buffer.
+
+**Agent-side discipline** completes the picture: agents are instructed via `CLAUDE.md` to proactively write important context to memory during the session, so even an unexpected death loses little.
 
 Session boundaries become invisible.
 
 ## Model-switch handoff
 
-Changing an agent's model (or rate-guard demoting a provider) used to kill mid-work working memory: the transcript often survived on disk, but nothing durable said what the agent was doing. Use the warden — do not edit `openclaw.json` / Hermes `config.yaml` by hand.
+Changing an agent's model (or rate-guard demoting a provider) used to kill mid-work working memory: the transcript often survived on disk, but nothing durable said what the agent was doing. Use the warden — don't edit the runtime's config by hand.
 
 ```bash
 # Checkpoint only (safe before a manual restart)
@@ -87,8 +116,8 @@ session-warden model-switch baymax gemini-3.6-flash
 
 What it does:
 
-1. Detects OpenClaw (`~/.openclaw/agents/<id>`) or Hermes (`~/.hermes-<id>`)
-2. Waits out mid-turn / active Hermes work (best-effort)
+1. Detects the runtime per agent — OpenClaw (`~/.openclaw/agents/<id>`) or Hermes (`~/.hermes-<id>`)
+2. Waits out mid-turn / active work (best-effort)
 3. OpenClaw: graceful flush + transcript extract → Claude memory + CONTEXT.md
 4. Hermes: extract from `state.db` → `memories/HANDOFF.md` + CONTEXT.md
 5. Upserts GBrain `session-warden/handoff/<agent>-<channel>` and points the live page at it
@@ -98,18 +127,18 @@ Rate-guard demote/restore calls the same handoff for every agent whose **primary
 
 ## Snapshot (standalone Claude Code sessions)
 
-Rotation and memory cover OpenClaw agent sessions. But you also run plain Claude Code sessions yourself — in repos, in your home dir, anywhere. The **snapshot module** (`bin/snapshot.sh`) captures those into GBrain so they become permanent, searchable, linked memory too.
+Rotation and memory cover gateway-managed agent sessions. But you also run plain Claude Code sessions yourself — in repos, in your home dir, anywhere. The **snapshot module** (`bin/snapshot.sh`) captures those into GBrain so they become permanent, searchable, linked memory too. It reads `~/.claude/projects` directly — no gateway involved.
 
 Every `WARDEN_SNAPSHOT_INTERVAL_MINUTES` (default 30) it:
 
 1. Scans `~/.claude/projects/**/*.jsonl` modified in the last `WARDEN_SNAPSHOT_WINDOW_MINUTES` (default 120)
-2. **Skips OpenClaw agent sessions** (path matches `*-openclaw-agents-*`) — those are already handled by context-sync (live) and rotation, so there's no double-ingestion
+2. **Skips gateway-managed agent sessions** (path matches the OpenClaw agents pattern) — those are already handled by context-sync (live) and rotation, so there's no double-ingestion
 3. Extracts the transcript (`lib/extract.sh`), summarizes it with Haiku, and writes a typed GBrain page at `sessions/<date>/<agent>-<shortid>` (tags `[session, snapshot, <agent>]`), linked `performed_by` to its agent and with `mentions` edges to any entities the summary names
 4. Tracks `{last_mtime, last_turn_count}` per session in `state/snapshot/state.json`, re-summarizing only when the file changed **and** at least `WARDEN_SNAPSHOT_MIN_TURNS` (default 4) new turns accrued — so most runs are cheap no-ops and Haiku only fires on real activity
 
-The agent each session is attributed to is resolved from its working directory (`lib/agent-attribution.sh`): OpenClaw agents by their `~/.openclaw/agents/<name>` directory, your home dir as `home`, everything else `unknown`. To attribute your own repos or project paths to named agents, add glob rules to `config/agent-paths.env` (copy `config/agent-paths.env.example`); without it, non-OpenClaw paths just resolve to `unknown`.
+The agent each session is attributed to is resolved from its working directory (`lib/agent-attribution.sh`): OpenClaw agents by their agents directory, your home dir as `home`, everything else `unknown`. To attribute your own repos or project paths to named agents, add glob rules to `config/agent-paths.env` (copy `config/agent-paths.env.example`); without it, non-gateway paths just resolve to `unknown`.
 
-**GBrain is a hard dependency for this module** — there is no graceful degradation. If the `gbrain` CLI isn't installed, snapshot exits with an error. GBrain is the canonical cross-session knowledge graph; snapshot writes there only (Claude Code's own auto-memory already handles local per-project persistence).
+**GBrain is what this module writes to** — without the `gbrain` CLI the run logs `GBRAIN UNAVAILABLE` and exits cleanly having done nothing. GBrain is the canonical cross-session knowledge graph; snapshot writes there only (Claude Code's own auto-memory already handles local per-project persistence).
 
 Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cron entry; `deploy/snapshot.{service,timer}` are the systemd alternatives.
 
@@ -117,7 +146,7 @@ Config lives in `config/thresholds.env` (`WARDEN_SNAPSHOT_*`). Install adds a cr
 
 GBrain's value compounds only if the graph is maintained while idle. The **dream cycle** (`bin/dream-cycle.sh`) does the maintenance the warden's per-rotation writes intentionally skip, nightly at 03:30 via `deploy/dream-cycle.{service,timer}`:
 
-1. **`gbrain transcripts ingest --since last`** — import new OpenClaw agent sessions and `~/.hermes*` homes as redacted conversation pages (GBrain 0.46+; skipped on older CLIs). Does **not** pass `--all`, which would also vacuum every Claude Code session on the host
+1. **`gbrain transcripts ingest --since last`** — import new agent sessions from the runtimes it finds on disk (OpenClaw session trees and `~/.hermes*` homes) as redacted conversation pages (GBrain 0.46+; skipped on older CLIs). Does **not** pass `--all`, which would also vacuum every Claude Code session on the host. Disable with `WARDEN_GBRAIN_INGEST=0`
 2. **`gbrain embed --stale`** — `gbrain put` does not embed inline, so without this pass embedding coverage decays toward zero and search quality with it
 3. **`gbrain doctor`** — graph health check; Telegram alert on warn/error
 4. **Daily digest** — synthesizes the day's session pages into a single `daily-digest` page linking them, so the graph gains a queryable per-day rollup
@@ -128,12 +157,12 @@ It runs *before* the reflector (04:10) on purpose: by the time lessons are disti
 
 Session memory answers "what was I doing?"; nothing answers "what should I have learned?". The **reflector** (`bin/reflect.sh`) closes that loop nightly, ACE-style (append-only context engineering — new rules are only ever added, never rewritten over existing ones).
 
-For each agent in `WARDEN_REFLECT_AGENTS` it:
+For each agent in `WARDEN_REFLECT_AGENTS` (default: every agent in `config/fleet-roster.tsv`) it:
 
-1. **Gathers** the last 24h of material: session JSONLs under `~/.openclaw/agents/<agent>/sessions/` (extracted with `lib/extract.sh`), the warden's rotation summaries, and the agent's own daily notes in `memory/`. Agents with no material are skipped (logged as SKIP).
+1. **Gathers** the last 24h of material: the agent's session JSONLs (extracted with `lib/extract.sh`), the warden's rotation summaries, and the agent's own daily notes in `memory/`. Agents with no material are skipped (logged as SKIP).
 2. **Distills** 0-5 lesson bullets with a stronger model (`WARDEN_REFLECT_MODEL`, default Sonnet). The prompt demands general rules that would change future behavior — not restatements of what happened — and feeds in the agent's current `## General rules` + `## Lessons learned` so it never duplicates an existing rule. Each bullet is tagged `[YYYY-MM-DD, source: <agent> sessions]`. If nothing clears the bar, the model outputs `NO_LESSONS`.
 3. **Verifies** with a second, cheaper model (`WARDEN_REFLECT_VERIFY_MODEL`, default Haiku) acting as a skeptic: each bullet is marked KEEP or REJECT — rejected if it is not grounded in the source material, is too specific to today, contradicts an existing rule, or derives from untrusted external content. Only KEEPs survive. If the verifier itself fails, bullets are staged with an UNVERIFIED warning and auto-apply is blocked.
-4. **Stages** survivors in `~/.openclaw/agents/<agent>/memory/pending-lessons-YYYY-MM-DD.md` for human review. Nothing touches MEMORY.md unless `WARDEN_REFLECT_AUTO_APPLY=1` (default 0), in which case verified bullets are appended directly under `## Lessons learned` (below the warden block).
+4. **Stages** survivors in the agent's `memory/pending-lessons-YYYY-MM-DD.md` for human review. Nothing touches MEMORY.md unless `WARDEN_REFLECT_AUTO_APPLY=1` (default 0), in which case verified bullets are appended directly under `## Lessons learned` (below the warden block).
 5. **Notifies** once per run via Telegram (`WARDEN_REFLECT_NOTIFY=1`): per-agent lesson counts, where the pending files live, and the apply command.
 
 The **staged-approval flow**: review a pending file, delete any bullet you disagree with, then promote the survivors with
@@ -151,7 +180,7 @@ Runs nightly at 04:10 UTC via `deploy/reflect.{service,timer}` — after the dre
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_REFLECT_AGENTS` | (example fleet names) | space-separated agents to reflect on — set your own |
+| `WARDEN_REFLECT_AGENTS` | fleet roster | space-separated agents to reflect on; unset = every agent in `config/fleet-roster.tsv` |
 | `WARDEN_REFLECT_MODEL` | `claude-sonnet-4-6` | distillation model |
 | `WARDEN_REFLECT_VERIFY_MODEL` | `claude-haiku-4-5-20251001` | skeptic/verifier model |
 | `WARDEN_REFLECT_AUTO_APPLY` | `0` | `1` = skip staging, append verified lessons straight to MEMORY.md |
@@ -162,19 +191,19 @@ Runs nightly at 04:10 UTC via `deploy/reflect.{service,timer}` — after the dre
 
 The reflector distills one-line *lessons*; nothing captures repeated *workflows*. The **skill harvester** (`bin/harvest-skills.sh`) closes that loop weekly: if an agent did the same multi-step thing twice this week, that procedure should become a skill, not stay tribal knowledge in session summaries.
 
-For each agent in `WARDEN_HARVEST_AGENTS` it:
+For each agent in `WARDEN_HARVEST_AGENTS` (default: every agent in `config/fleet-roster.tsv`) it:
 
 1. **Gathers** the week's material (`WARDEN_HARVEST_WINDOW_DAYS`, default 7): the warden's rotation summaries, the agent's own daily notes in `memory/`, and lessons already applied in `memory/applied/`. Agents with no material are skipped (logged as SKIP).
-2. **Lists existing skills** — the agent's own (`~/.openclaw/agents/<agent>/skills/`), the shared fleet dir (`~/.openclaw/skills/`), and anything already staged — and feeds the names to the model so it never proposes a duplicate (a belt-and-braces name check enforces this even if the model ignores the instruction).
+2. **Lists existing skills** — the agent's own, the shared fleet skills dir, and anything already staged — and feeds the names to the model so it never proposes a duplicate (a belt-and-braces name check enforces this even if the model ignores the instruction).
 3. **Mines** with one strong-model call per agent (`WARDEN_HARVEST_MODEL`, default Sonnet): identify workflows performed **2+ times** this week that no existing skill covers, and emit a complete `SKILL.md` draft for each — YAML frontmatter (`name`, `description` with trigger conditions) plus a body with steps, known failure modes, and anti-patterns, all grounded in the week's material. At most **2 proposals per agent per run**. If nothing clears the bar, the model outputs `NO_SKILLS`.
-4. **Stages** each draft at `~/.openclaw/skills-pending/<agent>/<skill-name>/SKILL.md` — it **never writes into a live skills dir**.
+4. **Stages** each draft in a pending-skills dir (`skills-pending/<agent>/<skill-name>/SKILL.md`) — it **never writes into a live skills dir**.
 5. **Notifies** once per run via Telegram (`WARDEN_HARVEST_NOTIFY=1`): per-agent proposal counts and names, where the drafts live, and the promote command. With a Discord bot configured (below), each staged skill additionally gets an **interactive Discord card** with Promote / Promote shared / Reject / View draft buttons.
 
 The **staged-approval flow**: read a draft, edit it if needed, then promote it with
 
 ```bash
 bin/promote-skill.sh <agent> <skill-name>            # into the agent's own skills dir
-bin/promote-skill.sh <agent> <skill-name> --shared   # into ~/.openclaw/skills/ for the fleet
+bin/promote-skill.sh <agent> <skill-name> --shared   # into the shared fleet skills dir
 ```
 
 `promote-skill.sh` moves the pending dir into the live skills dir (refusing to overwrite an existing skill) and records the skill in GBrain as `skills/<skill-name>` with provenance frontmatter per the GBrain conventions (`scope:` work/personal by team, `source: skill-harvester`, `trust: inferred`).
@@ -185,7 +214,7 @@ Runs weekly, Sunday 05:00 UTC, via `deploy/harvest.{service,timer}` — after th
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_HARVEST_AGENTS` | (example fleet names) | space-separated agents to harvest — set your own |
+| `WARDEN_HARVEST_AGENTS` | fleet roster | space-separated agents to harvest; unset = every agent in `config/fleet-roster.tsv` |
 | `WARDEN_HARVEST_WINDOW_DAYS` | `7` | lookback window for material |
 | `WARDEN_HARVEST_MODEL` | `claude-sonnet-4-6` | skill-mining model |
 | `WARDEN_HARVEST_NOTIFY` | `1` | one Telegram digest per run |
@@ -203,11 +232,11 @@ Instead of copy-pasting `promote-skill.sh` commands from a text digest, you can 
 
 **Dedicated-bot path:** set `WARDEN_DISCORD_BOT_TOKEN` and run [`contrib/discord-harvest-actions`](contrib/discord-harvest-actions) via `bin/harvest-actions.sh` / `deploy/harvest-actions.service`.
 
-Promote runs `promote-skill.sh` (with `--shared` for the fleet-wide variant), Reject moves the draft to `~/.openclaw/skills-rejected/` (never deletes), View replies ephemerally with the `SKILL.md`. Handled cards drop their buttons. Clicks are gated to the `WARDEN_DISCORD_ALLOWED_USER_IDS` allowlist and refused otherwise (default-deny: your agents live in these channels too).
+Promote runs `promote-skill.sh` (with `--shared` for the fleet-wide variant), Reject moves the draft to a rejected dir (never deletes), View replies ephemerally with the `SKILL.md`. Handled cards drop their buttons. Clicks are gated to the `WARDEN_DISCORD_ALLOWED_USER_IDS` allowlist and refused otherwise (default-deny: your agents live in these channels too).
 
 ## Model scorecard (weekly A/B benchmark)
 
-When several experimental agents run the same fleet role on different models, nothing measures which model is actually better at the fleet's work. The **model scorecard** (`bin/scorecard.sh`) closes that loop weekly with a fixed, committed benchmark across the Hermes agents you list in `WARDEN_SCORECARD_AGENTS`.
+When several experimental agents run the same fleet role on different models, nothing measures which model is actually better at the fleet's work. The **model scorecard** (`bin/scorecard.sh`) closes that loop weekly with a fixed, committed benchmark across the Hermes agents you list in `WARDEN_SCORECARD_AGENTS`. (This module runs turns through the Hermes CLI, so it currently benchmarks Hermes-hosted agents only.)
 
 Each run it:
 
@@ -224,17 +253,35 @@ Runs weekly, Saturday 06:00 UTC, via `deploy/scorecard.{service,timer}`. Config 
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_SCORECARD_AGENTS` | (example fleet names) | experimental Hermes agents (homes at `~/.hermes-<name>`) — set your own |
+| `WARDEN_SCORECARD_AGENTS` | (unset) | experimental Hermes agents (homes at `~/.hermes-<name>`) — set your own |
 | `WARDEN_SCORECARD_JUDGE_MODEL` | `claude-sonnet-4-6` | blind judge |
 | `WARDEN_SCORECARD_TURN_TIMEOUT` | `180` | seconds per agent turn before it's scored 0 |
 | `WARDEN_SCORECARD_NOTIFY` | `1` | one Telegram digest per run |
-| `WARDEN_HERMES_BIN` | `~/hermes-agent/venv/bin/hermes` | Hermes v0.18 CLI (shared venv, per-agent via `HERMES_HOME`) |
+| `WARDEN_HERMES_BIN` | `~/hermes-agent/venv/bin/hermes` | Hermes CLI (shared venv, per-agent via `HERMES_HOME`) |
+
+## Fleet review (weekly real-work quality review)
+
+The scorecard benchmarks experimental agents on synthetic tasks; it says nothing about how your production agents perform their *real* jobs. The **fleet review** (`bin/fleet-review.sh`) closes that gap weekly: for every agent in `config/fleet-roster.tsv` it harvests the work the agent actually did over the window (`lib/harvest-work.py`, over the agent's session transcripts), then a judge (`WARDEN_FLEET_JUDGE_MODEL`, default Sonnet) scores that real output against a role-aware quality bar: a 0-100 score, a one-line insight, and one recommended action per agent.
+
+Dormant agents (no sessions in the window) are recorded as idle, not scored or penalised. An agent that correctly does nothing — say, a filter agent returning NO_REPLY on marketing mail — is good filtering: the harvester collapses those runs so the judge sees the substantive work, and the judge is told as much.
+
+Outputs land in `state/fleet-review/<date>/`: `review.json` (machine-readable), `REPORT.md` (per-agent score, delta vs last run, insight), and `<agent>.sample.txt` (the harvested sample, for audit). Mirrored to GBrain as `fleet-review/YYYY-MM-DD`; one Telegram digest per run.
+
+Flags: `--agent <name>` reviews a single agent; `--dry-run` prints scores without writing or notifying. Requires `python3` and `jq`. Runs weekly, Saturday 06:30 UTC, via `deploy/fleet-review.{service,timer}` — after that morning's scorecard. Config (`config/thresholds.env`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WARDEN_FLEET_JUDGE_MODEL` | `claude-sonnet-4-6` | scores each agent's real work against its role |
+| `WARDEN_FLEET_WINDOW_DAYS` | `7` | look-back window for harvested work |
+| `WARDEN_FLEET_MAX_SAMPLE_CHARS` | `12000` | per-agent work-sample cap fed to the judge |
+| `WARDEN_FLEET_JUDGE_TIMEOUT` | `150` | seconds per judge call |
+| `WARDEN_FLEET_NOTIFY` | `1` | one Telegram digest per run |
 
 ## Memory evals (monthly regression)
 
-The reflector writes memory; nothing checked whether the memory files actually carry the knowledge an agent needs. The **memory eval** (`bin/eval-memory.sh`) closes that loop monthly for the 8 core OpenClaw agents: a fixed set of eval cases per agent, replayed against the agent's *current* `MEMORY.md` + `AGENTS.md`, with the pass-rate delta against the previous run as the regression signal.
+The reflector writes memory; nothing checked whether the memory files actually carry the knowledge an agent needs. The **memory eval** (`bin/eval-memory.sh`) closes that loop monthly for the agents in `WARDEN_EVAL_AGENTS` (default: the fleet roster): a fixed set of eval cases per agent, replayed against the agent's *current* `MEMORY.md` + `AGENTS.md`, with the pass-rate delta against the previous run as the regression signal.
 
-**Generating cases** (one-time per agent, `--generate <agent>`): reads the agent's `MEMORY.md` below the warden block plus its GBrain lessons pages (`gbrain search "lessons/<agent>"`), and asks the claude CLI (`WARDEN_EVAL_GEN_MODEL`, default Sonnet) for 10-15 cases into `~/.openclaw/evals/<agent>/cases.jsonl` — each `{"id", "question", "expected"}` where `question` is a realistic situation in which the agent should apply a stored rule/fact and `expected` is the rule/fact a correct answer must surface. Cases test **application**, not parroting: the question never names the rule. Lines are validated individually; a batch under 5 valid cases refuses to overwrite. Keep cases fixed between runs — deltas are only meaningful against a stable set.
+**Generating cases** (one-time per agent, `--generate <agent>`): reads the agent's `MEMORY.md` below the warden block plus its GBrain lessons pages (`gbrain search "lessons/<agent>"`), and asks the claude CLI (`WARDEN_EVAL_GEN_MODEL`, default Sonnet) for 10-15 cases into the agent's `evals/cases.jsonl` — each `{"id", "question", "expected"}` where `question` is a realistic situation in which the agent should apply a stored rule/fact and `expected` is the rule/fact a correct answer must surface. Cases test **application**, not parroting: the question never names the rule. Lines are validated individually; a batch under 5 valid cases refuses to overwrite. Keep cases fixed between runs — deltas are only meaningful against a stable set.
 
 **Running** (default mode), for each agent with a cases file:
 
@@ -251,13 +298,15 @@ Runs monthly, 1st 07:00 UTC, via `deploy/eval-memory.{service,timer}`. Config (`
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WARDEN_EVAL_AGENTS` | (example fleet names) | space-separated OpenClaw agents under eval — set your own |
+| `WARDEN_EVAL_AGENTS` | fleet roster | space-separated agents under eval; unset = every agent in `config/fleet-roster.tsv` |
 | `WARDEN_EVAL_MODEL` | `claude-sonnet-4-6` | answers each case with the agent's memory attached |
 | `WARDEN_EVAL_JUDGE_MODEL` | `claude-haiku-4-5-20251001` | PASS/FAIL judge |
 | `WARDEN_EVAL_GEN_MODEL` | `claude-sonnet-4-6` | `--generate` case writer |
 | `WARDEN_EVAL_NOTIFY` | `1` | one Telegram digest per run |
 
 ## Stall reaper (silent-hang backstop)
+
+*OpenClaw-specific: this module reads OpenClaw's on-disk session schema and process markers.*
 
 OpenClaw's gateway runs an in-process watchdog that kills a turn whose CLI child stops making progress. It's fast and precise, but it shares a failure domain with the gateway: it lives in the compiled runtime (a string patch that no-ops after `npm update openclaw`) and it needs the gateway's own event loop healthy enough to fire. When either fails, an agent turn hangs forever and the channel goes silent with no reply.
 
@@ -276,13 +325,15 @@ The cap sits well **above** the in-gateway watchdog, so the reaper only fires wh
 
 Either way the killed session is marked failed and the reaper **delivers the "you're back" nudge itself** (`openclaw agent --deliver`, backgrounded), rather than depending on `scan.sh`'s drainer being scheduled — independence is the whole point.
 
-Process identity is safety-gated: a pid is only ever killed if its cmdline carries the session's `--session-id` **and** its `/proc/<pid>/environ` has `OPENCLAW_MCP_AGENT_ID` for that agent — so a human's own `claude` session is never touched. Honors `WARDEN_DRY_RUN=1`.
+Process identity is safety-gated: a pid is only ever killed if its cmdline carries the session's `--session-id` **and** its `/proc/<pid>/environ` has the runtime's agent-ID marker for that agent — so a human's own `claude` session is never touched. Honors `WARDEN_DRY_RUN=1`.
 
-**Contract self-check.** The reaper reads openclaw's on-disk `sessions.json` schema. If a future openclaw upgrade reshapes that file, detection would silently return nothing and the reaper would no-op — quietly reintroducing the silent hang. So each run validates the schema and, on drift (entries present but none expose `status` / `cliSessionIds` / `updatedAt`, or the file won't parse), logs loud and fires a Telegram alert (throttled hourly) instead of failing silent. This is the one piece that keeps it honest across openclaw versions: the disk + CLI contracts are far more stable than the compiled-JS patch's anchors, but a major version bump can still move them — and when it does, you get pinged, not silence.
+**Contract self-check.** The reaper reads the gateway's on-disk `sessions.json` schema. If a future upgrade reshapes that file, detection would silently return nothing and the reaper would no-op — quietly reintroducing the silent hang. So each run validates the schema and, on drift (entries present but none expose `status` / `cliSessionIds` / `updatedAt`, or the file won't parse), logs loud and fires a Telegram alert (throttled hourly) instead of failing silent. This is the one piece that keeps it honest across gateway versions: the disk + CLI contracts are far more stable than the compiled-JS patch's anchors, but a major version bump can still move them — and when it does, you get pinged, not silence.
 
 Runs on its own cron tick every 30s. Config: `WARDEN_REAP_ENABLED`, `WARDEN_STALL_HARD_CAP_SECONDS`, `WARDEN_STALL_KILL_GRACE_SECONDS`.
 
 ## Channel/plugin parity (silent-channel backstop)
+
+*OpenClaw-specific: guards an OpenClaw packaging failure mode.*
 
 Some OpenClaw upgrades unbundle a channel plugin from core. The gateway then boots "healthy", starts the channels whose plugins survived, and **silently ignores** an enabled channel that has no provider — no error, no log line, no health alert. The channel just goes dark. (Real incident, 2026-06-11: a release unbundled Discord; every Discord agent was deaf for ~14 hours before anyone noticed.)
 
@@ -307,15 +358,16 @@ notice. The burn firewall is the warden's answer: it meters what every agent
 consumes, tells you what ate your window, and (opt-in) steps in before a
 runaway loop costs you your whole plan.
 
-**Ledger** — every scan samples per-channel token counters into an append-only
-ledger (`state/burn/<agent>.jsonl`). Records are cumulative snapshots deduped
-on change, so idle fleets stay ledger-quiet and a missed sample never corrupts
-history. Retention via `cleanup-archives.sh` (`WARDEN_BURN_RETENTION_DAYS`).
+**Ledger** (`lib/burn.sh`) — every scan samples per-channel token counters into
+an append-only ledger (`state/burn/<agent>.jsonl`). Records are cumulative
+snapshots deduped on change, so idle fleets stay ledger-quiet and a missed
+sample never corrupts history. Retention via `cleanup-archives.sh`
+(`WARDEN_BURN_RETENTION_DAYS`).
 
-**Report** — `session-warden burn` answers "what ate my usage": tokens per
-agent/channel inside the current window (default 5h), rotation resets handled,
-`--json` for scripts, `--agent` to filter, budget percentage when a budget is
-set.
+**Report** (`bin/burn-report.sh`) — `session-warden burn` answers "what ate my
+usage": tokens per agent/channel inside the current window (default 5h),
+rotation resets handled, `--json` for scripts, `--agent` to filter, budget
+percentage when a budget is set.
 
 **Detection** (alert-only by default, throttled Telegram alerts):
 - `BURN` — a channel consumed more than `WARDEN_BURN_SPIKE_TOKENS_5M` within
@@ -340,10 +392,11 @@ live in `state/burn/events.jsonl`.
 
 ### Solo mode (standalone Claude Code)
 
-Session Warden Solo covers the usage that never passes through the OpenClaw
-gateway: plain Claude Code sessions under `~/.claude/projects`. It writes the
-same cumulative burn-ledger shape to `state/burn/solo.jsonl`, with each
-standalone session reported as its own channel (`project:sid`). OpenClaw agent
+Session Warden Solo covers the usage that never passes through a gateway:
+plain Claude Code sessions under `~/.claude/projects`. The sampler
+(`bin/burn-solo-sample.sh`, logic in `lib/burn-solo.sh`) writes the same
+cumulative burn-ledger shape to `state/burn/solo.jsonl`, with each standalone
+session reported as its own channel (`project:sid`). Gateway-managed agent
 transcripts are excluded because the normal burn firewall already meters them.
 
 This is subscription-window protection for the Claude plan you already pay for;
@@ -389,21 +442,22 @@ cd ~/session-warden
 bash install.sh
 ```
 
-The installer will:
-- Check dependencies (`jq`, `claude` CLI, `curl` required; `python3` and `gbrain` optional — `gbrain` is required only for the snapshot module and GBrain memory)
-- Detect your OpenClaw installation path (it exits if OpenClaw isn't installed)
+The installer targets the OpenClaw runtime and will:
+- Check dependencies (`jq`, `claude` CLI, `curl` required; `python3` and `gbrain` optional — `gbrain` is needed for the snapshot module's output and the dream cycle)
+- Detect your OpenClaw installation path (it exits if OpenClaw isn't installed — on another runtime, use the building blocks per [docs/integrations.md](docs/integrations.md) instead)
 - Create a config file from the example, then **stop and ask you to review it** — edit `config/thresholds.env`, then run `bash install.sh` a second time
 - On the second run: install cron entries (rotation scan + stall reaper every 30 seconds, doctor every 5 minutes, snapshot every 30 minutes)
 
-The nightly/weekly modules (dream cycle, reflector, harvester, scorecard, evals) are systemd user timers, installed separately:
+The nightly/weekly modules (dream cycle, reflector, harvester, scorecard, fleet review, evals) are systemd user timers, installed separately:
 
 ```bash
 cp deploy/*.service deploy/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now dream-cycle.timer reflect.timer harvest.timer scorecard.timer eval-memory.timer rate-guard.timer
+systemctl --user enable --now dream-cycle.timer reflect.timer harvest.timer \
+  scorecard.timer fleet-review.timer eval-memory.timer rate-guard.timer
 ```
 
-Only enable the timers whose modules you actually use (the dream cycle requires GBrain; the others mirror into GBrain when it's available). Rate guard needs the Anthropic OAuth usage signal (`~/.claude/.credentials.json`) and pairs with `contrib/openclaw-plugins/fleet-rate-guard` enabled in `openclaw.json`.
+Only enable the timers whose modules you actually use (the dream cycle requires GBrain; the others mirror into GBrain when it's available). `deploy/snapshot.{service,timer}` is the systemd alternative to snapshot's cron entry. Rate guard needs the Anthropic OAuth usage signal (`~/.claude/.credentials.json`) and pairs with `contrib/openclaw-plugins/fleet-rate-guard` enabled in `openclaw.json`.
 
 ### CLI
 
@@ -418,6 +472,12 @@ After install, use the `session-warden` CLI:
 
 # manually rotate a specific session
 ~/session-warden/bin/session-warden rotate my-agent discord-general
+
+# what ate my usage window?
+~/session-warden/bin/session-warden burn
+
+# checkpoint an agent's live work before a manual restart or model change
+~/session-warden/bin/session-warden handoff my-agent
 
 # tail the log
 ~/session-warden/bin/session-warden logs -f
@@ -467,39 +527,56 @@ All config lives in `config/thresholds.env`. Key settings:
 | `WARDEN_TELEGRAM_CHAT_ID` | (empty) | Telegram chat ID for rotation alerts |
 | `WARDEN_NOTIFY_ROTATIONS` | 0 | Post a chat alert on every routine rotation. Off by default — routine threshold rotations recover silently (logged only); crash and stall recoveries always notify regardless |
 
-All `WARDEN_*` variables can be overridden via environment (env takes precedence over the config file). The table above is the short list — [`config/thresholds.env.example`](config/thresholds.env.example) is the complete, commented reference for every variable the scripts read, including all the per-module (reflector/harvester/scorecard/eval) settings and advanced knobs.
+All `WARDEN_*` variables can be overridden via environment (env takes precedence over the config file). The table above is the short list — [`config/thresholds.env.example`](config/thresholds.env.example) is the complete, commented reference for every variable the scripts read, including all the per-module (reflector/harvester/scorecard/fleet-review/eval) settings and advanced knobs. Secrets (bot tokens, API keys) belong in `~/.config/session-warden/secrets.env` (chmod 600), which the config sources if present.
 
 ## Architecture
 
 ```
 session-warden/
 ├── bin/
-│   ├── session-warden       # CLI entrypoint (scan, status, rotate, install, logs)
+│   ├── session-warden       # CLI entrypoint (scan, status, rotate, burn, handoff, model-switch, doctor, logs)
 │   ├── scan.sh              # cron entry point (every 30s)
 │   ├── reap-stalls.sh       # independent stall backstop (disk + /proc only)
 │   ├── reap-worktrees.sh    # GC for ephemeral agent worktrees (cron, 15 min)
-│   ├── wt                   # agent worktree helper (symlink to ~/.local/bin/wt)
+│   ├── wt                   # agent worktree helper
 │   ├── rotate.sh            # fast-path: backup, archive, cleanup
 │   ├── summarize.sh         # extract transcript, summarize, write memory
 │   ├── status.sh            # show session health across all agents
 │   ├── context-sync.sh      # periodic context capture for active sessions
 │   ├── snapshot.sh          # standalone Claude Code sessions → GBrain
 │   ├── dream-cycle.sh       # nightly GBrain maintenance + daily digest
-│   ├── reflect.sh           # nightly lesson distillation (+ apply-lessons.sh)
-│   ├── harvest-skills.sh    # weekly skill mining (+ promote-skill.sh)
-│   ├── scorecard.sh         # weekly blind model benchmark
+│   ├── reflect.sh           # nightly lesson distillation
+│   ├── apply-lessons.sh     # promote staged lessons into MEMORY.md + GBrain
+│   ├── harvest-skills.sh    # weekly skill mining
+│   ├── promote-skill.sh     # promote a staged SKILL.md draft
+│   ├── harvest-actions.sh   # Discord button listener (dedicated-bot path)
+│   ├── scorecard.sh         # weekly blind model benchmark (Hermes agents)
+│   ├── fleet-review.sh      # weekly real-work quality review (roster agents)
 │   ├── eval-memory.sh       # monthly memory-quality regression
+│   ├── handoff.sh           # checkpoint live work (CLI over lib/handoff.sh)
+│   ├── model-switch.sh      # handoff, then change an agent's primary model
+│   ├── rate-guard.sh        # demote/restore rate-limited providers
+│   ├── burn-report.sh       # "what ate my usage" report (session-warden burn)
+│   ├── burn-solo-sample.sh  # sample standalone Claude Code usage
 │   ├── doctor.sh            # warden self-health + dead-man's switch
 │   ├── backfill-gbrain-links.sh  # one-shot graph-edge backfill for old pages
-│   ├── cleanup-archives.sh  # delete old archived JSONL (cron daily)
+│   ├── cleanup-archives.sh  # bounded growth for archives/logs/queues (cron daily)
 │   └── mcp-supervisor.sh    # keep MCP servers alive across rotations
 ├── lib/
 │   ├── detect.sh            # threshold + zombie detection
-│   ├── extract.sh           # JSONL → conversation transcript (text + tools)
-│   ├── memory.sh            # summarize + write to Claude Code native memory
-│   ├── notify.sh            # Telegram alerts
+│   ├── extract.sh           # Claude Code JSONL → transcript (gateway-free)
+│   ├── extract-hermes.py    # Hermes state.db → the same transcript shape
+│   ├── memory.sh            # summarize + write memory files (per-runtime writers)
+│   ├── handoff.sh           # runtime detection + checkpoint primitive
+│   ├── burn.sh              # burn ledger, detection, enforcement
+│   ├── burn-solo.sh         # standalone-session burn sampling
+│   ├── rate-guard.{sh,py}   # provider demotion/restore logic
+│   ├── notify.sh            # Telegram alerts (+ Discord cards)
 │   ├── gbrain.sh            # bounded GBrain CLI wrappers
+│   ├── registry.sh          # runtime agent registry (agents.list) gate
+│   ├── roster.sh            # config/fleet-roster.tsv reader
 │   ├── agent-attribution.sh # working dir → agent name resolution
+│   ├── harvest-work.py      # collapse a week of transcripts into a work sample
 │   ├── portable.sh          # GNU/BSD stat helpers
 │   ├── reap.sh              # stall detection + safe kill logic
 │   ├── channel-history.sh   # fetch recent Discord/Telegram messages
@@ -510,11 +587,15 @@ session-warden/
 │       └── 01-gbrain.sh    # ingest memory into GBrain
 ├── contrib/
 │   ├── openclaw-patches/   # optional OpenClaw JS patches (version-specific)
+│   ├── openclaw-plugins/   # OpenClaw plugins: fleet-rate-guard, harvest-skill-actions, error-humanizer
+│   ├── discord-harvest-actions/  # dedicated-bot Discord listener for skill proposals
 │   ├── costs/              # token spend vs. subscription cost model
 │   ├── timers/             # recurring-loop collector (systemd timers + crontab)
 │   └── fleet-live/         # static public fleet board
-├── deploy/                 # systemd user units, logrotate policy
-├── tests/                  # full test suite (bash tests/run-tests.sh)
+├── deploy/                 # systemd user units, logrotate policy, launchd template
+├── docs/
+│   └── integrations.md     # what a new runtime/interface integration needs
+├── tests/                  # test suite (bash tests/run-tests.sh)
 ├── config/
 │   ├── thresholds.env.example       # complete config reference
 │   ├── agent-paths.env.example      # optional path-glob → agent attribution map
@@ -538,9 +619,10 @@ cron (30s)
        │    └─ channel-history.sh → capture unprocessed Discord messages
        ├─ summarize.sh (synchronous, before restart)
        │    ├─ extract.sh → JSONL → human-readable transcript
-       │    ├─ memory.sh → Haiku summarization → Claude Code memory
+       │    ├─ memory.sh → Haiku summarization → memory files
        │    └─ hooks/post-summary/*.sh (background)
-       ├─ openclaw gateway restart
+       ├─ burn.sh → sample ledger, check spike/budget/loop
+       ├─ gateway restart
        └─ send recovery messages to agents
 ```
 
@@ -569,7 +651,7 @@ Example hooks you could write:
 
 ### MCP supervisor
 
-Keeps heavy MCP servers (like Notion) running as persistent HTTP processes that survive CLI session rotations. Define your servers in `config/mcp-servers.env` or edit the defaults in the script.
+Keeps heavy MCP servers (like Notion) running as persistent HTTP processes that survive CLI session rotations. Define your servers in `config/mcp-servers.env` (create it — no `.example` ships) or edit the defaults in the script.
 
 ```bash
 bash ~/session-warden/bin/mcp-supervisor.sh start
@@ -581,7 +663,7 @@ bash ~/session-warden/bin/mcp-supervisor.sh ensure  # idempotent, good for cron
 
 Bounded growth for everything the warden writes: archived JSONLs, `scan.log`
 (size-based rotation, `WARDEN_LOG_MAX_BYTES`), stale recovery/summary queue
-items, and expired cooldown markers. Run daily via cron.
+items, expired cooldown markers, and burn ledgers. Run daily via cron.
 
 ```bash
 # add to crontab
@@ -608,12 +690,6 @@ filenames from colliding.
 
 ### Doctor (self-health + dead-man's switch)
 
-Doctor also guards the skills prompt budget: OpenClaw renders every live
-skill's name and description into every prompt, capped at
-`maxSkillsPromptChars` (default 18,000 chars) — past the cap it silently drops
-skills. Doctor warns at 80% of the budget and fails above it, per agent
-(`WARDEN_SKILLS_PROMPT_BUDGET` / `WARDEN_SKILLS_MAX_COUNT` to tune).
-
 The warden monitors agents; `doctor` monitors the warden. It derives the
 expected wiring and diffs it against reality — cron entries, loop heartbeats,
 gateway state, dist patches (opt-in), dependencies, disk, queue backlogs.
@@ -626,6 +702,12 @@ session-warden doctor
 */5 * * * * ~/session-warden/bin/doctor.sh --alert
 ```
 
+Doctor also guards the skills prompt budget on OpenClaw fleets: the runtime
+renders every live skill's name and description into every prompt, capped at
+`maxSkillsPromptChars` (default 18,000 chars) — past the cap it silently drops
+skills. Doctor warns at 80% of the budget and fails above it, per agent
+(`WARDEN_SKILLS_PROMPT_BUDGET` / `WARDEN_SKILLS_MAX_COUNT` to tune).
+
 Set `WARDEN_HEARTBEAT_URL` (e.g. a [healthchecks.io](https://healthchecks.io)
 check) and doctor pings it on every fully-healthy run. If the host dies or
 doctor itself gets unwired, the pings stop and the external service alerts you
@@ -633,23 +715,23 @@ doctor itself gets unwired, the pings stop and the external service alerts you
 
 ### Agent registry gate
 
-Warden supervises the agents openclaw declares in `agents.list`, not every
-directory under `~/.openclaw/agents/`. This matters because supervising an
-agent is what keeps it running: a rotation ends in a recovery message that
-wakes it. Discovery by directory glob therefore made a retired agent
-self-perpetuating — it kept its session files, so warden kept rotating and
-recovering it long after it was meant to be gone.
+The warden supervises the agents the runtime declares (OpenClaw's
+`agents.list`), not every directory under its agents dir. This matters because
+supervising an agent is what keeps it running: a rotation ends in a recovery
+message that wakes it. Discovery by directory glob therefore made a retired
+agent self-perpetuating — it kept its session files, so the warden kept
+rotating and recovering it long after it was meant to be gone.
 
-Retiring an agent is removing it from `agents.list`. Warden then leaves it
+Retiring an agent is removing it from the registry. The warden then leaves it
 alone, and `doctor.sh` fails if an undeclared agent is still running, so a
 half-finished retirement is loud rather than silent.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `WARDEN_UNMANAGED_AGENTS` | `claude claude-code main` | Session directories openclaw owns for subagent spawns. Never supervised, never reported. |
+| `WARDEN_UNMANAGED_AGENTS` | `claude claude-code main` | Session directories the runtime owns for subagent spawns. Never supervised, never reported. |
 | `WARDEN_STRAY_ACTIVE_MAX_AGE` | `86400` | How recently an undeclared agent must have run for doctor to call it a live leak rather than leftover files. |
 
-A missing or unreadable `openclaw.json` means "no opinion": warden scans
+A missing or unreadable runtime config means "no opinion": the warden scans
 everything, as it did before. A config that fails to parse must never switch
 supervision off for the whole fleet.
 
@@ -702,12 +784,11 @@ bash tests/run-tests.sh
 
 # run a single test file
 bash tests/run-tests.sh test-detect
-
 # verbose output
 bash tests/run-tests.sh -v
 ```
 
-Tests use a sandboxed mock environment — no real OpenClaw sessions, cron entries, or API calls are touched.
+Tests use a sandboxed mock environment — no real gateway sessions, cron entries, or API calls are touched. The suite targets Linux (it relies on `flock` and GNU tooling); expect failures if you run it on macOS.
 
 ## Monitoring
 
@@ -738,10 +819,10 @@ grep "ERROR" ~/session-warden/state/scan.log
 
 ## Related issues
 
-This tool addresses problems reported across the Claude Code and OpenClaw ecosystems:
+This tool addresses problems reported across the Claude Code agent-fleet ecosystem:
 
 - Session token accumulation with no auto-rotation
-- Large JSONL files crashing the gateway
+- Large JSONL files crashing gateways
 - Session continuity lost after forced resets
 - Infinite error loops from stale session pointers
 
