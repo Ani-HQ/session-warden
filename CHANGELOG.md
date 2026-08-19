@@ -13,6 +13,13 @@ Notable changes to session-warden.
   `config/thresholds.env` or the weekly scorecard exits with an error.
 - Issue templates added; CI and license badges on the README.
 
+### Fixed — model-switch syncs Hermes identity files
+
+- After a Hermes model switch, `bin/model-switch.sh` now updates the model
+  named in the agent's identity files (`SOUL.md`, `CLAUDE.md`, `CONTEXT.md`,
+  `AGENTS.md`) so the agent doesn't keep claiming the old model; warns when
+  no identity line matched. (Upstreamed from a fleet-host hotfix.)
+
 ## [Unreleased] — documentation: runtime-agnostic positioning
 
 ### Changed — docs only, no behavior change
