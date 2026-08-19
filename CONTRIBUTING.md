@@ -25,7 +25,15 @@ on every PR.
   `# shellcheck disable=SCxxxx` with a one-line justification comment.
 - Portability: use the helpers in `lib/portable.sh` instead of raw `stat`
   flags (GNU vs BSD). Scripts should keep working on both Linux and macOS
-  where practical.
+  where practical — but be honest about the baseline: the supervision core
+  and the test suite target Linux (`/proc`, `flock`, GNU tools), and the
+  suite is expected to fail on macOS. Verify on Linux (or in CI) before
+  calling a change green.
+- Runtime coupling: keep gateway-specific logic (paths, CLIs, schemas for
+  OpenClaw or Hermes) behind clearly named functions rather than inlined in
+  shared code — `lib/handoff.sh`'s runtime dispatch and
+  `lib/extract-hermes.py` are the pattern. `docs/integrations.md` documents
+  the current coupling surface; update it if you move it.
 - Config: any new tunable must be a `WARDEN_*` variable with a sane default,
   documented in `config/thresholds.env.example`.
 - Production safety first: these scripts run from cron against live agent

@@ -9,9 +9,10 @@ on this repository. You should get an acknowledgement within a few days.
 
 ## Scope notes
 
-session-warden runs with your user's privileges, reads OpenClaw session
-state, can kill processes it identifies as wedged agent CLI children, and can
-restart the OpenClaw gateway. Anything that could trick it into killing the
+session-warden runs with your user's privileges, reads agent-runtime session
+state (OpenClaw and Hermes today), can kill processes it identifies as wedged
+agent CLI children, and can restart the runtime's gateway. Anything that
+could trick it into killing the
 wrong process, executing untrusted input, or leaking credentials (Telegram
 token, API keys pulled into the environment) is in scope.
 

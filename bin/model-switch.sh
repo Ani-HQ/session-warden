@@ -209,6 +209,28 @@ PY
     return 1
   fi
   echo "Updated Hermes model for $agent → $model (backup $bak)"
+  # Keep SOUL/CLAUDE/CONTEXT in sync so the agent does not claim the old model
+  python3 - "$hermes_home" "$model" <<'IDPY'
+from pathlib import Path
+import re, sys
+home, model = Path(sys.argv[1]), sys.argv[2]
+replacements = 0
+for name in ("SOUL.md", "CLAUDE.md", "CONTEXT.md", "AGENTS.md"):
+    path = home / name
+    if not path.exists():
+        continue
+    text = path.read_text()
+    orig = text
+    text, n = re.subn(r"(you run )\S+", rf"\1{model}", text, count=1)
+    text, n2 = re.subn(r"(- model: )\S+", rf"\1{model}", text, count=1)
+    if text != orig:
+        path.write_text(text)
+        replacements += 1
+        print(f"updated identity {name}")
+if replacements == 0:
+    print("WARN: no SOUL/CLAUDE model lines updated — edit identity files by hand")
+IDPY
+
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
   systemctl --user restart "hermes-${agent}-gateway.service"
   echo "Restarted hermes-${agent}-gateway"

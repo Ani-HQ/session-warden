@@ -2,6 +2,47 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — open-source readiness
+
+### Changed — scorecard agents must be configured
+
+- `bin/scorecard.sh` no longer ships a default agent list (previously a
+  hard-coded personal fleet) and reads each agent's model label live from
+  `~/.hermes-<name>/config.yaml` (`model.default`) instead of a hard-coded
+  map. **Breaking for existing installs:** set `WARDEN_SCORECARD_AGENTS` in
+  `config/thresholds.env` or the weekly scorecard exits with an error.
+- Issue templates added; CI and license badges on the README.
+
+### Fixed — model-switch syncs Hermes identity files
+
+- After a Hermes model switch, `bin/model-switch.sh` now updates the model
+  named in the agent's identity files (`SOUL.md`, `CLAUDE.md`, `CONTEXT.md`,
+  `AGENTS.md`) so the agent doesn't keep claiming the old model; warns when
+  no identity line matched. (Upstreamed from a fleet-host hotfix.)
+
+## [Unreleased] — documentation: runtime-agnostic positioning
+
+### Changed — docs only, no behavior change
+
+- README rewritten around the fleet stack (interface → runtime → Claude Code →
+  warden) with an explicit runtime-support matrix: OpenClaw turnkey, Hermes
+  partial (handoff, model-switch, scorecard, dream-cycle ingest), standalone
+  Claude Code runtime-free (snapshot, solo burn). States plainly that there is
+  no Codex CLI session support and that memory carry-over is workspace-level
+  (survives model switches).
+- New `docs/integrations.md`: the exact contract a new runtime integration
+  needs (session state, transcript paths, restart/delivery, memory injection
+  point, kill-safety markers), what's already gateway-free, and the Hermes
+  integration as the worked example.
+- Accuracy fixes: snapshot degrades gracefully without GBrain (logs
+  `GBRAIN UNAVAILABLE`, exits 0) rather than erroring; reflector/harvester/eval
+  agent lists default to the fleet roster, not example names; documented the
+  previously unlisted `bin/fleet-review.sh`, `bin/burn-report.sh`, and
+  `bin/burn-solo-sample.sh`; completed the architecture tree (handoff,
+  model-switch, rate-guard, openclaw-plugins, discord-harvest-actions, and the
+  full `lib/`); quick start now includes `fleet-review.timer` and the
+  snapshot systemd alternative; Linux-first platform expectations called out.
+
 ## [Unreleased] — GBrain transcript ingest in dream-cycle
 
 ### Added — nightly OpenClaw + Hermes transcript backfill
@@ -163,7 +204,8 @@ Notable changes to session-warden.
 
 ### Changed — health dashboard information architecture
 
-- `contrib/health-dashboard/generate.sh` rewritten around a founder-first
+- `contrib/health-dashboard/generate.sh` (operator-only, not shipped in this
+  repo) rewritten around a founder-first
   layout: a plain-English verdict (written each run by a cheap model, with a
   deterministic fallback so the page never blanks), a ranked "needs attention"
   list computed from live signals, a unified fleet-performance panel (work /
