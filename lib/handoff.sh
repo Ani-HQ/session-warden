@@ -22,16 +22,15 @@ source "${WARDEN_HOME}/lib/memory.sh"
 # shellcheck source=gbrain.sh
 source "${WARDEN_HOME}/lib/gbrain.sh"
 
-HANDOFF_TIMEOUT="${WARDEN_HANDOFF_TIMEOUT:-45}"
 HANDOFF_GRACEFUL_TIMEOUT="${WARDEN_HANDOFF_GRACEFUL_TIMEOUT:-${WARDEN_GRACEFUL_TIMEOUT:-20}}"
 HANDOFF_MIDTURN_WAIT="${WARDEN_HANDOFF_MIDTURN_WAIT:-60}"
 HANDOFF_LOG="${WARDEN_LOG_FILE:-${WARDEN_HOME}/state/scan.log}"
 OPENCLAW_HOME="${WARDEN_OPENCLAW_HOME:-$HOME/.openclaw}"
 CLAUDE_PROJECTS="${WARDEN_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
-HERMES_BIN="${WARDEN_HERMES_BIN:-$HOME/hermes-agent/venv/bin/hermes}"
 
 _handoff_log() {
-  local line="[$(date -Iseconds)] HANDOFF: $*"
+  local line
+  line="[$(date -Iseconds)] HANDOFF: $*"
   echo "$line" >> "$HANDOFF_LOG" 2>/dev/null || true
   echo "$line" >&2
 }
@@ -99,7 +98,8 @@ _handoff_wait_hermes_idle() {
 _handoff_openclaw() {
   local agent="$1" reason="$2" force="$3"
   local sjson="${OPENCLAW_HOME}/agents/${agent}/sessions/sessions.json"
-  local jsonl_base="${CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
+  local jsonl_base
+  jsonl_base="${CLAUDE_PROJECTS}/-home-$(whoami)--openclaw-agents-${agent}"
   local captured=0 last_slug="" channel_key cli_session_id jsonl_file transcript_file mem_dir live_mem
 
   if [ ! -f "$sjson" ]; then

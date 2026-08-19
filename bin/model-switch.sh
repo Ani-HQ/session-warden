@@ -103,7 +103,8 @@ queue_openclaw_recovery() {
 apply_openclaw_model() {
   local agent="$1" model="$2"
   [ -f "$CFG" ] || { echo "ERROR: missing $CFG" >&2; return 1; }
-  local bak="${CFG}.bak-model-switch-$(date +%Y%m%d-%H%M%S)"
+  local bak
+  bak="${CFG}.bak-model-switch-$(date +%Y%m%d-%H%M%S)"
   cp "$CFG" "$bak"
 
   python3 - "$CFG" "$agent" "$model" <<'PY'
@@ -181,7 +182,8 @@ apply_hermes_model() {
   hermes_home=$(hermes_home_for "$agent")
   cfg="${hermes_home}/config.yaml"
   [ -f "$cfg" ] || { echo "ERROR: missing $cfg" >&2; return 1; }
-  local bak="${cfg}.bak-model-switch-$(date +%Y%m%d-%H%M%S)"
+  local bak
+  bak="${cfg}.bak-model-switch-$(date +%Y%m%d-%H%M%S)"
   cp "$cfg" "$bak"
   python3 - "$cfg" "$model" <<'PY'
 import re, sys
@@ -236,7 +238,7 @@ IDPY
   echo "Restarted hermes-${agent}-gateway"
 
   # Best-effort wake via hermes send into active telegram session
-  local slug="" meta="${WARDEN_HOME}/state/handoff/${agent}.meta"
+  local slug=""
   [ -f "${WARDEN_HOME}/state/handoff/${agent}.hermes.slug" ] && \
     slug=$(cat "${WARDEN_HOME}/state/handoff/${agent}.hermes.slug")
   local msg
