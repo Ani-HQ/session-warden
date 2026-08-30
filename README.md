@@ -56,7 +56,7 @@ Runtimes can make this worse. OpenClaw, for example, keeps a dead session ID pin
 
 A cron job runs every 30 seconds. When it finds a session that's failed or exceeds configurable thresholds (tokens, turns, compaction count), it runs a 4-step rotation:
 
-1. **Detect** — scan session state for bloat, failures, or zombies (dead CLI process with stale JSONL)
+1. **Detect** — scan session state for bloat, failures, or zombies (a *running* turn whose CLI is dead and whose JSONL is stale; finished/heartbeat sessions are left alone)
 2. **Rotate** — backup state, archive the JSONL (never deleted), clean up the stale session reference
 3. **Summarize** — extract the full conversation (text + tool actions), summarize with a fast model (Haiku), write it into the agent's memory files
 4. **Restart** — restart the runtime gateway so agents boot with full context already loaded

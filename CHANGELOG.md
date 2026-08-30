@@ -2,6 +2,19 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — zombie detector ignores finished heartbeats
+
+### Fixed — idle/done sessions are not zombies
+
+- `lib/detect.sh` only flags ZOMBIE when `status=running` (a turn in flight
+  whose CLI died). Heartbeats and finished chats leave `done`/`idle` with a
+  fresh `updatedAt` and an exited CLI — that is rest. The old activity-window
+  check treated those as in-use, so fleets with hourly heartbeats rotated
+  `:main` every 2h, sent a recovery prompt, and primed ~80–100k cache tokens.
+  That also tripped 5-minute burn-spike Telegram alerts (sid-change counted
+  two session totals in one window). Failed next-message still goes through
+  pass 1 (`status=failed`); wedged in-flight turns stay with the stall reaper.
+
 ## [Unreleased] — open-source readiness
 
 ### Changed — scorecard agents must be configured

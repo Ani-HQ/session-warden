@@ -60,17 +60,19 @@ detect_sessions_problems() {
     end
   ' "$sjson" 2>/dev/null
 
-  # Pass 2: zombie detection — a session someone is TRYING TO USE whose CLI is
-  # gone: recent channel activity (updatedAt) + dead process + stale JSONL.
+  # Pass 2: zombie detection — a turn IN FLIGHT whose CLI is gone:
+  # status=running + recent updatedAt + dead process + stale JSONL.
   #
-  # The activity requirement is load-bearing. "Process dead + stale JSONL"
-  # alone is the normal resting state of every idle session (the CLI exits
-  # when a conversation finishes), so without it the warden rotates idle
-  # fleets on a loop: rotate -> recovery prompt wakes the agent -> new session
-  # -> goes idle -> re-zombied as soon as the recovery grace expires. Observed
-  # live: all agents' :main sessions rotating in a batch every 2 hours with
-  # zero human usage. Idle sessions need nothing from us — if their next
-  # message fails, status becomes "failed" and pass 1 catches it.
+  # status=running is load-bearing. Heartbeats (and any finished turn) leave
+  # status done/idle, updatedAt fresh, and the CLI exited — that is the normal
+  # resting state. Treating updatedAt alone as "someone is using this" rotates
+  # the fleet every recovery_grace (2h): rotate -> recovery prompt wakes the
+  # agent (80–100k cache prime) -> heartbeat -> idle -> re-zombie. Observed
+  # live: ping/dash/isaac/bloop :main rotating on a 2h clock with zero human
+  # chat, which also tripped the 5-minute burn spike (sid-change double count).
+  # Idle/done sessions need nothing from us — if their next real message fails,
+  # status becomes "failed" and pass 1 catches it. The stall reaper covers
+  # wedged running turns that are still writing a transcript.
   local now_epoch
   now_epoch=$(date +%s)
   local stale_threshold=1800
@@ -115,7 +117,7 @@ detect_sessions_problems() {
   done < <(jq -r '
     to_entries[] |
     select(.value.cliSessionIds["claude-cli"] // "" | length > 0) |
-    select(.value.status != "failed") |
+    select(.value.status == "running") |
     "\(.key)|\(.value.cliSessionIds["claude-cli"])|\(.value.updatedAt // 0)"
   ' "$sjson" 2>/dev/null)
 }

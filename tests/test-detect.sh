@@ -215,14 +215,16 @@ assert_empty "$problems" "missing sessions.json produces no problems"
 
 echo "  detect: zombie detection"
 
-# ─── Zombie: dead process + stale JSONL ───────────────────
+# ─── Zombie: in-flight turn (status=running) + dead process + stale JSONL
+# Heartbeats and finished chats leave status done/idle with a fresh updatedAt
+# and an exited CLI — that is rest, not a zombie.
 
 create_sessions_json "test-agent" '{
   "discord-dm": {
     "totalTokens": 100000,
     "numTurns": 50,
     "compactionCount": 1,
-    "status": "idle",
+    "status": "running",
     "updatedAt": '"$(now_ms)"',
     "cliSessionIds": {"claude-cli": "sess-zombie-001"}
   }
@@ -235,7 +237,7 @@ echo '{"type":"test"}' > "$jsonl_dir/sess-zombie-001.jsonl"
 touch_relative "2 hours ago" "$jsonl_dir/sess-zombie-001.jsonl"
 
 problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
-assert_contains "$problems" "ZOMBIE" "detect zombie session (dead process + stale JSONL)"
+assert_contains "$problems" "ZOMBIE" "detect zombie session (running + dead process + stale JSONL)"
 
 echo "  detect: zombie skip after recovery"
 
@@ -248,6 +250,46 @@ problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/session
 assert_not_contains "$problems" "ZOMBIE" "skip zombie if recently recovered"
 
 rm -f "$WARDEN_HOME/state/cooldowns/test-agent-discord-dm.recovered"
+
+echo "  detect: heartbeat rest state is not a zombie"
+
+# ─── Finished turn / heartbeat: recent updatedAt, CLI gone, JSONL stale ──
+# Live failure: hourly heartbeats keep updatedAt fresh, so the activity
+# window alone re-zombied :main every 2h and burned a cache prime each time.
+
+create_sessions_json "test-agent" '{
+  "agent:test-agent:main": {
+    "totalTokens": 90000,
+    "numTurns": 0,
+    "compactionCount": 1,
+    "status": "done",
+    "updatedAt": '"$(now_ms)"',
+    "cliSessionIds": {"claude-cli": "sess-heartbeat-001"}
+  }
+}'
+
+echo '{"type":"test"}' > "$jsonl_dir/sess-heartbeat-001.jsonl"
+touch_relative "2 hours ago" "$jsonl_dir/sess-heartbeat-001.jsonl"
+
+problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
+assert_not_contains "$problems" "ZOMBIE" "done session with fresh updatedAt is rest, not zombie"
+
+create_sessions_json "test-agent" '{
+  "agent:test-agent:main": {
+    "totalTokens": 90000,
+    "numTurns": 0,
+    "compactionCount": 1,
+    "status": "idle",
+    "updatedAt": '"$(now_ms)"',
+    "cliSessionIds": {"claude-cli": "sess-heartbeat-idle-001"}
+  }
+}'
+
+echo '{"type":"test"}' > "$jsonl_dir/sess-heartbeat-idle-001.jsonl"
+touch_relative "2 hours ago" "$jsonl_dir/sess-heartbeat-idle-001.jsonl"
+
+problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
+assert_not_contains "$problems" "ZOMBIE" "idle session with fresh updatedAt is rest, not zombie"
 
 echo "  detect: idle session is not a zombie"
 
