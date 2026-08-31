@@ -45,6 +45,8 @@ echo "  memory: build_fallback_memory"
 fallback=$(build_fallback_memory "line 1
 line 2
 line 3" "")
+assert_contains "$fallback" "INCOMPLETE:" "fallback starts as an incomplete report, not a finished handoff"
+assert_contains "$fallback" "Do not report this work as done" "fallback tells the next agent not to claim done"
 assert_contains "$fallback" "fallback" "fallback memory indicates fallback"
 assert_contains "$fallback" "line 1" "fallback contains transcript lines"
 

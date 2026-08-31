@@ -17,6 +17,7 @@ source "${WARDEN_HOME}/lib/registry.sh"  # declared_agents / agent_is_managed
 source "${WARDEN_HOME}/lib/burn.sh"
 source "${WARDEN_HOME}/lib/channel-history.sh"
 source "${WARDEN_HOME}/lib/gbrain.sh"
+source "${WARDEN_HOME}/lib/recovery.sh"
 
 LOG_FILE="${WARDEN_LOG_FILE}"
 LOCKFILE="${WARDEN_HOME}/state/scan.lock"
@@ -183,7 +184,10 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
 
         # Build recovery message with inlined context AND crash buffer
         context_file="${WARDEN_OPENCLAW_HOME}/agents/${ragent}/CONTEXT.md"
-        recovery_msg=""
+        context_content=""
+        if [ -f "$context_file" ]; then
+          context_content=$(cat "$context_file" 2>/dev/null)
+        fi
 
         # Read crash buffer (unprocessed messages from before the crash)
         crash_buf=""
@@ -191,35 +195,7 @@ if [ -d "$recovery_dir" ] && ls "${recovery_dir}"/*.json 1>/dev/null 2>&1; then
           crash_buf=$(read_crash_buffer "$ragent" "$rchannel")
         fi
 
-        if [ -f "$context_file" ]; then
-          context_content=$(cat "$context_file" 2>/dev/null)
-          if [ -n "$context_content" ]; then
-            if [ -n "$crash_buf" ]; then
-              recovery_msg="You just came back from a session restart. Here is context from a PREVIOUS session, INCLUDING messages that were sent to you but never processed because you crashed:
-
-${context_content}
-
-The 'Unprocessed Messages' section above contains what team members said RIGHT BEFORE your crash. These are your TOP PRIORITY. Execute them immediately without asking anyone to repeat themselves. Send one short message confirming you're back and what you're about to do, then do it."
-            else
-              recovery_msg="You just came back from a session restart. Here is context from a PREVIOUS session (it may be stale or from a different task):
-
-${context_content}
-
-IMPORTANT: This context may NOT reflect what you were last asked to do. Before resuming, ALWAYS check the recent messages in this channel (scroll up or check Discord history) to find your actual current task. The most recent user message is your priority, not the context above. Send one short message saying you're back, then resume the actual pending work from the channel."
-            fi
-          fi
-        fi
-        if [ -z "$recovery_msg" ]; then
-          if [ -n "$crash_buf" ]; then
-            recovery_msg="You just came back from a session restart. Here are messages that were sent to you but never processed because you crashed:
-
-${crash_buf}
-
-Execute these immediately without asking anyone to repeat themselves. Send one short message confirming you're back, then do the work."
-          else
-            recovery_msg="You just came back from a session restart. Check the recent messages in this channel to find what you were working on. Your MEMORY.md may have older context but the channel messages are the source of truth for your current task. Send a short message saying you're back, then resume work."
-          fi
-        fi
+        recovery_msg=$(build_recovery_message "$rreason" "$context_content" "$crash_buf")
 
         # Model-switch handoffs: point at the durable GBrain checkpoint first.
         if [ "$rreason" = "model-switch" ]; then

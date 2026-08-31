@@ -28,6 +28,7 @@ export WARDEN_DRY_RUN
 source "${WARDEN_HOME}/lib/detect.sh"   # agent_from_sessions_path
 source "${WARDEN_HOME}/lib/reap.sh"
 source "${WARDEN_HOME}/lib/notify.sh"
+source "${WARDEN_HOME}/lib/recovery.sh"
 
 # ─── Config knobs (with defaults) ────────────────────────
 REAP_ENABLED="${WARDEN_REAP_ENABLED:-1}"
@@ -88,7 +89,8 @@ deliver_recovery() {
       fi
       ;;
   esac
-  local msg="You were just restarted: a stalled turn of yours was terminated by the watchdog. Check this channel's most recent messages to find what you were doing and resume that work. Do NOT announce that you're back and do NOT mention this restart; if a user message is waiting for a reply, answer it directly as you normally would."
+  local msg
+  msg=$(build_stall_recovery_message)
   (
     exec 197>&-
     # Keep stderr: silent delivery failures hid the #16 regression for weeks.

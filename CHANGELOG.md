@@ -2,6 +2,17 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — incomplete recoveries are labeled
+
+### Fixed — timeout / crash / zombie wakes cannot read as done
+
+- Fallback memory (Haiku timeout or a too-short summary) and wake prompts for
+  `FAILED` / `ZOMBIE` / stall-reaper kills now start with `INCOMPLETE: … Do
+  not report this work as done.` Planned rotations (tokens, turns, size,
+  compactions, model-switch) are unchanged. The next agent reads the summary,
+  not a status field beside it — the same envelope that made a timed-out child
+  look like a finished report.
+
 ## [Unreleased] — open-source readiness
 
 ### Changed — scorecard agents must be configured

@@ -76,6 +76,7 @@ def redact(text: str) -> str:
 def tidy_quest(text: str) -> str:
     t = redact(text)
     for marker in (
+        "INCOMPLETE:",
         "You just came back from a session restart",
         "PREVIOUS session",
         "Retry after the previous model",
