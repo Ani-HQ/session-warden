@@ -97,7 +97,7 @@ Rotation without memory means the agent starts from scratch. The warden writes m
 
 **Workspace injection — the load-bearing layer.** The same summary is written into the agent's workspace: `CONTEXT.md`, and a marker-delimited block in the workspace `MEMORY.md` (`<!-- SESSION-WARDEN-START/END -->`). The runtime injects workspace memory into the agent's prompt at boot — context is *injected*, not voluntarily loaded — which is why continuity survives model switches. The warden's block is deliberately placed after the agent's own content so the prompt-cache prefix stays warm, and writes are skipped when content is unchanged so the file stays byte-identical.
 
-Carry-over is explicit: the previous memory is fed back into each new summarization with instructions to carry forward unresolved pending items, so a task survives any number of rotations. The recovery message that wakes the agent additionally inlines `CONTEXT.md`, a GBrain cross-session briefing, and any crash buffer.
+Carry-over is explicit: the previous memory is fed back into each new summarization with instructions to carry forward unresolved pending items, so a task survives any number of rotations. The recovery message that wakes the agent additionally inlines `CONTEXT.md`, a GBrain cross-session briefing, and any crash buffer. If the previous turn died early (failed, zombie, stalled) or summarization timed out, that text starts with `INCOMPLETE:` so the next agent cannot read a transcript tail as a finished report.
 
 **Agent-side discipline** completes the picture: agents are instructed via `CLAUDE.md` to proactively write important context to memory during the session, so even an unexpected death loses little.
 

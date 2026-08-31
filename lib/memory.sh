@@ -23,7 +23,8 @@ claude_memory_dir() {
 
 # Build a fallback memory when Haiku summarization fails or times out.
 # Extracts the last 30 lines of transcript + pending items from previous memory.
-# Args: $1=transcript, $2=existing_context (previous memory content, may be empty)
+# Starts with INCOMPLETE so the next agent cannot read a transcript tail as a
+# finished report. Args: $1=transcript, $2=existing_context (may be empty)
 build_fallback_memory() {
   local transcript="$1" existing_context="$2"
   local tail_lines pending_block=""
@@ -43,6 +44,8 @@ ${pending}
   fi
 
   cat <<FALLBACK
+INCOMPLETE: summarization timed out or failed. This is not a finished session report. Do not report this work as done.
+
 ## What was happening
 (fallback: summarization unavailable — raw transcript tail below)
 

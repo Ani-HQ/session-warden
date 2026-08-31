@@ -15,7 +15,8 @@ These parts need no runtime at all — just Claude Code's own on-disk artifacts:
 | Piece | What it does | Needs |
 |---|---|---|
 | `lib/extract.sh` | Claude Code session JSONL → readable transcript (text + every tool action) | `jq`, a JSONL path |
-| `lib/memory.sh` (generic halves) | Summary prompt/carry-over, fallback memory, size-guarded compaction, change-gated writes | `claude` CLI |
+| `lib/memory.sh` (generic halves) | Summary prompt/carry-over, fallback memory (INCOMPLETE-labeled on timeout), size-guarded compaction, change-gated writes | `claude` CLI |
+| `lib/recovery.sh` | Wake-prompt builder; INCOMPLETE banner for failed / zombie / stall endings | — |
 | `bin/snapshot.sh` | any `~/.claude/projects/**/*.jsonl` → summarized, linked GBrain pages | `claude`, `jq`, `gbrain` |
 | `lib/burn-solo.sh` + `bin/burn-solo-sample.sh` | meter token burn of standalone Claude Code sessions | `jq` |
 | `lib/gbrain.sh` | bounded knowledge-graph writes | `gbrain` CLI |
