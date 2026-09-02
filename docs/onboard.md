@@ -1,5 +1,8 @@
 # Onboard: use session-warden inside any harness
 
+New here? The [README](../README.md) is the picture-first setup. This page is
+the same path with more detail.
+
 `install.sh` still requires OpenClaw — that path is the **fleet lifeguard**.
 `session-warden onboard` is the **router + host skills** path. It works on a
 machine that only has Claude Code or Codex.

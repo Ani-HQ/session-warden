@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" role="img" aria-label="Three setup steps: clone, onboard, then route or run.">
+  <rect width="760" height="250" fill="#F7F1E8"/>
+  <text x="380" y="32" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#0B3D3A">setup in three commands</text>
+
+  <rect x="28" y="56" width="216" height="150" rx="18" fill="#FFFFFF" stroke="#0B3D3A" stroke-width="2.2"/>
+  <circle cx="56" cy="86" r="16" fill="#0B3D3A"/>
+  <text x="56" y="92" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#F7F1E8">1</text>
+  <text x="136" y="92" font-family="Georgia, serif" font-size="18" fill="#0B3D3A">clone</text>
+  <text x="136" y="128" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5C5346">git clone &</text>
+  <text x="136" y="148" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5C5346">cd session-warden</text>
+  <text x="136" y="180" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A7468">get the repo</text>
+
+  <path d="M252 130 L276 130" stroke="#C4B8A4" stroke-width="2.4"/>
+  <polygon points="276,124 290,130 276,136" fill="#C4B8A4"/>
+
+  <rect x="298" y="56" width="216" height="150" rx="18" fill="#FFFFFF" stroke="#0B3D3A" stroke-width="2.2"/>
+  <circle cx="326" cy="86" r="16" fill="#E07A5F"/>
+  <text x="326" y="92" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#FFFFFF">2</text>
+  <text x="406" y="92" font-family="Georgia, serif" font-size="18" fill="#0B3D3A">onboard</text>
+  <text x="406" y="136" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#5C5346">./bin/session-warden</text>
+  <text x="406" y="154" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#5C5346">onboard</text>
+  <text x="406" y="180" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A7468">detects CLIs + writes rules</text>
+
+  <path d="M522 130 L546 130" stroke="#C4B8A4" stroke-width="2.4"/>
+  <polygon points="546,124 560,130 546,136" fill="#C4B8A4"/>
+
+  <rect x="568" y="56" width="168" height="150" rx="18" fill="#0B3D3A"/>
+  <circle cx="596" cy="86" r="16" fill="#E8C547"/>
+  <text x="596" y="92" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#0B3D3A">3</text>
+  <text x="668" y="92" font-family="Georgia, serif" font-size="18" fill="#F7F1E8">ask</text>
+  <text x="652" y="136" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#C9D4CF">& route "&"</text>
+  <text x="652" y="154" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#C9D4CF">& run "&"</text>
+  <text x="652" y="180" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#E8C547">see who, or run it</text>
+</svg>

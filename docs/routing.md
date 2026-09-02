@@ -1,5 +1,8 @@
 # Routing: bash workers, user rules, credits-first default
 
+New here? The [README](../README.md) shows the credits chart and the route
+diagram. This page is the rule language.
+
 If a harness or model can be run in bash, it can be orchestrated. This is
 **dispatch**, not session supervision. The lifeguard still only rotates Claude
 Code sessions. See [integrations.md](integrations.md) for that contract.

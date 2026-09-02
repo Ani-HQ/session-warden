@@ -2,6 +2,15 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — visual setup README
+
+### Changed — docs only, no behavior change
+
+- README is now a short setup guide: stack, setup, credits, route, and
+  two-paths diagrams plus a mermaid pie/flowchart. The operator manual moved
+  to [docs/manual.md](docs/manual.md). Editable Excalidraw sources live in
+  [docs/assets/excalidraw/](docs/assets/excalidraw/).
+
 ## [Unreleased] — dispatch-first workers and credits-first routing
 
 ### Added — any bash CLI can be a worker

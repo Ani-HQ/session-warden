@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" role="img" aria-label="Two ways in: talk to your host, or type session-warden yourself.">
+  <rect width="760" height="220" fill="#F7F1E8"/>
+  <text x="380" y="30" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#0B3D3A">two ways in · same router</text>
+
+  <rect x="28" y="52" width="332" height="148" rx="18" fill="#FFFFFF" stroke="#0B3D3A" stroke-width="2.2"/>
+  <text x="194" y="86" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#0B3D3A">talk to your host</text>
+  <text x="194" y="114" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#5C5346">OpenClaw · Hermes · Claude Code</text>
+  <text x="194" y="134" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#5C5346">Codex · Grok</text>
+  <text x="194" y="168" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#7A9E7E">onboard drops a skill so the host</text>
+  <text x="194" y="186" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#7A9E7E">calls session-warden for you</text>
+
+  <rect x="400" y="52" width="332" height="148" rx="18" fill="#0B3D3A"/>
+  <text x="566" y="86" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#F7F1E8">type it yourself</text>
+  <text x="566" y="122" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#C9D4CF">session-warden route "&"</text>
+  <text x="566" y="144" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#C9D4CF">session-warden run "&"</text>
+  <text x="566" y="178" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#E8C547">no host required</text>
+</svg>
