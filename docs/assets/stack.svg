@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" role="img" aria-label="You talk to a host. The host asks session-warden. Warden picks a worker. The worker runs bash.">
+  <rect width="760" height="220" fill="#F7F1E8"/>
+  <text x="380" y="28" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="15" fill="#5C5346">one job, four boxes</text>
+
+  <rect x="24" y="56" width="140" height="92" rx="16" fill="#FFFFFF" stroke="#0B3D3A" stroke-width="2.4"/>
+  <text x="94" y="98" text-anchor="middle" font-family="Georgia, serif" font-size="20" fill="#0B3D3A">you</text>
+  <text x="94" y="124" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A7468">ask for work</text>
+
+  <path d="M172 102 L206 102" stroke="#C4B8A4" stroke-width="2.4" fill="none"/>
+  <polygon points="206,96 220,102 206,108" fill="#C4B8A4"/>
+
+  <rect x="228" y="56" width="140" height="92" rx="16" fill="#FFFFFF" stroke="#0B3D3A" stroke-width="2.4"/>
+  <text x="298" y="90" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#0B3D3A">your host</text>
+  <text x="298" y="114" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#7A7468">OpenClaw / Hermes</text>
+  <text x="298" y="130" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#7A7468">Claude / Codex / Grok</text>
+
+  <path d="M376 102 L410 102" stroke="#C4B8A4" stroke-width="2.4" fill="none"/>
+  <polygon points="410,96 424,102 410,108" fill="#C4B8A4"/>
+
+  <rect x="432" y="48" width="148" height="108" rx="16" fill="#0B3D3A"/>
+  <text x="506" y="88" text-anchor="middle" font-family="Georgia, serif" font-size="17" fill="#F7F1E8">session-warden</text>
+  <text x="506" y="112" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#E8C547">picks who runs it</text>
+  <text x="506" y="132" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#C9D4CF">cheap first</text>
+
+  <path d="M588 102 L622 102" stroke="#C4B8A4" stroke-width="2.4" fill="none"/>
+  <polygon points="622,96 636,102 622,108" fill="#C4B8A4"/>
+
+  <rect x="644" y="56" width="92" height="92" rx="16" fill="#FFFFFF" stroke="#E07A5F" stroke-width="2.4"/>
+  <text x="690" y="98" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#E07A5F">worker</text>
+  <text x="690" y="122" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#7A7468">any bash CLI</text>
+
+  <text x="380" y="196" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#5C5346">if it runs in bash, it can be a worker</text>
+</svg>

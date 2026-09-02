@@ -1,5 +1,8 @@
 # Integrations: running session-warden under your own runtime or interface
 
+Picture-first setup is in the [README](../README.md). This page is the
+runtime contract.
+
 session-warden does two different jobs, with two different contracts:
 
 1. **Runtime / lifeguard** — supervise long-running Claude Code sessions (scan, rotate, summarize, reap). Each *runtime* (OpenClaw, Hermes, …) needs explicit support. That is the rest of this page.

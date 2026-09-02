@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 88" role="img" aria-label="You need git, python3, jq, curl, and one worker CLI on PATH.">
+  <rect width="760" height="88" fill="#F7F1E8"/>
+  <text x="24" y="28" font-family="Georgia, serif" font-size="14" fill="#5C5346">bring these</text>
+
+  <rect x="24" y="42" width="72" height="32" rx="16" fill="#0B3D3A"/>
+  <text x="60" y="63" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#F7F1E8">git</text>
+
+  <rect x="104" y="42" width="96" height="32" rx="16" fill="#0B3D3A"/>
+  <text x="152" y="63" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#F7F1E8">python3</text>
+
+  <rect x="208" y="42" width="64" height="32" rx="16" fill="#1F4B46"/>
+  <text x="240" y="63" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#F7F1E8">jq</text>
+
+  <rect x="280" y="42" width="72" height="32" rx="16" fill="#1F4B46"/>
+  <text x="316" y="63" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#F7F1E8">curl</text>
+
+  <text x="368" y="63" font-family="Georgia, serif" font-size="18" fill="#C4B8A4">+</text>
+
+  <rect x="396" y="42" width="340" height="32" rx="16" fill="#E07A5F"/>
+  <text x="566" y="63" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#1A1410">one CLI / claude / deepseek / ...</text>
+</svg>
