@@ -6,7 +6,7 @@
   <circle cx="56" cy="86" r="16" fill="#0B3D3A"/>
   <text x="56" y="92" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#F7F1E8">1</text>
   <text x="136" y="92" font-family="Georgia, serif" font-size="18" fill="#0B3D3A">clone</text>
-  <text x="136" y="128" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5C5346">git clone &</text>
+  <text x="136" y="128" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5C5346">git clone ...</text>
   <text x="136" y="148" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5C5346">cd session-warden</text>
   <text x="136" y="180" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A7468">get the repo</text>
 
@@ -28,7 +28,7 @@
   <circle cx="596" cy="86" r="16" fill="#E8C547"/>
   <text x="596" y="92" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#0B3D3A">3</text>
   <text x="668" y="92" font-family="Georgia, serif" font-size="18" fill="#F7F1E8">ask</text>
-  <text x="652" y="136" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#C9D4CF">& route "&"</text>
-  <text x="652" y="154" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#C9D4CF">& run "&"</text>
+  <text x="652" y="136" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#C9D4CF">... route "..."</text>
+  <text x="652" y="154" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#C9D4CF">... run "..."</text>
   <text x="652" y="180" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#E8C547">see who, or run it</text>
 </svg>

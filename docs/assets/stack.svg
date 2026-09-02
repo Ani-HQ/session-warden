@@ -11,8 +11,8 @@
 
   <rect x="228" y="56" width="140" height="92" rx="16" fill="#FFFFFF" stroke="#0B3D3A" stroke-width="2.4"/>
   <text x="298" y="90" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#0B3D3A">your host</text>
-  <text x="298" y="114" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#7A7468">OpenClaw · Hermes</text>
-  <text x="298" y="130" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#7A7468">Claude · Codex · Grok</text>
+  <text x="298" y="114" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#7A7468">OpenClaw / Hermes</text>
+  <text x="298" y="130" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#7A7468">Claude / Codex / Grok</text>
 
   <path d="M376 102 L410 102" stroke="#C4B8A4" stroke-width="2.4" fill="none"/>
   <polygon points="410,96 424,102 410,108" fill="#C4B8A4"/>

@@ -17,5 +17,5 @@
   <text x="368" y="63" font-family="Georgia, serif" font-size="18" fill="#C4B8A4">+</text>
 
   <rect x="396" y="42" width="340" height="32" rx="16" fill="#E07A5F"/>
-  <text x="566" y="63" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#1A1410">one CLI · claude · deepseek · &</text>
+  <text x="566" y="63" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#1A1410">one CLI / claude / deepseek / ...</text>
 </svg>

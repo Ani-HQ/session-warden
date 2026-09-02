@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 280" role="img" aria-label="Most work is busywork. Spend cheap credits there. Keep frontier for the small slice that is actually hard.">
   <rect width="760" height="280" fill="#F7F1E8"/>
   <text x="380" y="32" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#0B3D3A">where the money should go</text>
-  <text x="380" y="54" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A7468">typical mix on a busy agent machine  not a live meter</text>
+  <text x="380" y="54" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A7468">typical mix on a busy agent machine - not a live meter</text>
 
   <rect x="80" y="80" width="96" height="140" rx="10" fill="#7A9E7E"/>
   <text x="128" y="154" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#FFFFFF">80%</text>

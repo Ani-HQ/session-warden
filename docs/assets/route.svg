@@ -10,7 +10,7 @@
 
   <rect x="28" y="148" width="224" height="52" rx="14" fill="#FFFFFF" stroke="#7A9E7E" stroke-width="2.4"/>
   <text x="140" y="170" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#0B3D3A">1. your rules</text>
-  <text x="140" y="188" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#5C5346">routing.yaml · if it matches, done</text>
+  <text x="140" y="188" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#5C5346">routing.yaml / if it matches, done</text>
 
   <path d="M140 200 L140 220" stroke="#C4B8A4" stroke-width="2"/>
   <polygon points="134,220 140,232 146,220" fill="#C4B8A4"/>
@@ -24,17 +24,17 @@
 
   <rect x="322" y="52" width="168" height="80" rx="14" fill="#FFFFFF" stroke="#7A9E7E" stroke-width="2.2"/>
   <text x="406" y="78" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#3D5A40">busywork</text>
-  <text x="406" y="100" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#5C5346">typos · lists · status</text>
-  <text x="406" y="118" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A9E7E">’ cheapest CLI</text>
+  <text x="406" y="100" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#5C5346">typos / lists / status</text>
+  <text x="406" y="118" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#7A9E7E">-&gt; cheapest CLI</text>
 
   <rect x="322" y="148" width="168" height="80" rx="14" fill="#FFFFFF" stroke="#C45C26" stroke-width="2.2"/>
   <text x="406" y="174" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#C45C26">build</text>
-  <text x="406" y="196" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#5C5346">code · tests · PRs</text>
-  <text x="406" y="214" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#C45C26">’ mid-tier CLI</text>
+  <text x="406" y="196" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#5C5346">code / tests / PRs</text>
+  <text x="406" y="214" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#C45C26">-&gt; mid-tier CLI</text>
 
   <rect x="322" y="244" width="168" height="56" rx="14" fill="#FFFFFF" stroke="#E07A5F" stroke-width="2.2"/>
   <text x="406" y="268" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#E07A5F">hard / risky</text>
-  <text x="406" y="288" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#5C5346">prod · delete · security</text>
+  <text x="406" y="288" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#5C5346">prod / delete / security</text>
 
   <path d="M490 92 L538 92" stroke="#C4B8A4" stroke-width="2"/>
   <path d="M490 188 L538 188" stroke="#C4B8A4" stroke-width="2"/>
