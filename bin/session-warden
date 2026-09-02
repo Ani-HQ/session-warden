@@ -115,6 +115,22 @@ cmd_model_switch() {
   exec "$WARDEN_HOME/bin/model-switch.sh" "$@"
 }
 
+cmd_workers() {
+  exec "$WARDEN_HOME/bin/workers.sh" "$@"
+}
+
+cmd_route() {
+  exec "$WARDEN_HOME/bin/route.sh" "$@"
+}
+
+cmd_run() {
+  exec "$WARDEN_HOME/bin/run.sh" "$@"
+}
+
+cmd_onboard() {
+  exec "$WARDEN_HOME/bin/onboard.sh" "$@"
+}
+
 cmd_install() {
   exec "$WARDEN_HOME/install.sh"
 }
@@ -202,6 +218,21 @@ Commands:
       Handoff then set primary model (OpenClaw hot-reload; Hermes restarts
       its gateway). Prefer this over editing openclaw.json / config.yaml by hand.
 
+  workers [--json]
+      List catalog workers (claude, codex, kimi, grok, deepseek, glm, plus
+      anything in config/workers.d/) and whether each CLI is on PATH.
+
+  route --task "..." [--path PATH] [--host ID] [--json]
+      Pick a worker. User rules in config/routing.yaml win; otherwise
+      credits-first heuristics. Rate-guard-demoted providers are skipped.
+
+  run --task "..." | --worker ID --prompt "..."
+      Invoke a worker. With --task, route first and retry once on fallback.
+
+  onboard [--host all|openclaw|hermes|claude-code|codex|grok] [--dry-run]
+      Detect hosts and workers, write credits-first routing.yaml, install
+      route skills. Does not require OpenClaw.
+
   install
       Install cron entries and create config file.
 
@@ -228,6 +259,10 @@ case "${1:-help}" in
   rate-guard|rateguard) shift; cmd_rate_guard "$@" ;;
   handoff)   shift; cmd_handoff "$@" ;;
   model-switch|modelswitch) shift; cmd_model_switch "$@" ;;
+  workers)   shift; cmd_workers "$@" ;;
+  route)     shift; cmd_route "$@" ;;
+  run)       shift; cmd_run "$@" ;;
+  onboard)   shift; cmd_onboard "$@" ;;
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;

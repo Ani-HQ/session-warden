@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="48" viewBox="0 0 720 48" role="img" aria-label="Routes to Claude, Codex, Kimi, Grok, DeepSeek, GLM">
+  <g font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="600">
+    <rect x="2" y="8" width="110" height="32" rx="16" fill="#E07A5F"/>
+    <text x="57" y="29" text-anchor="middle" fill="#1A1410">Claude</text>
+    <rect x="120" y="8" width="100" height="32" rx="16" fill="#E07A5F"/>
+    <text x="170" y="29" text-anchor="middle" fill="#1A1410">Codex</text>
+    <rect x="228" y="8" width="90" height="32" rx="16" fill="#C9A27A"/>
+    <text x="273" y="29" text-anchor="middle" fill="#1A1410">Kimi</text>
+    <rect x="326" y="8" width="90" height="32" rx="16" fill="#E07A5F"/>
+    <text x="371" y="29" text-anchor="middle" fill="#1A1410">Grok</text>
+    <rect x="424" y="8" width="130" height="32" rx="16" fill="#7A9E7E"/>
+    <text x="489" y="29" text-anchor="middle" fill="#1A1410">DeepSeek</text>
+    <rect x="562" y="8" width="80" height="32" rx="16" fill="#7A9E7E"/>
+    <text x="602" y="29" text-anchor="middle" fill="#1A1410">GLM</text>
+  </g>
+</svg>

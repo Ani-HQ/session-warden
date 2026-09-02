@@ -6,6 +6,10 @@ config/thresholds.env
 config/agent-paths.env
 config/fleet-roster.tsv
 config/timers-labels.json
+config/routing.yaml
+config/routing.json
+config/workers.d/*.json
+!config/workers.d/*.example.json
 contrib/fleet-live/site.env
 
 # Operator-only internal dashboard (not part of the public project)

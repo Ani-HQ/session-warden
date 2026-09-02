@@ -1,0 +1,16 @@
+# Credits-first routing. Copy to routing.yaml (gitignored) and edit.
+# First matching rule whose worker is detected and not rate-guard-demoted wins.
+# If no rule matches, the built-in heuristic picks the cheapest capable worker.
+#
+# Extra Anthropic quota is gone. Keep frontier harnesses for hard work.
+
+policy: credits-first
+
+rules:
+  # Pin security work to Claude Code when it is available.
+  - match: { path: "**/security/**" }
+    worker: claude-code
+
+  # Cheap models for busywork (summarize, format, typos, lookups).
+  - match: { complexity: low }
+    worker: deepseek-chat

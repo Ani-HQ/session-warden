@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="session-warden">
+  <rect width="128" height="128" rx="28" fill="#0B3D3A"/>
+  <!-- life-preserver ring -->
+  <circle cx="64" cy="64" r="38" fill="none" stroke="#F4EDE0" stroke-width="12"/>
+  <circle cx="64" cy="26" r="7" fill="#0B3D3A"/>
+  <circle cx="64" cy="102" r="7" fill="#0B3D3A"/>
+  <circle cx="26" cy="64" r="7" fill="#0B3D3A"/>
+  <circle cx="102" cy="64" r="7" fill="#0B3D3A"/>
+  <!-- incoming path + three-way route -->
+  <path d="M8 64 H50
+           M50 64 L78 42 L104 42
+           M50 64 H104
+           M50 64 L78 86 L104 86"
+        fill="none" stroke="#E07A5F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M98 36 L108 42 L98 48" fill="none" stroke="#E07A5F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M98 58 L108 64 L98 70" fill="none" stroke="#E07A5F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M98 80 L108 86 L98 92" fill="none" stroke="#E07A5F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
