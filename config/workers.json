@@ -1,0 +1,83 @@
+{
+  "comment": "Built-in bash workers. If the detect command is on PATH, the worker is available. Override or add workers as JSON files in config/workers.d/ (same shape, or a single worker object). Do not put API keys here.",
+  "workers": [
+    {
+      "id": "claude-code",
+      "kind": "harness",
+      "label": "Claude Code",
+      "provider": "claude",
+      "costClass": "frontier",
+      "capabilities": ["chat", "code", "tools", "repo"],
+      "detect": { "commands": ["claude"] },
+      "invoke": {
+        "argv": ["claude", "-p", "{{prompt}}"],
+        "timeoutSec": 600
+      }
+    },
+    {
+      "id": "codex",
+      "kind": "harness",
+      "label": "Codex CLI",
+      "provider": "openai",
+      "costClass": "frontier",
+      "capabilities": ["chat", "code", "tools", "repo"],
+      "detect": { "commands": ["codex"] },
+      "invoke": {
+        "argv": ["codex", "exec", "{{prompt}}"],
+        "timeoutSec": 600
+      }
+    },
+    {
+      "id": "kimi-code",
+      "kind": "harness",
+      "label": "Kimi Code",
+      "provider": "kimi",
+      "costClass": "mid",
+      "capabilities": ["chat", "code", "tools", "repo"],
+      "detect": { "commands": ["kimi"] },
+      "invoke": {
+        "argv": ["kimi", "--prompt", "{{prompt}}"],
+        "timeoutSec": 600
+      }
+    },
+    {
+      "id": "grok-build",
+      "kind": "harness",
+      "label": "Grok",
+      "provider": "xai",
+      "costClass": "frontier",
+      "capabilities": ["chat", "code", "tools", "repo"],
+      "detect": { "commands": ["grok"] },
+      "invoke": {
+        "argv": ["grok", "--prompt", "{{prompt}}"],
+        "timeoutSec": 600
+      }
+    },
+    {
+      "id": "deepseek-chat",
+      "kind": "model",
+      "label": "DeepSeek Chat",
+      "provider": "deepseek",
+      "costClass": "cheap",
+      "capabilities": ["chat", "code"],
+      "detect": { "commands": ["deepseek"] },
+      "invoke": {
+        "argv": ["deepseek", "chat", "{{prompt}}"],
+        "timeoutSec": 180
+      }
+    },
+    {
+      "id": "glm",
+      "kind": "model",
+      "label": "GLM",
+      "provider": "zai",
+      "costClass": "cheap",
+      "capabilities": ["chat", "code"],
+      "detect": { "commands": ["glm"] },
+      "invoke": {
+        "argv": ["glm", "{{prompt}}"],
+        "timeoutSec": 180
+      }
+    }
+  ]
+}

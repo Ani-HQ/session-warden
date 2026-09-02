@@ -165,3 +165,25 @@ doctor_ok_out=$(WARDEN_DOCTOR_SKIP_GATEWAY=1 bash "$WARDEN_HOME/bin/doctor.sh" 2
 assert_contains "$doctor_ok_out" "skills prompt within budget" "default budget passes with room to spare"
 
 rm -rf "$WARDEN_OPENCLAW_HOME/agents/fat-agent" "$WARDEN_OPENCLAW_HOME/agents/slim-agent"
+
+echo "  doctor: routing.yaml with zero workers is a warn"
+
+export WARDEN_CRONTAB_CMD="$mock_crontab"
+export WARDEN_DOCTOR_SKIP_GATEWAY=1
+touch "$WARDEN_HOME/state/.last-scan-ts" "$WARDEN_HOME/state/.last-reap-ts"
+cp "$WARDEN_HOME/config/routing.yaml.example" "$WARDEN_HOME/config/routing.yaml"
+
+output=$("$WARDEN_HOME/bin/doctor.sh" 2>&1)
+assert_contains "$output" "no catalog workers detected" "doctor warns when routing.yaml exists but nothing is on PATH"
+
+echo "  doctor: routing.yaml with a detected worker is ok"
+
+cat > "$SANDBOX/bin/deepseek" <<'STUB'
+#!/usr/bin/env bash
+echo ok
+STUB
+chmod +x "$SANDBOX/bin/deepseek"
+
+output=$("$WARDEN_HOME/bin/doctor.sh" 2>&1)
+assert_contains "$output" "worker(s) detected" "doctor ok when at least one worker is on PATH"
+assert_not_contains "$output" "no catalog workers detected" "zero-worker warn clears after a stub is added"

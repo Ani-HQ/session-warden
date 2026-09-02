@@ -2,6 +2,25 @@
 
 Notable changes to session-warden.
 
+## [Unreleased] — dispatch-first workers and credits-first routing
+
+### Added — any bash CLI can be a worker
+
+- `config/workers.json` plus `config/workers.d/` overlays. Built-ins: claude-code,
+  codex, kimi-code, grok-build, deepseek-chat, glm. Detection is PATH-only.
+- `session-warden workers`, `route`, `run`, `onboard`. `lib/dispatch.py` is the
+  brain; `lib/workers.sh` / `lib/router.sh` are the shell API.
+- Credits-first default: cheapest capable worker; frontier only when the ask is
+  hard, the cheap worker lacks tools/repo, or `run` retries a fallback. User
+  rules in `config/routing.yaml` win when that worker is available. Rate-guard
+  demotions are skipped.
+- `session-warden onboard` works without OpenClaw: detect hosts, write
+  routing.yaml, install `skills/*/SKILL.md` into OpenClaw / Hermes / Claude Code
+  / Codex / Grok. Extra Anthropic quota is gone — onboard copy says so.
+- Docs: [docs/routing.md](docs/routing.md), [docs/onboard.md](docs/onboard.md);
+  [docs/integrations.md](docs/integrations.md) now splits runtime vs worker
+  contracts. Doctor warns if routing.yaml exists but zero workers are detected.
+
 ## [Unreleased] — incomplete recoveries are labeled
 
 ### Fixed — timeout / crash / zombie wakes cannot read as done

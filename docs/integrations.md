@@ -1,6 +1,13 @@
 # Integrations: running session-warden under your own runtime or interface
 
-session-warden supervises Claude Code CLI sessions and carries memory across them. The layer *above* it — the runtime that owns sessions, and the interface you chat through — is swappable in principle, but each runtime needs explicit support. This page is the honest map: what's already gateway-free, what the OpenClaw and Hermes integrations consist of, and exactly what a new integration has to provide.
+session-warden does two different jobs, with two different contracts:
+
+1. **Runtime / lifeguard** — supervise long-running Claude Code sessions (scan, rotate, summarize, reap). Each *runtime* (OpenClaw, Hermes, …) needs explicit support. That is the rest of this page.
+2. **Worker / dispatch** — pick and invoke any bash CLI (nested harness or direct model) for a single task. A *worker* is a JSON record, not a runtime adapter. See [routing.md](routing.md). `session-warden onboard` installs host skills so OpenClaw, Hermes, Claude Code, Codex, or Grok can call `route` / `run`.
+
+These are not the same. Adding DeepSeek as a worker does **not** mean the lifeguard rotates DeepSeek sessions. There is still no Codex CLI session support.
+
+The layer *above* the lifeguard — the runtime that owns sessions, and the interface you chat through — is swappable in principle, but each runtime needs explicit support. The rest of this page is the honest map for that job.
 
 ## The two ways to put a different interface in front
 
@@ -48,12 +55,26 @@ Hermes shows what a *partial* second-runtime integration looks like — memory c
 
 That's the pattern: one extractor to the common transcript shape, one memory writer to the runtime's injection point, one restart/config recipe. Rotation, reaping, and burn metering for Hermes don't exist yet.
 
+## Worker contract (dispatch, not rotation)
+
+A worker is whatever you can run in bash. Catalog + detect + invoke live in
+`config/workers.json`, `config/workers.d/`, and `lib/dispatch.py`. The host
+skill calls `session-warden route` then `session-warden run`. That is enough
+to send a task to Codex, Kimi, Grok, DeepSeek, or GLM **as a one-shot**. It
+is not enough for the lifeguard to treat those CLIs as session runtimes.
+
+| Piece | Runtime (this page) | Worker ([routing.md](routing.md)) |
+|---|---|---|
+| What you add | extractor, memory writer, restart, kill marker | a JSON record + a CLI on PATH |
+| Session rotate / reap | yes, once the five questions below are answered | no |
+| Who calls it | cron / `scan.sh` | a host skill or `session-warden run` |
+
 ## What does not exist
 
 To keep this page trustworthy, the current non-features, explicitly:
 
-- **No Codex CLI session support.** The warden does not read, rotate, summarize, or meter Codex sessions. (The `codex/` strings in the tree are provider labels in rate-guard and board cosmetics.) Memory still survives a runtime-level switch to an OpenAI model, because the workspace memory files are model-agnostic — but the sessions being supervised are Claude Code sessions.
-- **No adapter/plugin interface.** Runtime support is compiled in, per the sections above.
-- **No macOS supervision core.** `/proc`, systemd user timers, and the Linux path formula are assumed; macOS gets the solo burn sampler and read-only commands.
+- **No Codex CLI session support.** The warden does not read, rotate, summarize, or meter Codex sessions. Codex *can* be a dispatch worker (`session-warden run --worker codex`) when the `codex` CLI is on PATH. The `codex/` strings elsewhere in the tree are provider labels in rate-guard and board cosmetics. Memory still survives a runtime-level switch to an OpenAI model, because the workspace memory files are model-agnostic — but the sessions being supervised are Claude Code sessions.
+- **No adapter/plugin interface.** Runtime support is compiled in, per the sections above. Worker support is the JSON catalog, not a plugin API.
+- **No macOS supervision core.** `/proc`, systemd user timers, and the Linux path formula are assumed; macOS gets the solo burn sampler, the read-only CLI commands, and `route` / `run` / `onboard`.
 
 If you build an integration for another runtime, the contract above plus the Hermes files are the full surface area — PRs welcome (see [CONTRIBUTING.md](../CONTRIBUTING.md)).

@@ -3,22 +3,24 @@
 [![CI](https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Session supervisor and self-improvement loop for always-on Claude Code agent fleets.
+Session supervisor, credits-first worker router, and self-improvement loop for always-on agent fleets.
 
-The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, weekly real-work reviews, and monthly memory evals.
+The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The dispatch half lets any host harness (OpenClaw, Hermes, Claude Code, Codex, Grok) send a task to a nested harness or a direct model — if it can be run in bash, it can be orchestrated. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, weekly real-work reviews, and monthly memory evals.
 
 ## Where it sits
 
-A persistent agent fleet is a stack, and the warden is the layer under it:
+A persistent agent fleet is a stack. The warden sits under the host and *beside* the worker it picks:
 
 ```
-you  ←→  interface        (Telegram, Discord, your own bot UI, ...)
-         agent runtime    (the gateway that owns sessions: OpenClaw, Hermes, a custom wrapper)
-         Claude Code CLI  (the long-running sessions doing the actual work)
-         session-warden   (supervises those sessions; carries memory across them)
+you  ←→  interface        (Telegram, Discord, Claude Code, Codex, Grok, ...)
+         host harness     (OpenClaw, Hermes, or the CLI you already use)
+         session-warden   (route/run picks a worker; the lifeguard supervises Claude Code sessions)
+         worker           (nested harness: claude / codex / kimi / grok — or a direct model: deepseek / glm)
 ```
 
-The warden doesn't care which interface you chat through — it supervises the Claude Code sessions underneath and writes memory at the agent-workspace level. That has a useful consequence: memory continuity survives not just session rotations but model switches too, because the workspace memory files are injected into whatever model the runtime boots next.
+Extra Anthropic quota is gone. `session-warden route` keeps frontier harnesses for hard work and sends busywork to cheaper workers. `session-warden onboard` installs a short skill into each host so they know to ask before spending themselves. See [docs/onboard.md](docs/onboard.md) and [docs/routing.md](docs/routing.md).
+
+The lifeguard still doesn't care which interface you chat through — it supervises the Claude Code sessions underneath and writes memory at the agent-workspace level. Memory continuity survives not just session rotations but model switches too, because the workspace memory files are injected into whatever model the runtime boots next.
 
 ## Runtime support
 
@@ -31,18 +33,19 @@ The supervision layer talks to the agent runtime (reading its session state, res
 | **Standalone Claude Code** | Runtime-free | Snapshot (sessions → GBrain) and solo burn metering read `~/.claude/projects` directly — no gateway involved |
 | **Anything else** | Building blocks | `lib/extract.sh`, the generic halves of `lib/memory.sh`, `bin/snapshot.sh`, `lib/gbrain.sh`, `lib/notify.sh` are gateway-free; see [docs/integrations.md](docs/integrations.md) for the exact contract a new runtime adapter needs |
 
-There is no Codex CLI session support — the warden rotates and summarizes Claude Code sessions only. (Memory still survives a switch *to* an OpenAI model via a runtime's model chain, because the carry-over is workspace-level, not transcript-level.)
+There is no Codex CLI **session** support — the warden rotates and summarizes Claude Code sessions only. Codex (and Kimi, Grok, DeepSeek, GLM) can still be **dispatch workers** when their CLI is on PATH. Memory still survives a switch *to* an OpenAI model via a runtime's model chain, because the carry-over is workspace-level, not transcript-level.
 
 Want a simpler interface than a full gateway in front of your agents? That's the intended shape: the interface layer is yours to swap. [docs/integrations.md](docs/integrations.md) spells out what the warden needs from whatever sits above it.
 
 ## What you need
 
-- **An agent runtime** — the turnkey install path requires [OpenClaw](https://github.com/openclaw/openclaw) (`install.sh` exits without it); Hermes homes (`~/.hermes-<name>`) are picked up by the modules that support them
-- **`claude` CLI** (required) — post-rotation summarization, reflector/harvester/scorecard/eval/review model calls
+- **An agent runtime** — the turnkey lifeguard install requires [OpenClaw](https://github.com/openclaw/openclaw) (`install.sh` exits without it). `session-warden onboard` (router + host skills) does **not** need OpenClaw. Hermes homes (`~/.hermes-<name>`) are picked up by the modules that support them
+- **`claude` CLI** (required for the lifeguard) — post-rotation summarization, reflector/harvester/scorecard/eval/review model calls
 - **`jq`** (required) and **`curl`** (required for alerts)
+- **`python3`** (required for `route` / `run` / `onboard`; optional for the rest) — also used by crash-buffer detection, fleet review, rate guard, and the contrib collectors
 - **GBrain** (optional) — a knowledge-graph CLI; needed for the dream cycle and the snapshot module's output (snapshot logs `GBRAIN UNAVAILABLE` and skips cleanly without it). Every other module mirrors into GBrain when available and degrades gracefully when not
 - **Telegram bot** (optional) — token + chat ID for alerts and digests; leave unset to disable
-- **python3** (optional) — crash-buffer detection, fleet review's work harvester, rate guard, the contrib collectors
+- **Worker CLIs** (optional) — whatever you want to dispatch to (`claude`, `codex`, `kimi`, `grok`, `deepseek`, `glm`, or a wrapper in `config/workers.d/`)
 
 **Platform:** Linux-first. The rotation core leans on `/proc`, systemd user timers, and cron; the test suite targets Linux. On macOS, the solo burn sampler (launchd template) and the read-only CLI commands work; the supervision core does not.
 
@@ -84,6 +87,8 @@ The agent comes back online in under a second, knowing what it was doing.
 | Memory evals | `bin/eval-memory.sh` | monthly 1st 07:00 (`deploy/eval-memory.timer`) | replay fixed cases against current memory; pass-rate delta is the regression signal |
 | Rate guard | `bin/rate-guard.sh` | every 2 min (`deploy/rate-guard.timer`) | demote rate-limited providers fleet-wide until reset; handoff before rewrite; one Telegram alert |
 | Model-switch handoff | `bin/handoff.sh`, `bin/model-switch.sh` | on demand | checkpoint live work to memory + GBrain before changing models; rate-guard uses the same primitive |
+| Worker route / run | `bin/route.sh`, `bin/run.sh` | on demand | credits-first pick among bash workers; user rules in `config/routing.yaml` win |
+| Onboard | `bin/onboard.sh` | on demand | detect hosts + workers, write routing.yaml, install host skills (no OpenClaw required) |
 | MCP supervisor | `bin/mcp-supervisor.sh` | manual / cron | keep heavy MCP servers alive across rotations |
 | Fleet board | `contrib/fleet-live/collect.py` | cron, 2 min (manual) | static public status board: live sessions, spend, recurring loops, skills learned |
 
@@ -442,8 +447,14 @@ starts metering from the next append. That keeps setup fast even if
 ```bash
 git clone https://github.com/Ani-HQ/session-warden.git ~/session-warden
 cd ~/session-warden
+# router + host skills only — no OpenClaw required
+~/session-warden/bin/session-warden onboard
+
+# fleet lifeguard (OpenClaw)
 bash install.sh
 ```
+
+`onboard` detects the CLIs you already have, writes credits-first routing rules, and installs a short skill into OpenClaw / Hermes / Claude Code / Codex / Grok. Extra Anthropic quota is gone — this is how you keep frontier for hard work. See [docs/onboard.md](docs/onboard.md).
 
 The installer targets the OpenClaw runtime and will:
 - Check dependencies (`jq`, `claude` CLI, `curl` required; `python3` and `gbrain` optional — `gbrain` is needed for the snapshot module's output and the dream cycle)
@@ -481,6 +492,12 @@ After install, use the `session-warden` CLI:
 
 # checkpoint an agent's live work before a manual restart or model change
 ~/session-warden/bin/session-warden handoff my-agent
+
+# which bash workers are on PATH?
+~/session-warden/bin/session-warden workers
+
+# cheapest capable worker for this ask (JSON is the host-skill contract)
+~/session-warden/bin/session-warden route --task "fix the typo in README" --json
 
 # tail the log
 ~/session-warden/bin/session-warden logs -f
@@ -537,7 +554,11 @@ All `WARDEN_*` variables can be overridden via environment (env takes precedence
 ```
 session-warden/
 ├── bin/
-│   ├── session-warden       # CLI entrypoint (scan, status, rotate, burn, handoff, model-switch, doctor, logs)
+│   ├── session-warden       # CLI entrypoint (scan, status, rotate, burn, handoff, model-switch, workers, route, run, onboard, doctor, logs)
+│   ├── workers.sh           # list catalog workers + PATH detect
+│   ├── route.sh             # credits-first worker pick (rules, then heuristic)
+│   ├── run.sh               # invoke a worker; route-then-run with one fallback
+│   ├── onboard.sh           # detect hosts, write routing.yaml, install skills
 │   ├── scan.sh              # cron entry point (every 30s)
 │   ├── reap-stalls.sh       # independent stall backstop (disk + /proc only)
 │   ├── reap-worktrees.sh    # GC for ephemeral agent worktrees (cron, 15 min)
@@ -574,6 +595,9 @@ session-warden/
 │   ├── burn.sh              # burn ledger, detection, enforcement
 │   ├── burn-solo.sh         # standalone-session burn sampling
 │   ├── rate-guard.{sh,py}   # provider demotion/restore logic
+│   ├── dispatch.py          # worker catalog, detect, route, invoke
+│   ├── workers.sh           # thin shell API over dispatch.py
+│   ├── router.sh            # thin shell API for route
 │   ├── notify.sh            # Telegram alerts (+ Discord cards)
 │   ├── gbrain.sh            # bounded GBrain CLI wrappers
 │   ├── registry.sh          # runtime agent registry (agents.list) gate
@@ -594,10 +618,14 @@ session-warden/
 │   ├── discord-harvest-actions/  # dedicated-bot Discord listener for skill proposals
 │   ├── costs/              # token spend vs. subscription cost model
 │   ├── timers/             # recurring-loop collector (systemd timers + crontab)
-│   └── fleet-live/         # static public fleet board
+│   ├── fleet-live/         # static public fleet board
+│   └── workers/            # how to wrap an API-only model as a bash worker
 ├── deploy/                 # systemd user units, logrotate policy, launchd template
 ├── docs/
-│   └── integrations.md     # what a new runtime/interface integration needs
+│   ├── integrations.md     # runtime contract vs worker (bash argv) contract
+│   ├── routing.md          # catalog schema, rule language, credits-first heuristic
+│   └── onboard.md          # session-warden onboard + per-host skill install
+├── skills/                 # host SKILL.md packs (openclaw, hermes, claude-code, codex, grok)
 ├── tests/                  # test suite (bash tests/run-tests.sh)
 ├── config/
 │   ├── thresholds.env.example       # complete config reference
@@ -606,7 +634,10 @@ session-warden/
 │   ├── timers-labels.json.example   # recurring-loop labels
 │   ├── cost-rates.json              # API list prices + subscription plans
 │   ├── scorecard-tasks.jsonl        # fixed scorecard benchmark task set
-│   └── thresholds.env, fleet-roster.tsv, timers-labels.json   # yours (gitignored)
+│   ├── workers.json                 # built-in bash workers (claude, codex, kimi, grok, deepseek, glm)
+│   ├── workers.d/                   # user overlays (*.example.json committed; rest gitignored)
+│   ├── routing.yaml.example         # credits-first rules
+│   └── thresholds.env, fleet-roster.tsv, timers-labels.json, routing.yaml   # yours (gitignored)
 ├── state/                  # runtime state (gitignored)
 ├── install.sh
 └── LICENSE

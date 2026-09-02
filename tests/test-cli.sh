@@ -17,6 +17,10 @@ assert_contains "$output" "logs" "help lists logs command"
 assert_contains "$output" "version" "help lists version command"
 assert_contains "$output" "handoff" "help lists handoff command"
 assert_contains "$output" "model-switch" "help lists model-switch command"
+assert_contains "$output" "workers" "help lists workers command"
+assert_contains "$output" "route" "help lists route command"
+assert_contains "$output" "run" "help lists run command"
+assert_contains "$output" "onboard" "help lists onboard command"
 
 echo "  cli: help flags"
 

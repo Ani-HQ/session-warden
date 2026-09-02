@@ -334,6 +334,29 @@ if [ "${WARDEN_RATE_GUARD:-1}" = "1" ]; then
   esac
 fi
 
+# ─── Worker routing (only if the operator opted in) ──────
+# routing.yaml is created by `session-warden onboard`. If it exists but
+# nothing on PATH matches the catalog, route/run will always fail — warn.
+if [ -f "${WARDEN_HOME}/config/routing.yaml" ] || [ -f "${WARDEN_HOME}/config/routing.json" ]; then
+  echo "routing:"
+  # shellcheck source=../lib/workers.sh
+  source "${WARDEN_HOME}/lib/workers.sh"
+  if ! command -v python3 >/dev/null 2>&1; then
+    warn "routing.yaml present but python3 missing — route/run unavailable"
+  else
+    worker_n=$(workers_detected_count 2>/dev/null || echo 0)
+    worker_n=${worker_n:-0}
+    case "$worker_n" in
+      ''|*[!0-9]*) worker_n=0 ;;
+    esac
+    if [ "$worker_n" -eq 0 ]; then
+      warn "routing.yaml present but no catalog workers detected on PATH — run session-warden workers"
+    else
+      ok "routing: ${worker_n} worker(s) detected"
+    fi
+  fi
+fi
+
 # ─── Verdict ─────────────────────────────────────────────
 echo ""
 if [ "${#failures[@]}" -eq 0 ]; then

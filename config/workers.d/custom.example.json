@@ -1,0 +1,18 @@
+{
+  "comment": "Copy to something.json in this directory (not *example.json) to add or override a worker. If it can be run in bash, it can be orchestrated.",
+  "workers": [
+    {
+      "id": "my-local-llm",
+      "kind": "model",
+      "label": "Local llama",
+      "provider": "local",
+      "costClass": "cheap",
+      "capabilities": ["chat", "code"],
+      "detect": { "commands": ["llama"] },
+      "invoke": {
+        "argv": ["llama", "-p", "{{prompt}}"],
+        "timeoutSec": 180
+      }
+    }
+  ]
+}

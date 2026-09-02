@@ -92,6 +92,12 @@ setup_sandbox() {
     cp "$cfg" "$WARDEN_SANDBOX/config/"
   done
   ln -sf "$REAL_WARDEN_HOME/hooks" "$WARDEN_SANDBOX/hooks"
+  if [ -d "$REAL_WARDEN_HOME/skills" ]; then
+    ln -sf "$REAL_WARDEN_HOME/skills" "$WARDEN_SANDBOX/skills"
+  fi
+  # Isolate worker detection from the host PATH (a real `claude` must not
+  # light up catalog tests). Tests that need a CLI drop a stub in $SANDBOX/bin.
+  export WARDEN_WORKER_PATH="$SANDBOX/bin"
 
   # Sandbox-local state directories
   mkdir -p \
