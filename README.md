@@ -1,53 +1,85 @@
-# session-warden
+<p align="center">
+  <img src="docs/assets/logo.svg" width="120" height="120" alt="session-warden — a life ring with a three-way route">
+</p>
 
-[![CI](https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<h1 align="center">session-warden</h1>
 
-Session supervisor, credits-first worker router, and self-improvement loop for always-on agent fleets.
+<p align="center">
+  <strong>Keep frontier models for hard work. Route the rest.</strong><br>
+  A bash orchestrator for agent fleets — and a lifeguard for the sessions that stay expensive.
+</p>
 
-The lifeguard half auto-rotates bloated Claude Code sessions and preserves agent memory across rotations, so agents pick up where they left off. The dispatch half lets any host harness (OpenClaw, Hermes, Claude Code, Codex, Grok) send a task to a nested harness or a direct model — if it can be run in bash, it can be orchestrated. The self-improvement half closes the learning loop on top of that memory: nightly lesson distillation, weekly skill harvesting, weekly model scorecards, weekly real-work reviews, and monthly memory evals.
+<p align="center">
+  <a href="https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml"><img src="https://github.com/Ani-HQ/session-warden/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0B3D3A.svg" alt="MIT"></a>
+  <img src="https://img.shields.io/badge/if_it_runs_in_bash-it_can_be_orchestrated-E07A5F.svg" alt="If it runs in bash, it can be orchestrated">
+</p>
 
-## Where it sits
+<p align="center"><img src="docs/assets/hosts.svg" width="560" alt="Works inside OpenClaw, Hermes, Claude Code, Codex, Grok"></p>
+<p align="center"><img src="docs/assets/workers.svg" width="560" alt="Routes to Claude, Codex, Kimi, Grok, DeepSeek, GLM"></p>
 
-A persistent agent fleet is a stack. The warden sits under the host and *beside* the worker it picks:
+Anthropic extra quota is gone. session-warden lets any host harness send a task to a nested harness or a cheap direct model. User rules win; otherwise it picks the cheapest capable worker. The lifeguard half still auto-rotates bloated Claude Code sessions so agents pick up where they left off.
 
 ```
-you  ←→  interface        (Telegram, Discord, Claude Code, Codex, Grok, ...)
-         host harness     (OpenClaw, Hermes, or the CLI you already use)
-         session-warden   (route/run picks a worker; the lifeguard supervises Claude Code sessions)
-         worker           (nested harness: claude / codex / kimi / grok — or a direct model: deepseek / glm)
+you  →  host (OpenClaw / Hermes / Claude Code / Codex / Grok)
+          →  session-warden route / run
+               →  worker (claude · codex · kimi · grok · deepseek · glm · your CLI)
 ```
 
-Extra Anthropic quota is gone. `session-warden route` keeps frontier harnesses for hard work and sends busywork to cheaper workers. `session-warden onboard` installs a short skill into each host so they know to ask before spending themselves. See [docs/onboard.md](docs/onboard.md) and [docs/routing.md](docs/routing.md).
+## Play in 60 seconds
 
-The lifeguard still doesn't care which interface you chat through — it supervises the Claude Code sessions underneath and writes memory at the agent-workspace level. Memory continuity survives not just session rotations but model switches too, because the workspace memory files are injected into whatever model the runtime boots next.
+No OpenClaw required. You need `git`, `python3`, and at least one worker CLI on PATH (`claude`, `codex`, `deepseek`, …).
+
+```bash
+git clone https://github.com/Ani-HQ/session-warden.git ~/session-warden
+cd ~/session-warden
+./bin/session-warden onboard --dry-run    # see what it would install
+./bin/session-warden onboard              # write rules + host skills
+./bin/session-warden workers              # what is actually on PATH
+./bin/session-warden route --task "fix the typo in README" --json
+```
+
+A typo / summarize / format ask should pick a **cheap** worker when one is installed. Architecture / security / “use frontier” stays on a harness.
+
+```bash
+# do the work (route, then invoke; one fallback retry if the first CLI fails)
+./bin/session-warden run --task "fix the typo in README"
+
+# pin your own rules
+cp config/routing.yaml.example config/routing.yaml
+# edit, then:
+./bin/session-warden route --task "audit auth" --path src/security/auth.go --json
+```
+
+Add `~/session-warden/bin` to your PATH if you want the short command. Full walkthrough: [docs/onboard.md](docs/onboard.md) · rule language: [docs/routing.md](docs/routing.md).
+
+## Two ways in
+
+| I have… | Do this | What you get |
+|---|---|---|
+| Claude Code, Codex, Grok, or Hermes | `session-warden onboard` | Credits-first router + a short skill inside that host |
+| An [OpenClaw](https://github.com/openclaw/openclaw) fleet | `bash install.sh` (twice — review `config/thresholds.env` in between) | The lifeguard: rotate, reap, burn, handoff, doctor, cron |
+| Both | onboard, then install | Router for every ask; lifeguard for the long Claude Code sessions |
+
+`install.sh` exits without OpenClaw. That is on purpose. The router does not need it.
+
+**Needs:** `jq` + `curl` always. `python3` for `route` / `run` / `onboard`. `claude` for the lifeguard’s summaries. GBrain and Telegram are optional. Linux-first for rotation (`/proc`, systemd, cron); macOS gets onboard, route/run, snapshot, and solo burn.
 
 ## Runtime support
 
-The supervision layer talks to the agent runtime (reading its session state, restarting its gateway, delivering recovery messages), so each runtime needs explicit support. Today:
-
 | Runtime | Support | What works |
 |---|---|---|
-| **OpenClaw** | Turnkey (`install.sh`) | Everything: rotation, stall reaper, burn firewall, handoff, model-switch, registry gate, channel parity, the full learning loop |
-| **Hermes** | Partial | Handoff (`state.db` → `memories/HANDOFF.md` + `CONTEXT.md`), model-switch (edits `config.yaml`, restarts the gateway), weekly scorecard turns, nightly dream-cycle transcript ingest |
-| **Standalone Claude Code** | Runtime-free | Snapshot (sessions → GBrain) and solo burn metering read `~/.claude/projects` directly — no gateway involved |
-| **Anything else** | Building blocks | `lib/extract.sh`, the generic halves of `lib/memory.sh`, `bin/snapshot.sh`, `lib/gbrain.sh`, `lib/notify.sh` are gateway-free; see [docs/integrations.md](docs/integrations.md) for the exact contract a new runtime adapter needs |
+| **OpenClaw** | Turnkey (`install.sh`) | Rotation, stall reaper, burn firewall, handoff, model-switch, registry gate, channel parity, the full learning loop |
+| **Hermes** | Partial | Handoff, model-switch, weekly scorecard, dream-cycle ingest |
+| **Standalone Claude Code** | Runtime-free | Snapshot + solo burn read `~/.claude/projects` directly |
+| **Codex / Kimi / Grok / DeepSeek / GLM** | Dispatch workers | `route` / `run` when the CLI is on PATH. **Not** session rotate/reap |
+| **Anything else** | Building blocks | If it runs in bash, drop a JSON file in `config/workers.d/`. Runtime adapters: [docs/integrations.md](docs/integrations.md) |
 
-There is no Codex CLI **session** support — the warden rotates and summarizes Claude Code sessions only. Codex (and Kimi, Grok, DeepSeek, GLM) can still be **dispatch workers** when their CLI is on PATH. Memory still survives a switch *to* an OpenAI model via a runtime's model chain, because the carry-over is workspace-level, not transcript-level.
+Memory still survives a model switch — carry-over is workspace-level (`MEMORY.md` / `CONTEXT.md`), not transcript-level.
 
-Want a simpler interface than a full gateway in front of your agents? That's the intended shape: the interface layer is yours to swap. [docs/integrations.md](docs/integrations.md) spells out what the warden needs from whatever sits above it.
+## Reference
 
-## What you need
-
-- **An agent runtime** — the turnkey lifeguard install requires [OpenClaw](https://github.com/openclaw/openclaw) (`install.sh` exits without it). `session-warden onboard` (router + host skills) does **not** need OpenClaw. Hermes homes (`~/.hermes-<name>`) are picked up by the modules that support them
-- **`claude` CLI** (required for the lifeguard) — post-rotation summarization, reflector/harvester/scorecard/eval/review model calls
-- **`jq`** (required) and **`curl`** (required for alerts)
-- **`python3`** (required for `route` / `run` / `onboard`; optional for the rest) — also used by crash-buffer detection, fleet review, rate guard, and the contrib collectors
-- **GBrain** (optional) — a knowledge-graph CLI; needed for the dream cycle and the snapshot module's output (snapshot logs `GBRAIN UNAVAILABLE` and skips cleanly without it). Every other module mirrors into GBrain when available and degrades gracefully when not
-- **Telegram bot** (optional) — token + chat ID for alerts and digests; leave unset to disable
-- **Worker CLIs** (optional) — whatever you want to dispatch to (`claude`, `codex`, `kimi`, `grok`, `deepseek`, `glm`, or a wrapper in `config/workers.d/`)
-
-**Platform:** Linux-first. The rotation core leans on `/proc`, systemd user timers, and cron; the test suite targets Linux. On macOS, the solo burn sampler (launchd template) and the read-only CLI commands work; the supervision core does not.
+The rest of this README is the operator manual: rotation, memory, the learning loop, config, architecture. Jump: [how it works](#how-it-works) · [module map](#module-map) · [routing](docs/routing.md) · [onboard](docs/onboard.md) · [integrations](docs/integrations.md) · [CLI](#cli) · [architecture](#architecture).
 
 ## The problem
 
@@ -114,12 +146,12 @@ Changing an agent's model (or rate-guard demoting a provider) used to kill mid-w
 
 ```bash
 # Checkpoint only (safe before a manual restart)
-session-warden handoff baymax
-session-warden handoff zara --reason model-switch
+session-warden handoff my-agent
+session-warden handoff my-agent --reason model-switch
 
 # Checkpoint then change primary model
-session-warden model-switch zara google/gemini-3.6-flash
-session-warden model-switch baymax gemini-3.6-flash
+session-warden model-switch my-agent google/gemini-3.6-flash
+session-warden model-switch my-agent gemini-3.6-flash
 ```
 
 What it does:
@@ -442,19 +474,14 @@ an existing session file, it records the current byte offset as the baseline and
 starts metering from the next append. That keeps setup fast even if
 `~/.claude/projects` already contains months of history.
 
-## Quick start
+## Fleet lifeguard install (OpenClaw)
+
+Already played with `onboard`? This is the other half — cron that keeps long Claude Code sessions alive.
 
 ```bash
-git clone https://github.com/Ani-HQ/session-warden.git ~/session-warden
 cd ~/session-warden
-# router + host skills only — no OpenClaw required
-~/session-warden/bin/session-warden onboard
-
-# fleet lifeguard (OpenClaw)
 bash install.sh
 ```
-
-`onboard` detects the CLIs you already have, writes credits-first routing rules, and installs a short skill into OpenClaw / Hermes / Claude Code / Codex / Grok. Extra Anthropic quota is gone — this is how you keep frontier for hard work. See [docs/onboard.md](docs/onboard.md).
 
 The installer targets the OpenClaw runtime and will:
 - Check dependencies (`jq`, `claude` CLI, `curl` required; `python3` and `gbrain` optional — `gbrain` is needed for the snapshot module's output and the dream cycle)
@@ -622,6 +649,7 @@ session-warden/
 │   └── workers/            # how to wrap an API-only model as a bash worker
 ├── deploy/                 # systemd user units, logrotate policy, launchd template
 ├── docs/
+│   ├── assets/             # logo + host/worker marks
 │   ├── integrations.md     # runtime contract vs worker (bash argv) contract
 │   ├── routing.md          # catalog schema, rule language, credits-first heuristic
 │   └── onboard.md          # session-warden onboard + per-host skill install
@@ -772,8 +800,6 @@ supervision off for the whole fleet.
 ## Fleet board (contrib)
 
 A static, public-safe status board for the fleet — live example: **[fleet.ani.computer](https://fleet.ani.computer)**.
-
-![The fleet board](docs/fleet-board.png)
 
 Three collectors feed it, each usable on its own:
 

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="48" viewBox="0 0 720 48" role="img" aria-label="Works inside OpenClaw, Hermes, Claude Code, Codex, and Grok">
+  <g font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="600">
+    <rect x="4" y="8" width="132" height="32" rx="16" fill="#0B3D3A"/>
+    <text x="70" y="29" text-anchor="middle" fill="#F4EDE0">OpenClaw</text>
+    <rect x="148" y="8" width="116" height="32" rx="16" fill="#1F4B46"/>
+    <text x="206" y="29" text-anchor="middle" fill="#F4EDE0">Hermes</text>
+    <rect x="276" y="8" width="140" height="32" rx="16" fill="#2A5540"/>
+    <text x="346" y="29" text-anchor="middle" fill="#F4EDE0">Claude Code</text>
+    <rect x="428" y="8" width="116" height="32" rx="16" fill="#4A3B2F"/>
+    <text x="486" y="29" text-anchor="middle" fill="#F4EDE0">Codex</text>
+    <rect x="556" y="8" width="116" height="32" rx="16" fill="#5A2E2A"/>
+    <text x="614" y="29" text-anchor="middle" fill="#F4EDE0">Grok</text>
+  </g>
+</svg>

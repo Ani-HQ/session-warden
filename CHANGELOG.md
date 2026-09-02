@@ -20,6 +20,8 @@ Notable changes to session-warden.
 - Docs: [docs/routing.md](docs/routing.md), [docs/onboard.md](docs/onboard.md);
   [docs/integrations.md](docs/integrations.md) now splits runtime vs worker
   contracts. Doctor warns if routing.yaml exists but zero workers are detected.
+- README landing page: logo, host/worker marks, a 60-second play path
+  (`onboard` → `workers` → `route`) before the operator manual.
 
 ## [Unreleased] — incomplete recoveries are labeled
 
