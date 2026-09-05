@@ -2,6 +2,20 @@
 
 Notable changes to session-warden.
 
+## [Unreleased]: loop detector time window
+
+### Fixed: a scheduled heartbeat no longer reads as a retry loop
+
+- `burn_detect_loop` (`lib/burn.sh`) now requires the last
+  `WARDEN_LOOP_REPEATS` identical tool calls to span no more than
+  `WARDEN_LOOP_WINDOW_SECS` (new knob, default 600s). Agents on an hourly
+  heartbeat run one fixed probe per wake, which reached six identical calls
+  after six hours and then re-alerted on every cooldown expiry while the agent
+  was idle. A real retry loop appends within seconds, so the window separates
+  the two without touching the repeat count.
+- Transcripts whose lines carry no parseable `timestamp` keep the legacy
+  identical-only rule, so the detector never goes silent on older history.
+
 ## [Unreleased] — visual setup README
 
 ### Changed — docs only, no behavior change

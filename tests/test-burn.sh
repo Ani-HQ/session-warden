@@ -205,6 +205,61 @@ assert_exit_code "1" "$?" "fewer than N calls not a loop"
 burn_detect_loop "/nonexistent/x.jsonl" 6 >/dev/null
 assert_exit_code "1" "$?" "missing jsonl not a loop"
 
+# ─── loop time window (heartbeat is not a loop) ───────────
+# Identical calls only mean a retry loop when they land close together. An
+# agent woken by an hourly heartbeat runs the same probe once an hour, which
+# is the same signature spread over hours and must not alert.
+
+# ISO-8601 with fractional seconds, the shape Claude Code writes.
+loop_ts() {
+  jq -rn --argjson t "$1" '($t | todateiso8601) | sub("Z$"; ".387Z")'
+}
+
+# loop_turns <count> <step_secs> [start_epoch]
+# <count> identical heartbeat turns, each <step_secs> apart, in the real
+# transcript shape: user prompt, assistant tool_use, tool_result.
+loop_turns() {
+  local count="$1" step="$2" start="${3:-1788500000}" i t out=""
+  local cmd='ls ~/.openclaw/handoffs/isaac/*.md 2>/dev/null; df -h / | tail -1'
+  for (( i = 0; i < count; i++ )); do
+    t=$(loop_ts $(( start + i * step )))
+    out="${out}{\"type\":\"user\",\"timestamp\":\"${t}\",\"message\":{\"content\":\"Read HEARTBEAT.md and follow it.\"}}
+{\"type\":\"assistant\",\"timestamp\":\"${t}\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"${cmd}\"}}]}}
+{\"type\":\"user\",\"timestamp\":\"${t}\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"content\":\"ok\"}]}}
+"
+  done
+  printf '%s' "$out"
+}
+
+f=$(create_mock_jsonl "test-agent" "sess-heartbeat" "$(loop_turns 6 3600)")
+burn_detect_loop "$f" 6 >/dev/null
+assert_exit_code "1" "$?" "six identical calls an hour apart are not a loop"
+
+f=$(create_mock_jsonl "test-agent" "sess-tight" "$(loop_turns 6 10)")
+assert_eq "LOOP" "$(burn_detect_loop "$f" 6)" \
+  "six identical calls inside 60s are a loop"
+
+# Legacy transcripts carry no timestamp: identical still means LOOP.
+legacy_jsonl=""
+for _ in 1 2 3 4 5 6; do
+  legacy_jsonl="${legacy_jsonl}{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"npm test\"}}]}}
+"
+done
+f=$(create_mock_jsonl "test-agent" "sess-legacy" "$legacy_jsonl")
+assert_eq "LOOP" "$(burn_detect_loop "$f" 6)" \
+  "identical calls without timestamps still a loop (legacy fallback)"
+
+# Sanity: tight timing alone is not enough, the calls must also be identical.
+mixed_jsonl="$(loop_turns 5 10)"'{"type":"assistant","timestamp":"'"$(loop_ts 1788500050)"'","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/a"}}]}}'
+f=$(create_mock_jsonl "test-agent" "sess-mixed" "$mixed_jsonl")
+burn_detect_loop "$f" 6 >/dev/null
+assert_exit_code "1" "$?" "five identical inside 60s plus one different not a loop"
+
+# The window is tunable.
+f=$(create_mock_jsonl "test-agent" "sess-window" "$(loop_turns 6 3600)")
+assert_eq "LOOP" "$(burn_detect_loop "$f" 6 86400)" \
+  "widened window makes the hourly signature a loop again"
+
 # ─── budget + warn detection ──────────────────────────────
 setup_sandbox
 dir="$WARDEN_HOME/state/burn"

@@ -156,20 +156,46 @@ burn_alert() {
   return 0
 }
 
-# burn_detect_loop <jsonl> [repeats]
+# burn_detect_loop <jsonl> [repeats] [window_secs]
 # Retry-loop signature: the last N tool calls in the transcript tail are the
-# same tool with identical input. Prints LOOP and returns 0 when detected.
+# same tool with identical input AND they all land inside a short time window
+# (WARDEN_LOOP_WINDOW_SECS, default 600s). Prints LOOP and returns 0 when
+# detected.
+#
+# The time window is what separates a retry loop from a heartbeat. A real loop
+# appends its identical calls back to back, seconds or a couple of minutes
+# apart. A scheduled heartbeat turn (an agent woken hourly to run the same
+# probe and reply OK) also produces N identical tool calls, but spread over N
+# hours. Without the window those heartbeats tripped LOOP on every scan for
+# the whole cooldown, paging hourly for an agent that was completely idle.
+#
+# Backward compatible: if any of the last N calls carries no parseable
+# timestamp (older transcripts), the legacy identical-means-LOOP rule applies,
+# so the detector never goes silent on history it cannot time.
 burn_detect_loop() {
   local jsonl="$1" repeats="${2:-${WARDEN_LOOP_REPEATS:-6}}"
+  local window="${3:-${WARDEN_LOOP_WINDOW_SECS:-600}}"
   [ -f "$jsonl" ] || return 1
 
   local verdict
-  verdict=$(tail -n 300 "$jsonl" 2>/dev/null | jq -Rrs --argjson n "$repeats" '
+  verdict=$(tail -n 300 "$jsonl" 2>/dev/null | \
+    jq -Rrs --argjson n "$repeats" --argjson w "$window" '
+    def to_epoch:
+      (if type == "string"
+       then (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?)
+       else null end) // null;
     [split("\n")[] | select(length > 0) | (fromjson? // empty) |
-     select(.type == "assistant") | .message.content[]? |
-     select(.type == "tool_use") | {name: .name, input: .input} | tojson] |
-    if (length >= $n) and ((.[length - $n:] | unique | length) == 1)
-    then "LOOP" else "OK" end
+     select(.type == "assistant") | . as $line | .message.content[]? |
+     select(.type == "tool_use") |
+     {call: ({name: .name, input: .input} | tojson),
+      ts: ($line.timestamp | to_epoch)}] |
+    if (length < $n) then "OK"
+    elif ((.[length - $n:] | map(.call) | unique | length) != 1) then "OK"
+    else (.[length - $n:] | map(.ts)) as $ts |
+      if ($ts | any(. == null)) then "LOOP"
+      elif (($ts | max) - ($ts | min)) <= $w then "LOOP"
+      else "OK" end
+    end
   ' 2>/dev/null)
 
   [ "$verdict" = "LOOP" ] && { echo "LOOP"; return 0; }
