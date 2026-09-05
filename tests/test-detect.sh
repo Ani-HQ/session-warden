@@ -215,14 +215,16 @@ assert_empty "$problems" "missing sessions.json produces no problems"
 
 echo "  detect: zombie detection"
 
-# ─── Zombie: dead process + stale JSONL ───────────────────
+# ─── Zombie: turn in flight + dead process + stale JSONL ──
+# status=running is the evidence that a turn is in flight. Only then does
+# "CLI gone + transcript stale" mean something is wedged.
 
 create_sessions_json "test-agent" '{
   "discord-dm": {
     "totalTokens": 100000,
     "numTurns": 50,
     "compactionCount": 1,
-    "status": "idle",
+    "status": "running",
     "updatedAt": '"$(now_ms)"',
     "cliSessionIds": {"claude-cli": "sess-zombie-001"}
   }
@@ -248,6 +250,32 @@ problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/session
 assert_not_contains "$problems" "ZOMBIE" "skip zombie if recently recovered"
 
 rm -f "$WARDEN_HOME/state/cooldowns/test-agent-discord-dm.recovered"
+
+echo "  detect: finished turn with fresh updatedAt is not a zombie"
+
+# ─── Heartbeat resting state must NOT be flagged ──────────
+# A heartbeat (or any finished turn) leaves status idle/done, a fresh
+# updatedAt, an exited CLI and a transcript that stops being written. That is
+# the normal resting state of every agent between turns. Treating updatedAt
+# alone as "someone is using this" rotated ping/dash/isaac/bloop :main on a
+# 2h clock with zero human chat, each rotation re-priming 80-100k tokens.
+
+create_sessions_json "test-agent" '{
+  "discord-heartbeat": {
+    "totalTokens": 100000,
+    "numTurns": 50,
+    "compactionCount": 1,
+    "status": "idle",
+    "updatedAt": '"$(now_ms)"',
+    "cliSessionIds": {"claude-cli": "sess-heartbeat-001"}
+  }
+}'
+
+echo '{"type":"test"}' > "$jsonl_dir/sess-heartbeat-001.jsonl"
+touch_relative "2 hours ago" "$jsonl_dir/sess-heartbeat-001.jsonl"
+
+problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
+assert_not_contains "$problems" "ZOMBIE" "finished turn (status idle, fresh updatedAt, dead CLI, stale JSONL) not flagged as zombie"
 
 echo "  detect: idle session is not a zombie"
 
