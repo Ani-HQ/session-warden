@@ -344,7 +344,13 @@ percentage when a budget is set.
 - `BUDGET` — an agent crossed `WARDEN_BURN_WARN_PCT` (warn) or 100% (breach)
   of `WARDEN_BURN_WINDOW_BUDGET` tokens per window.
 - `LOOP` — the retry-loop signature: the last `WARDEN_LOOP_REPEATS` tool calls
-  in the transcript are identical. This is the silent 5-10x budget killer.
+  in the transcript are identical *and* they all land within
+  `WARDEN_LOOP_WINDOW_SECS` (default 600s). This is the silent 5-10x budget
+  killer. The time window is the discriminator: a real loop retries seconds
+  apart, while an agent on a scheduled heartbeat runs the same probe once an
+  hour and would otherwise be paged as a loop while sitting completely idle.
+  Transcripts whose lines carry no parseable timestamp fall back to the
+  identical-only rule, so older history is still covered.
 
 **Enforcement** (`WARDEN_BURN_ENFORCE=1`, default off):
 - Budget breach → the agent is **paused** until the window resets. Only idle
