@@ -37,6 +37,7 @@ The agent comes back online in under a second, knowing what it was doing.
 | Snapshot | `bin/snapshot.sh` | cron, 30 min (install.sh) | capture standalone Claude Code sessions into GBrain |
 | Context sync | `bin/context-sync.sh` | cron, 5 min (manual) | refresh MEMORY.md/CONTEXT.md from *live* sessions so restarts are always fresh |
 | Archive cleanup | `bin/cleanup-archives.sh` | cron, daily (manual) | bounded growth for archives, logs, queues, cooldowns, burn ledgers |
+| Progress card | `bin/progress-card.sh` | on demand (agents) | one live Discord/Telegram card for a long task; edited in place |
 | Worktree GC | `bin/reap-worktrees.sh` + `bin/wt` | cron, 15 min (manual) | ephemeral per-task git worktrees for agents, garbage-collected |
 | Burn firewall | `lib/burn.sh` (in scan) + `bin/burn-report.sh` | with scan / on demand | meter per-agent token burn; alert or enforce on spikes, budgets, retry loops |
 | Burn solo | `bin/burn-solo-sample.sh` | launchd/cron (manual) | meter standalone Claude Code usage outside any gateway |
@@ -300,6 +301,16 @@ Process identity is safety-gated: a pid is only ever killed if its cmdline carri
 
 Runs on its own cron tick every 30s. Config: `WARDEN_REAP_ENABLED`, `WARDEN_STALL_HARD_CAP_SECONDS`, `WARDEN_STALL_KILL_GRACE_SECONDS`.
 
+## Long-task progress cards
+
+Neither Discord nor Telegram has a native progress-bar widget. The live indicator is **one message, edited in place**.
+
+`bin/progress-card.sh` (also `session-warden progress`) builds a short card — title, `23/57`, a `█`/`░` bar, `now` / `last` — and sends it with OpenClaw `presentation`. The first call posts. Later calls edit the stored message ids under `state/progress/`. An optional `--sheet-url` becomes an **Open sheet** button. The sheet is the work artifact, not the live status UI.
+
+Throttle: emit after `WARDEN_PROGRESS_EVERY_N` newly completed items (default 5), or when something changed and `WARDEN_PROGRESS_THROTTLE_SECONDS` (default 45) have passed — whichever comes first. `start`, `done`, and `blocked` always send. Do not revive the old 30s fake heartbeat.
+
+Discord is inferred from a `discord:channel:<id>` session key. Set `WARDEN_PROGRESS_TELEGRAM_TARGET` (or `--telegram-target`) to fan out. Shared skill: [`skills/long-task-progress/SKILL.md`](../skills/long-task-progress/SKILL.md).
+
 ## Channel/plugin parity (silent-channel backstop)
 
 *OpenClaw-specific: guards an OpenClaw packaging failure mode.*
@@ -508,6 +519,8 @@ All config lives in `config/thresholds.env`. Key settings:
 | `WARDEN_TELEGRAM_BOT_TOKEN` | (empty) | Telegram bot token for rotation alerts |
 | `WARDEN_TELEGRAM_CHAT_ID` | (empty) | Telegram chat ID for rotation alerts |
 | `WARDEN_NOTIFY_ROTATIONS` | 0 | Post a chat alert on every routine rotation. Off by default — routine threshold rotations recover silently (logged only); crash and stall recoveries always notify regardless |
+| `WARDEN_PROGRESS_THROTTLE_SECONDS` | 45 | Minimum seconds between progress-card edits unless `EVERY_N` items landed |
+| `WARDEN_PROGRESS_EVERY_N` | 5 | Emit a progress-card edit after this many newly completed items |
 | `WARDEN_ZOMBIE_LIVE_GRACE_SECONDS` | 600 | Skip zombie when `updatedAt` is younger than this (MCP CLI reset leaves a dead old session id mid-turn) |
 | `WARDEN_RECOVERY_TIMEOUT_SECONDS` | 3600 | `openclaw agent --timeout` for a recovery wake. Delivery is backgrounded so it does not hold `recovery.lock` |
 
@@ -523,6 +536,7 @@ session-warden/
 │   ├── route.sh             # credits-first worker pick (rules, then heuristic)
 │   ├── run.sh               # invoke a worker; route-then-run with one fallback
 │   ├── onboard.sh           # detect hosts, write routing.yaml, install skills
+│   ├── progress-card.sh     # one live Discord/Telegram long-task card
 │   ├── scan.sh              # cron entry point (every 30s)
 │   ├── reap-stalls.sh       # independent stall backstop (disk + /proc only)
 │   ├── reap-worktrees.sh    # GC for ephemeral agent worktrees (cron, 15 min)
@@ -552,6 +566,7 @@ session-warden/
 │   └── mcp-supervisor.sh    # keep MCP servers alive across rotations
 ├── lib/
 │   ├── detect.sh            # threshold + zombie detection
+│   ├── progress-card.sh     # bar, throttle, send-or-edit presentation card
 │   ├── extract.sh           # Claude Code JSONL → transcript (gateway-free)
 │   ├── extract-hermes.py    # Hermes state.db → the same transcript shape
 │   ├── memory.sh            # summarize + write memory files (per-runtime writers)
@@ -591,7 +606,7 @@ session-warden/
 │   ├── routing.md          # catalog schema, rule language, credits-first heuristic
 │   ├── onboard.md          # session-warden onboard + per-host skill install
 │   └── manual.md           # operator manual (rotation, memory, learning loop)
-├── skills/                 # host SKILL.md packs (openclaw, hermes, claude-code, codex, grok)
+├── skills/                 # host SKILL.md packs + long-task-progress
 ├── tests/                  # test suite (bash tests/run-tests.sh)
 ├── config/
 │   ├── thresholds.env.example       # complete config reference
