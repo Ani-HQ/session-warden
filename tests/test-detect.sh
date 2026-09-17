@@ -225,7 +225,7 @@ create_sessions_json "test-agent" '{
     "numTurns": 50,
     "compactionCount": 1,
     "status": "running",
-    "updatedAt": '"$(now_ms)"',
+    "updatedAt": '"$(ago_ms 1800)"',
     "cliSessionIds": {"claude-cli": "sess-zombie-001"}
   }
 }'
@@ -239,9 +239,43 @@ touch_relative "2 hours ago" "$jsonl_dir/sess-zombie-001.jsonl"
 problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
 assert_contains "$problems" "ZOMBIE" "detect zombie session (dead process + stale JSONL)"
 
+echo "  detect: live-grace skips fresh updatedAt"
+
+# ─── Live grace: mid-turn MCP reset is not a zombie ───────
+# status=running + dead old CLI + stale old jsonl + fresh updatedAt is
+# the false-ZOMBIE that rotated Dash 27s into a live turn.
+
+create_sessions_json "test-agent" '{
+  "discord-dm": {
+    "totalTokens": 100000,
+    "numTurns": 50,
+    "compactionCount": 1,
+    "status": "running",
+    "updatedAt": '"$(now_ms)"',
+    "cliSessionIds": {"claude-cli": "sess-zombie-live"}
+  }
+}'
+
+echo '{"type":"test"}' > "$jsonl_dir/sess-zombie-live.jsonl"
+touch_relative "2 hours ago" "$jsonl_dir/sess-zombie-live.jsonl"
+
+problems=$(detect_sessions_problems "$SANDBOX/openclaw/agents/test-agent/sessions/sessions.json")
+assert_not_contains "$problems" "ZOMBIE" "fresh updatedAt is not a zombie (live grace)"
+
 echo "  detect: zombie skip after recovery"
 
 # ─── Zombie skip: recently recovered ─────────────────────
+
+create_sessions_json "test-agent" '{
+  "discord-dm": {
+    "totalTokens": 100000,
+    "numTurns": 50,
+    "compactionCount": 1,
+    "status": "running",
+    "updatedAt": '"$(ago_ms 1800)"',
+    "cliSessionIds": {"claude-cli": "sess-zombie-001"}
+  }
+}'
 
 mkdir -p "$WARDEN_HOME/state/cooldowns"
 echo "$(date +%s)" > "$WARDEN_HOME/state/cooldowns/test-agent-discord-dm.recovered"

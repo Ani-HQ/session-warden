@@ -2,6 +2,20 @@
 
 Notable changes to session-warden.
 
+## [Unreleased]: longer recovery turns
+
+### Fixed: false zombies and 120s recovery kills mid-task
+
+- Zombie detection now skips a `status=running` session whose `updatedAt`
+  is younger than `WARDEN_ZOMBIE_LIVE_GRACE_SECONDS` (default 600). An MCP
+  CLI reset can leave a dead old `cliSessionId` and a stale old jsonl
+  while a live turn is still going; rotating that mid-flight is what
+  silenced Dash 27s into a long task.
+- Recovery wakes use `WARDEN_RECOVERY_TIMEOUT_SECONDS` (default 3600)
+  instead of `--timeout 120`. Each delivery is backgrounded so a long
+  wake does not hold `recovery.lock` and stall the rest of the drain.
+- Stall-reaper delivery uses the same timeout helpers.
+
 ## [Unreleased]: loop detector time window
 
 ### Fixed: a scheduled heartbeat no longer reads as a retry loop

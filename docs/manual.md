@@ -20,7 +20,7 @@ Runtimes can make this worse. OpenClaw, for example, keeps a dead session ID pin
 
 A cron job runs every 30 seconds. When it finds a session that's failed or exceeds configurable thresholds (tokens, turns, compaction count), it runs a 4-step rotation:
 
-1. **Detect** — scan session state for bloat, failures, or zombies (dead CLI process with stale JSONL)
+1. **Detect** — scan session state for bloat, failures, or zombies (dead CLI process with stale JSONL; skipped when `updatedAt` is younger than `WARDEN_ZOMBIE_LIVE_GRACE_SECONDS`)
 2. **Rotate** — backup state, archive the JSONL (never deleted), clean up the stale session reference
 3. **Summarize** — extract the full conversation (text + tool actions), summarize with a fast model (Haiku), write it into the agent's memory files
 4. **Restart** — restart the runtime gateway so agents boot with full context already loaded
@@ -292,7 +292,7 @@ The cap sits well **above** the in-gateway watchdog, so the reaper only fires wh
 - **no live child** (turn already died, gateway never cleared `running`) → clear the stale state on disk + hand off to recovery, without disrupting the other agents.
 - **still stuck on the next tick** after we acted → the gateway event loop itself isn't reacting → `openclaw gateway restart` (shared cooldown with `scan.sh`).
 
-Either way the killed session is marked failed and the reaper **delivers the "you're back" nudge itself** (`openclaw agent --deliver`, backgrounded), rather than depending on `scan.sh`'s drainer being scheduled — independence is the whole point.
+Either way the killed session is marked failed and the reaper **delivers the "you're back" nudge itself** (`openclaw agent --deliver`, backgrounded, `WARDEN_RECOVERY_TIMEOUT_SECONDS` default 3600), rather than depending on `scan.sh`'s drainer being scheduled — independence is the whole point.
 
 Process identity is safety-gated: a pid is only ever killed if its cmdline carries the session's `--session-id` **and** its `/proc/<pid>/environ` has the runtime's agent-ID marker for that agent — so a human's own `claude` session is never touched. Honors `WARDEN_DRY_RUN=1`.
 
@@ -508,6 +508,8 @@ All config lives in `config/thresholds.env`. Key settings:
 | `WARDEN_TELEGRAM_BOT_TOKEN` | (empty) | Telegram bot token for rotation alerts |
 | `WARDEN_TELEGRAM_CHAT_ID` | (empty) | Telegram chat ID for rotation alerts |
 | `WARDEN_NOTIFY_ROTATIONS` | 0 | Post a chat alert on every routine rotation. Off by default — routine threshold rotations recover silently (logged only); crash and stall recoveries always notify regardless |
+| `WARDEN_ZOMBIE_LIVE_GRACE_SECONDS` | 600 | Skip zombie when `updatedAt` is younger than this (MCP CLI reset leaves a dead old session id mid-turn) |
+| `WARDEN_RECOVERY_TIMEOUT_SECONDS` | 3600 | `openclaw agent --timeout` for a recovery wake. Delivery is backgrounded so it does not hold `recovery.lock` |
 
 All `WARDEN_*` variables can be overridden via environment (env takes precedence over the config file). The table above is the short list — [`config/thresholds.env.example`](../config/thresholds.env.example) is the complete, commented reference for every variable the scripts read, including all the per-module (reflector/harvester/scorecard/fleet-review/eval) settings and advanced knobs. Secrets (bot tokens, API keys) belong in `~/.config/session-warden/secrets.env` (chmod 600), which the config sources if present.
 
@@ -811,7 +813,7 @@ grep "ERROR" ~/session-warden/state/scan.log
 | Agent still broken after rotation | Check session state: is the stale reference deleted? Check gateway restarted. |
 | False-positive rotations | Raise thresholds in `thresholds.env`. |
 | Summarization failing | Check `claude` CLI works: `claude -p --model claude-haiku-4-5-20251001 "test"` |
-| Zombie detection too aggressive | Increase `stale_threshold` in `detect.sh` (default: 30 min). |
+| Zombie detection too aggressive | Increase `WARDEN_ZOMBIE_LIVE_GRACE_SECONDS` (default 10 min) or `stale_threshold` in `detect.sh` (default: 30 min). |
 
 ## Related issues
 

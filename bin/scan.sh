@@ -26,6 +26,55 @@ log() {
   echo "[$(date -Iseconds)] $*" >> "$LOG_FILE"
 }
 
+# One recovery wake. Run in the background so a long --timeout does not
+# hold recovery.lock and stall the rest of the drain.
+deliver_queued_recovery() {
+  local ragent="$1"
+  local rchannel="$2"
+  local recovery_msg="$3"
+  local deliver_flag="$4"
+  local sjson_path="$5"
+  local cli wall delivery_err delivery_rc recovered_file fail_file
+
+  cli="$(recovery_cli_timeout_seconds)"
+  wall="$(recovery_wall_timeout_seconds)"
+
+  # -k 30: openclaw ignores SIGTERM, so without a KILL escalation a hung
+  # delivery never dies. Keep stderr: silent delivery failures hid the
+  # #16 regression for three weeks.
+  if delivery_err=$(timeout -k 30 "$wall" openclaw agent \
+    --agent "$ragent" \
+    --channel last \
+    --session-key "$rchannel" \
+    --message "$recovery_msg" \
+    --timeout "$cli" \
+    ${deliver_flag} \
+    2>&1 >/dev/null); then
+    echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE"
+    if type clear_crash_buffer &>/dev/null; then
+      clear_crash_buffer "$ragent" "$rchannel"
+    fi
+    recovered_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
+    date +%s > "$recovered_file"
+    fail_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
+    rm -f "$fail_file" "${fail_file%.failures}.backoff-alerted"
+    if [ -f "$sjson_path" ]; then
+      jq --arg key "$rchannel" '
+        if has($key) and .[$key].status == "failed" then
+          .[$key].status = null |
+          .[$key].cliSessionIds = null |
+          .[$key].claudeCliSessionId = null |
+          .[$key].cliSessionBindings = null
+        else . end
+      ' "$sjson_path" > "${sjson_path}.tmp" && mv "${sjson_path}.tmp" "$sjson_path"
+    fi
+  else
+    delivery_rc=$?
+    delivery_err=$(echo "$delivery_err" | tr '\n' ' ' | head -c 200)
+    echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (exit ${delivery_rc}${delivery_err:+: ${delivery_err}}) — non-fatal" >> "$LOG_FILE"
+  fi
+}
+
 # Prevent overlapping scans
 exec 199>"$LOCKFILE"
 if ! flock -n 199; then
@@ -254,46 +303,12 @@ NOTE: this restart is routine. Do NOT announce that you're back and do NOT messa
           fi
         fi
 
-        # -k 30: openclaw ignores SIGTERM, so without a KILL escalation a hung
-        # delivery blocks the serial drain forever (observed: one delivery
-        # stuck 90+ min holding 16 queued recoveries; another since Apr 30).
-        # Keep stderr: silent delivery failures hid the #16 regression for
-        # three weeks. On failure the tail of it goes in the log line.
-        if delivery_err=$(timeout -k 30 180 openclaw agent \
-          --agent "$ragent" \
-          --channel last \
-          --session-key "$rchannel" \
-          --message "$recovery_msg" \
-          --timeout 120 \
-          ${deliver_flag} \
-          2>&1 >/dev/null); then
-          echo "[$(date -Iseconds)] RECOVERY: sent to $ragent/$rchannel" >> "$LOG_FILE"
-          # Clear crash buffer after successful recovery delivery
-          if type clear_crash_buffer &>/dev/null; then
-            clear_crash_buffer "$ragent" "$rchannel"
-          fi
-          # Mark as recovered so zombie detection skips this session for 2 hours
-          recovered_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').recovered"
-          date +%s > "$recovered_file"
-          # Clear failure counter + backoff-alert marker on successful recovery
-          fail_file="${WARDEN_HOME}/state/cooldowns/${ragent}-$(echo "$rchannel" | sed 's/[^a-zA-Z0-9_-]/_/g').failures"
-          rm -f "$fail_file" "${fail_file%.failures}.backoff-alerted"
-          # Clear status=failed in sessions.json so the gateway treats it as healthy
-          if [ -f "$sjson_path" ]; then
-            jq --arg key "$rchannel" '
-              if has($key) and .[$key].status == "failed" then
-                .[$key].status = null |
-                .[$key].cliSessionIds = null |
-                .[$key].claudeCliSessionId = null |
-                .[$key].cliSessionBindings = null
-              else . end
-            ' "$sjson_path" > "${sjson_path}.tmp" && mv "${sjson_path}.tmp" "$sjson_path"
-          fi
-        else
-          delivery_rc=$?
-          delivery_err=$(echo "$delivery_err" | tr '\n' ' ' | head -c 200)
-          echo "[$(date -Iseconds)] RECOVERY: failed to send to $ragent/$rchannel (exit ${delivery_rc}${delivery_err:+: ${delivery_err}}) — non-fatal" >> "$LOG_FILE"
-        fi
+        # Launch the wake and drop the queue file immediately. A 3600s
+        # --timeout must not sit on flock 198; the next scan would skip
+        # the rest of the drain.
+        echo "[$(date -Iseconds)] RECOVERY: launching $ragent/$rchannel (timeout $(recovery_cli_timeout_seconds)s)" >> "$LOG_FILE"
+        deliver_queued_recovery "$ragent" "$rchannel" "$recovery_msg" "$deliver_flag" "$sjson_path" &
+        disown || true
         rm -f "$rfile"
       done
       flock -u 198
