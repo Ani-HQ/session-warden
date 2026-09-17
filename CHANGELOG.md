@@ -2,6 +2,20 @@
 
 Notable changes to session-warden.
 
+## [Unreleased]: long-task progress cards
+
+### Added — one live card on Discord and Telegram
+
+- `bin/progress-card.sh` (also `session-warden progress`) posts a single
+  long-task card and edits it in place. The helper owns the bar so agents
+  do not invent a new "running…" message each tick.
+- Throttle: every `WARDEN_PROGRESS_EVERY_N` items (default 5) or
+  `WARDEN_PROGRESS_THROTTLE_SECONDS` (default 45), whichever comes first.
+  `start` / `done` / `blocked` always send.
+- Shared skill: [`skills/long-task-progress/SKILL.md`](skills/long-task-progress/SKILL.md).
+- Stay on OpenClaw `presentation`. No native Discord/Telegram progress
+  widget exists; a results sheet is optional via an Open sheet button.
+
 ## [Unreleased]: longer recovery turns
 
 ### Fixed: false zombies and 120s recovery kills mid-task

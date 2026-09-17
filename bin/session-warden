@@ -10,6 +10,7 @@
 #   install       Install cron entries and create config
 #   uninstall     Remove cron entries
 #   logs          Tail the scan log
+#   progress      Post or edit a long-task progress card
 #   version       Show version
 
 set -uo pipefail
@@ -171,6 +172,10 @@ cmd_logs() {
   esac
 }
 
+cmd_progress() {
+  exec "$WARDEN_HOME/bin/progress-card.sh" "$@"
+}
+
 cmd_version() {
   echo "session-warden $VERSION"
 }
@@ -242,6 +247,10 @@ Commands:
   logs [-f | N]
       Show recent log entries. Use -f to follow.
 
+  progress start|update|done|blocked --agent NAME --channel KEY [options]
+      One live long-task card on Discord and/or Telegram. First call sends;
+      later calls edit the same message. See bin/progress-card.sh.
+
   version
       Show version.
 
@@ -266,6 +275,7 @@ case "${1:-help}" in
   install)   shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   logs|log)  shift; cmd_logs "$@" ;;
+  progress)  shift; cmd_progress "$@" ;;
   version|-v|--version) cmd_version ;;
   help|-h|--help) cmd_help ;;
   *)
