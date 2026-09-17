@@ -82,11 +82,11 @@ echo "  recovery: timeout helpers"
 assert_eq "3600" "$(recovery_cli_timeout_seconds)" "default recovery CLI timeout is 1h"
 assert_eq "3660" "$(recovery_wall_timeout_seconds)" "default wall is CLI + 60s slack"
 
-WARDEN_RECOVERY_TIMEOUT_SECONDS=120
+export WARDEN_RECOVERY_TIMEOUT_SECONDS=120
 assert_eq "120" "$(recovery_cli_timeout_seconds)" "recovery CLI timeout honors override"
 assert_eq "180" "$(recovery_wall_timeout_seconds)" "wall follows CLI override + slack"
 unset WARDEN_RECOVERY_TIMEOUT_SECONDS
 
-WARDEN_RECOVERY_TIMEOUT_SECONDS=nope
+export WARDEN_RECOVERY_TIMEOUT_SECONDS=nope
 assert_eq "3600" "$(recovery_cli_timeout_seconds)" "non-numeric timeout falls back to 3600"
 unset WARDEN_RECOVERY_TIMEOUT_SECONDS
