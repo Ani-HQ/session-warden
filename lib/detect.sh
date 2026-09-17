@@ -62,6 +62,8 @@ detect_sessions_problems() {
 
   # Pass 2: zombie detection — a turn IN FLIGHT whose CLI is gone:
   # status=running + recent updatedAt + dead process + stale JSONL.
+  # Fresh updatedAt (live grace) is not a zombie: MCP CLI reset leaves a
+  # dead old session id while the live turn is still going.
   #
   # status=running is load-bearing. Heartbeats (and any finished turn) leave
   # status done/idle, updatedAt fresh, and the CLI exited — that is the normal
@@ -78,6 +80,7 @@ detect_sessions_problems() {
   local stale_threshold=1800
   local recovery_grace=7200  # 2 hours: don't re-zombie a recently recovered session
   local active_window="${WARDEN_ZOMBIE_ACTIVE_WINDOW_SECONDS:-7200}"
+  local live_grace="${WARDEN_ZOMBIE_LIVE_GRACE_SECONDS:-600}"
 
   while IFS='|' read -r channel_key cli_session_id updated_at_ms; do
     [ -z "$cli_session_id" ] && continue
@@ -86,6 +89,13 @@ detect_sessions_problems() {
     # Missing/zero updatedAt counts as idle: no evidence anyone needs it.
     local updated_at_s=$(( ${updated_at_ms:-0} / 1000 ))
     if [ $((now_epoch - updated_at_s)) -gt "$active_window" ]; then
+      continue
+    fi
+
+    # Fresh updatedAt: the gateway just touched this session. An MCP CLI
+    # reset can leave a dead old cliSessionId plus a stale old jsonl while
+    # a live turn is still going. Rotating that mid-flight kills the work.
+    if [ $((now_epoch - updated_at_s)) -lt "$live_grace" ]; then
       continue
     fi
 

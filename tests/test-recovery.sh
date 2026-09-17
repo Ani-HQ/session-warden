@@ -76,3 +76,17 @@ assert_contains "$stall" "Do not report this work as done" "stall wake forbids c
 assert_contains "$stall" "watchdog" "stall wake keeps the watchdog wording"
 assert_eq "INCOMPLETE:" "$(printf '%s\n' "$stall" | head -1 | awk '{print $1}')" \
   "stall banner is first"
+
+echo "  recovery: timeout helpers"
+
+assert_eq "3600" "$(recovery_cli_timeout_seconds)" "default recovery CLI timeout is 1h"
+assert_eq "3660" "$(recovery_wall_timeout_seconds)" "default wall is CLI + 60s slack"
+
+export WARDEN_RECOVERY_TIMEOUT_SECONDS=120
+assert_eq "120" "$(recovery_cli_timeout_seconds)" "recovery CLI timeout honors override"
+assert_eq "180" "$(recovery_wall_timeout_seconds)" "wall follows CLI override + slack"
+unset WARDEN_RECOVERY_TIMEOUT_SECONDS
+
+export WARDEN_RECOVERY_TIMEOUT_SECONDS=nope
+assert_eq "3600" "$(recovery_cli_timeout_seconds)" "non-numeric timeout falls back to 3600"
+unset WARDEN_RECOVERY_TIMEOUT_SECONDS

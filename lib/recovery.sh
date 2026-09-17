@@ -69,3 +69,26 @@ build_stall_recovery_message() {
   local body="You were just restarted: a stalled turn of yours was terminated by the watchdog. Check this channel's most recent messages to find what you were doing and resume that work. Do NOT announce that you're back and do NOT mention this restart; if a user message is waiting for a reply, answer it directly as you normally would."
   printf '%s%s' "$(recovery_incomplete_banner STALL)" "$body"
 }
+
+# CLI --timeout for a recovery wake. Must be long enough for a real
+# resume (research, sheets, multi-tool work). A 120s cap killed live
+# recoveries mid-turn. Wall clock is CLI + slack so timeout(1) can
+# SIGKILL if openclaw ignores SIGTERM.
+recovery_cli_timeout_seconds() {
+  local n="${WARDEN_RECOVERY_TIMEOUT_SECONDS:-3600}"
+  case "$n" in
+    ''|*[!0-9]*) n=3600 ;;
+  esac
+  [ "$n" -lt 60 ] && n=60
+  printf '%s' "$n"
+}
+
+recovery_wall_timeout_seconds() {
+  local cli slack
+  cli="$(recovery_cli_timeout_seconds)"
+  slack="${WARDEN_RECOVERY_WALL_SLACK_SECONDS:-60}"
+  case "$slack" in
+    ''|*[!0-9]*) slack=60 ;;
+  esac
+  printf '%s' "$((cli + slack))"
+}

@@ -94,8 +94,8 @@ deliver_recovery() {
   (
     exec 197>&-
     # Keep stderr: silent delivery failures hid the #16 regression for weeks.
-    if err=$(timeout 180 openclaw agent --agent "$agent" --channel last --session-key "$channel_key" \
-        --message "$msg" --timeout 120 ${deliver_flag} 2>&1 >/dev/null); then
+    if err=$(timeout -k 30 "$(recovery_wall_timeout_seconds)" openclaw agent --agent "$agent" --channel last --session-key "$channel_key" \
+        --message "$msg" --timeout "$(recovery_cli_timeout_seconds)" ${deliver_flag} 2>&1 >/dev/null); then
       echo "[$(date -Iseconds)] [reap] RECOVERY delivered to ${agent}/${channel_key}" >> "$LOG_FILE"
     else
       rc=$?
