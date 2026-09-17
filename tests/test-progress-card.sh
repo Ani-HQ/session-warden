@@ -16,7 +16,7 @@ echo "  progress-card: tone and body"
 
 assert_eq "info" "$(progress_card_tone start)" "start is info"
 assert_eq "info" "$(progress_card_tone update)" "update is info"
-assert_eq "success" "$(progress_card_tone done)" "done is success"
+assert_eq "success" "$(progress_card_tone "done")" "done is success"
 assert_eq "danger" "$(progress_card_tone blocked)" "blocked is danger"
 
 body=$(progress_card_body "Dahej tier-1" 23 57 "Flow-Tech Valves" "wrote row 23")
@@ -55,7 +55,7 @@ unset PROGRESS_CARD_FORCE
 fresh=$(jq -n --argjson ts "$(date +%s)" '{done:20, now:"a", last_sent_at:$ts}')
 rc=0; progress_card_should_emit start 0 "" "" || rc=$?
 assert_eq "0" "$rc" "start always emits"
-rc=0; progress_card_should_emit done 57 "x" "$fresh" || rc=$?
+rc=0; progress_card_should_emit "done" 57 "x" "$fresh" || rc=$?
 assert_eq "0" "$rc" "done always emits"
 rc=0; progress_card_should_emit blocked 20 "stuck" "$fresh" || rc=$?
 assert_eq "0" "$rc" "blocked always emits"

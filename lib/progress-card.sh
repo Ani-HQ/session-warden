@@ -40,28 +40,28 @@ progress_card_int() {
   printf '%s' "$n"
 }
 
-# progress_card_bar <done> <total> [width]
+# progress_card_bar <n_done> <total> [width]
 progress_card_bar() {
-  local done total width filled i
-  done="$(progress_card_int "${1:-0}")"
+  local n_done total width filled i
+  n_done="$(progress_card_int "${1:-0}")"
   total="$(progress_card_int "${2:-0}")"
   width="$(progress_card_int "${3:-$(progress_card_bar_width)}")"
   [ "$width" -lt 4 ] && width=4
   [ "$total" -lt 1 ] && total=1
-  [ "$done" -gt "$total" ] && done="$total"
-  filled=$((done * width / total))
+  [ "$n_done" -gt "$total" ] && n_done="$total"
+  filled=$((n_done * width / total))
   [ "$filled" -gt "$width" ] && filled="$width"
   for ((i = 0; i < filled; i++)); do printf '█'; done
   for ((i = filled; i < width; i++)); do printf '░'; done
 }
 
 progress_card_percent() {
-  local done total
-  done="$(progress_card_int "${1:-0}")"
+  local n_done total
+  n_done="$(progress_card_int "${1:-0}")"
   total="$(progress_card_int "${2:-0}")"
   [ "$total" -lt 1 ] && { printf '0'; return; }
-  [ "$done" -gt "$total" ] && done="$total"
-  printf '%s' $((done * 100 / total))
+  [ "$n_done" -gt "$total" ] && n_done="$total"
+  printf '%s' $((n_done * 100 / total))
 }
 
 progress_card_tone() {
@@ -72,13 +72,13 @@ progress_card_tone() {
   esac
 }
 
-# progress_card_body <title> <done> <total> <now> [last]
+# progress_card_body <title> <n_done> <total> <now> [last]
 progress_card_body() {
-  local title="$1" done="$2" total="$3" now="$4" last="${5:-}"
+  local title="$1" n_done="$2" total="$3" now="$4" last="${5:-}"
   local bar pct
-  bar="$(progress_card_bar "$done" "$total")"
-  pct="$(progress_card_percent "$done" "$total")"
-  printf '%s  %s/%s\n%s  %s%%' "$title" "$(progress_card_int "$done")" "$(progress_card_int "$total")" "$bar" "$pct"
+  bar="$(progress_card_bar "$n_done" "$total")"
+  pct="$(progress_card_percent "$n_done" "$total")"
+  printf '%s  %s/%s\n%s  %s%%' "$title" "$(progress_card_int "$n_done")" "$(progress_card_int "$total")" "$bar" "$pct"
   if [ -n "$now" ]; then
     printf '\nnow  %s' "$now"
   fi
@@ -171,10 +171,10 @@ progress_card_collect_targets() {
   [ -n "$telegram" ] && printf 'telegram %s\n' "$telegram"
 }
 
-# progress_card_should_emit <action> <done> <now> <state_json>
+# progress_card_should_emit <action> <n_done> <now> <state_json>
 # 0 = send/edit, 1 = skip (throttled / unchanged).
 progress_card_should_emit() {
-  local action="$1" done="$2" now="$3" state="${4:-}"
+  local action="$1" n_done="$2" now="$3" state="${4:-}"
   local prev_done last_sent age every throttle now_prev
   case "$action" in
     start|done|blocked) return 0 ;;
@@ -186,16 +186,16 @@ progress_card_should_emit() {
   prev_done="$(printf '%s' "$state" | jq -r '.done // 0')"
   last_sent="$(printf '%s' "$state" | jq -r '.last_sent_at // 0')"
   now_prev="$(printf '%s' "$state" | jq -r '.now // ""')"
-  done="$(progress_card_int "$done")"
+  n_done="$(progress_card_int "$n_done")"
   prev_done="$(progress_card_int "$prev_done")"
   last_sent="$(progress_card_int "$last_sent")"
   age=$(( $(date +%s) - last_sent ))
   every="$(progress_card_every_n)"
   throttle="$(progress_card_throttle_seconds)"
-  if [ $((done - prev_done)) -ge "$every" ]; then
+  if [ $((n_done - prev_done)) -ge "$every" ]; then
     return 0
   fi
-  if [ "$done" != "$prev_done" ] || [ "$now" != "$now_prev" ]; then
+  if [ "$n_done" != "$prev_done" ] || [ "$now" != "$now_prev" ]; then
     [ "$age" -ge "$throttle" ] && return 0
     return 1
   fi
@@ -276,7 +276,7 @@ progress_card_run() {
   local agent="${PROGRESS_CARD_AGENT:-}"
   local channel="${PROGRESS_CARD_CHANNEL:-}"
   local title="${PROGRESS_CARD_TITLE:-}"
-  local done="${PROGRESS_CARD_DONE:-}"
+  local n_done="${PROGRESS_CARD_DONE:-}"
   local total="${PROGRESS_CARD_TOTAL:-}"
   local now="${PROGRESS_CARD_NOW:-}"
   local last="${PROGRESS_CARD_LAST:-}"
@@ -303,13 +303,13 @@ progress_card_run() {
     sheet=$(printf '%s' "$state" | jq -r '.sheet_url // empty')
   fi
   [ -z "$title" ] && title="long task"
-  [ -z "$done" ] && done=0
+  [ -z "$n_done" ] && n_done=0
   [ -z "$total" ] && total=0
-  if [ "$action" = "done" ] && [ "$(progress_card_int "$done")" -eq 0 ] && [ "$(progress_card_int "$total")" -gt 0 ]; then
-    done="$total"
+  if [ "$action" = "done" ] && [ "$(progress_card_int "$n_done")" -eq 0 ] && [ "$(progress_card_int "$total")" -gt 0 ]; then
+    n_done="$total"
   fi
 
-  if ! progress_card_should_emit "$action" "$done" "$now" "$state"; then
+  if ! progress_card_should_emit "$action" "$n_done" "$now" "$state"; then
     echo "skipped throttle"
     return 0
   fi
@@ -321,18 +321,18 @@ progress_card_run() {
   fi
 
   tone="$(progress_card_tone "$action")"
-  body="$(progress_card_body "$title" "$done" "$total" "$now" "$last")"
+  body="$(progress_card_body "$title" "$n_done" "$total" "$now" "$last")"
   presentation="$(progress_card_presentation "$title" "$tone" "$body" "$sheet")"
 
   new_state=$(jq -n \
     --arg agent "$agent" --arg channel "$channel" --arg title "$title" \
     --arg now "$now" --arg last "$last" --arg sheet "$sheet" \
-    --argjson done "$(progress_card_int "$done")" \
+    --argjson n_done "$(progress_card_int "$n_done")" \
     --argjson total "$(progress_card_int "$total")" \
     --argjson ts "$(date +%s)" \
     '{
       agent: $agent, channel: $channel, title: $title,
-      done: $done, total: $total, now: $now, last: $last,
+      done: $n_done, total: $total, now: $now, last: $last,
       sheet_url: $sheet, last_sent_at: $ts, messages: []
     }')
   if [ -n "$state" ]; then
