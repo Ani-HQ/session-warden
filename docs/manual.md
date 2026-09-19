@@ -305,7 +305,7 @@ Runs on its own cron tick every 30s. Config: `WARDEN_REAP_ENABLED`, `WARDEN_STAL
 
 Neither Discord nor Telegram has a native progress-bar widget. The live indicator is **one message, edited in place**.
 
-`bin/progress-card.sh` (also `session-warden progress`) builds a short card — title, `23/57`, a `█`/`░` bar, `now` / `last` — and sends it with OpenClaw `presentation`. The first call posts. Later calls edit the stored message ids under `state/progress/`. An optional `--sheet-url` becomes an **Open sheet** button. The sheet is the work artifact, not the live status UI.
+`bin/progress-card.sh` (also `session-warden progress`) builds a short card — title, `23/57`, a `█`/`░` bar, `now` / `last` — and sends it with OpenClaw `presentation`. The first call posts. Later calls edit the stored message ids under `state/progress/`. Live cards include **Stop** and **Steer** (handled by [`progress-card-actions`](../contrib/openclaw-plugins/progress-card-actions)). An optional `--sheet-url` becomes an **Open sheet** button. The sheet is the work artifact, not the live status UI. A finished card drops Stop/Steer.
 
 Throttle: emit after `WARDEN_PROGRESS_EVERY_N` newly completed items (default 5), or when something changed and `WARDEN_PROGRESS_THROTTLE_SECONDS` (default 45) have passed — whichever comes first. `start`, `done`, and `blocked` always send. Do not revive the old 30s fake heartbeat.
 
@@ -521,6 +521,7 @@ All config lives in `config/thresholds.env`. Key settings:
 | `WARDEN_NOTIFY_ROTATIONS` | 0 | Post a chat alert on every routine rotation. Off by default — routine threshold rotations recover silently (logged only); crash and stall recoveries always notify regardless |
 | `WARDEN_PROGRESS_THROTTLE_SECONDS` | 45 | Minimum seconds between progress-card edits unless `EVERY_N` items landed |
 | `WARDEN_PROGRESS_EVERY_N` | 5 | Emit a progress-card edit after this many newly completed items |
+| `WARDEN_PROGRESS_ALLOWED_USER_IDS` | (empty) | Discord/Telegram IDs allowed to click Stop/Steer. Authorized OpenClaw senders are always allowed. |
 | `WARDEN_ZOMBIE_LIVE_GRACE_SECONDS` | 600 | Skip zombie when `updatedAt` is younger than this (MCP CLI reset leaves a dead old session id mid-turn) |
 | `WARDEN_RECOVERY_TIMEOUT_SECONDS` | 3600 | `openclaw agent --timeout` for a recovery wake. Delivery is backgrounded so it does not hold `recovery.lock` |
 
@@ -593,7 +594,7 @@ session-warden/
 │       └── 01-gbrain.sh    # ingest memory into GBrain
 ├── contrib/
 │   ├── openclaw-patches/   # optional OpenClaw JS patches (version-specific)
-│   ├── openclaw-plugins/   # OpenClaw plugins: fleet-rate-guard, harvest-skill-actions, error-humanizer
+│   ├── openclaw-plugins/   # OpenClaw plugins: fleet-rate-guard, harvest-skill-actions, progress-card-actions, error-humanizer
 │   ├── discord-harvest-actions/  # dedicated-bot Discord listener for skill proposals
 │   ├── costs/              # token spend vs. subscription cost model
 │   ├── timers/             # recurring-loop collector (systemd timers + crontab)

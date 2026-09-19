@@ -15,6 +15,11 @@ Notable changes to session-warden.
 - Shared skill: [`skills/long-task-progress/SKILL.md`](skills/long-task-progress/SKILL.md).
 - Stay on OpenClaw `presentation`. No native Discord/Telegram progress
   widget exists; a results sheet is optional via an Open sheet button.
+- Live cards include **Stop** and **Steer**. The
+  [`progress-card-actions`](contrib/openclaw-plugins/progress-card-actions)
+  plugin aborts the run or asks for a correction. `done` drops those
+  buttons. Enable the plugin in `openclaw.json` (`plugins.allow` +
+  `plugins.entries`) the same way as harvest-skill-actions.
 
 ## [Unreleased]: longer recovery turns
 
