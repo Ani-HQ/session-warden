@@ -87,27 +87,45 @@ progress_card_body() {
   fi
 }
 
-# progress_card_presentation <title> <tone> <text> [sheet_url]
+# progress_card_callback_agent <agent>
+progress_card_callback_agent() {
+  printf '%s' "${1:-agent}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g' | cut -c1-32
+}
+
+# progress_card_buttons_json <card_action> <agent> [sheet_url]
+# Stop/Steer stay on the live card. A finished card keeps only the sheet link.
+progress_card_buttons_json() {
+  local card_action="${1:-update}" agent="$2" sheet="${3:-}"
+  local id
+  id="$(progress_card_callback_agent "$agent")"
+  jq -n --arg id "$id" --arg action "$card_action" --arg url "$sheet" '
+    [
+      (if $action != "done" then
+        {label: "Stop", style: "danger", action: {type: "callback", value: ("progress:stop:" + $id)}},
+        {label: "Steer", style: "primary", action: {type: "callback", value: ("progress:steer:" + $id)}}
+      else empty end),
+      (if ($url | length) > 0 then
+        {label: "Open sheet", action: {type: "url", url: $url}}
+      else empty end)
+    ]
+  '
+}
+
+# progress_card_presentation <title> <tone> <text> [sheet_url] [card_action] [agent]
 progress_card_presentation() {
-  local title="$1" tone="$2" text="$3" sheet="${4:-}"
-  if [ -n "$sheet" ]; then
-    jq -n --arg title "$title" --arg tone "$tone" --arg text "$text" --arg url "$sheet" '{
+  local title="$1" tone="$2" text="$3" sheet="${4:-}" card_action="${5:-update}" agent="${6:-agent}"
+  local buttons
+  buttons="$(progress_card_buttons_json "$card_action" "$agent" "$sheet")"
+  jq -n --arg title "$title" --arg tone "$tone" --arg text "$text" --argjson buttons "$buttons" '
+    {
       title: $title,
       tone: $tone,
-      blocks: [
-        {type: "text", text: $text},
-        {type: "buttons", buttons: [
-          {label: "Open sheet", action: {type: "url", url: $url}}
-        ]}
-      ]
-    }'
-  else
-    jq -n --arg title "$title" --arg tone "$tone" --arg text "$text" '{
-      title: $title,
-      tone: $tone,
-      blocks: [{type: "text", text: $text}]
-    }'
-  fi
+      blocks: (
+        [{type: "text", text: $text}]
+        + if ($buttons | length) > 0 then [{type: "buttons", buttons: $buttons}] else [] end
+      )
+    }
+  '
 }
 
 progress_card_slug() {
@@ -322,7 +340,7 @@ progress_card_run() {
 
   tone="$(progress_card_tone "$action")"
   body="$(progress_card_body "$title" "$n_done" "$total" "$now" "$last")"
-  presentation="$(progress_card_presentation "$title" "$tone" "$body" "$sheet")"
+  presentation="$(progress_card_presentation "$title" "$tone" "$body" "$sheet" "$action" "$agent")"
 
   new_state=$(jq -n \
     --arg agent "$agent" --arg channel "$channel" --arg title "$title" \

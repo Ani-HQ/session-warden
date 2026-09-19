@@ -37,4 +37,6 @@ Post **one** card. Edit that card. Never send a new "running…" message each ti
 
 The helper throttles: at most one edit per 45s, or every 5 items, whichever comes first. `start`, `done`, and `blocked` always send.
 
+Live cards include **Stop** and **Steer**. Clicks are handled by `progress-card-actions` (not a new message). Stop aborts the current run. Steer asks for a correction; the next message injects it. `done` drops those buttons.
+
 The results sheet is the work artifact. The card is the live indicator. Do not use a sheet as the "still going?" UI.

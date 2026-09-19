@@ -27,13 +27,27 @@ assert_contains "$body" "last wrote row 23" "body includes last line"
 
 echo "  progress-card: presentation"
 
-pres=$(progress_card_presentation "Dahej" "info" "hello" "https://example.com/sheet")
+pres=$(progress_card_presentation "Dahej" "info" "hello" "https://example.com/sheet" "update" "dash")
 assert_contains "$pres" '"type": "url"' "sheet becomes a URL button"
 assert_contains "$pres" "Open sheet" "button label is Open sheet"
 assert_contains "$pres" "https://example.com/sheet" "sheet URL is in the presentation"
+assert_contains "$pres" "progress:stop:dash" "live card has Stop callback"
+assert_contains "$pres" "progress:steer:dash" "live card has Steer callback"
+assert_contains "$pres" '"Stop"' "Stop label is present"
+assert_contains "$pres" '"Steer"' "Steer label is present"
 
-plain=$(progress_card_presentation "Dahej" "info" "hello" "")
+plain=$(progress_card_presentation "Dahej" "info" "hello" "" "update" "dash")
 assert_not_contains "$plain" "Open sheet" "no sheet button without a URL"
+assert_contains "$plain" "progress:stop:dash" "Stop stays without a sheet"
+assert_contains "$plain" "progress:steer:dash" "Steer stays without a sheet"
+
+finished=$(progress_card_presentation "Dahej" "success" "hello" "https://example.com/sheet" "done" "dash")
+assert_not_contains "$finished" "progress:stop:" "done card drops Stop"
+assert_not_contains "$finished" "progress:steer:" "done card drops Steer"
+assert_contains "$finished" "Open sheet" "done card can still open the sheet"
+
+assert_eq "dash" "$(progress_card_callback_agent "Dash")" "callback agent is lowercased"
+assert_eq "dash-ops" "$(progress_card_callback_agent "dash-ops")" "hyphenated agent is kept"
 
 echo "  progress-card: infer + slug"
 

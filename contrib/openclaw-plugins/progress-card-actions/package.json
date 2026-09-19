@@ -1,0 +1,17 @@
+{
+  "name": "@session-warden/openclaw-progress-card-actions",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "OpenClaw plugin: Stop / Steer buttons on long-task progress cards",
+  "license": "MIT",
+  "peerDependencies": {
+    "openclaw": ">=2026.7.0"
+  },
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": {
+      "pluginApi": ">=2026.7.0",
+      "minGatewayVersion": "2026.7.0"
+    }
+  }
+}

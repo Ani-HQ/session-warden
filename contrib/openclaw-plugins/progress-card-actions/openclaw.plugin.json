@@ -1,0 +1,18 @@
+{
+  "id": "progress-card-actions",
+  "name": "Progress Card Actions",
+  "description": "Handles Stop / Steer buttons on long-task progress cards posted via bin/progress-card.sh. Discord and Telegram.",
+  "version": "1.0.0",
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "allowedUserIds": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Discord or Telegram user IDs allowed to click Stop/Steer. Empty = authorized OpenClaw senders only. Overrides WARDEN_PROGRESS_ALLOWED_USER_IDS when set."
+      }
+    }
+  }
+}
